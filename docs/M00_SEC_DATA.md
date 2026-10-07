@@ -71,6 +71,9 @@ Revenue, cost of revenue, gross profit, operating income, net income, diluted EP
 
 ## Decisions
 - D-SEC-1 (2026-10-06): Plan approved by owner, conditional on database storage (addressed in M00_STORAGE.md).
+- D-SEC-2 (2026-10-07): Built `client.py` (`sec/client.py`) and `identity.py`. HTTP 404 = `Empty` (checked negative); other 4xx fail without retry. While the throttle breaker is open, calls fail fast as `Failed(throttled)` rather than block, so the nightly job logs and moves on; `Retry-After` above 10 min extends it.
+- D-SEC-3 (2026-10-07): identity reads both ticker files daily into ticker history; a ticker under two CIKs keeps the first seen and is reported as a conflict; a refresh listing under half the stored tickers is refused. EDGAR company-name search fallback deferred until its atom output is checked live; old pharma name scoring dropped.
 
 ## Open questions
+- Rate limiter is per process: a second process calling SEC (e.g. UI during the nightly job) would add to the rate. Keep bulk fetching in the nightly job; revisit with a cross-process limiter if needed.
 - EdgarTools: adopt only as a parser of content fetched by our client (keeps Rule 1's single limiter) — evaluate for XBRL dimensions and Form 4.

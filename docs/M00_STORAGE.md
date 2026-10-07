@@ -30,6 +30,7 @@ Settings: WAL mode, `busy_timeout` 5 s, foreign keys on, `synchronous=NORMAL`. W
 | review_queue | id | D8 items awaiting owner |
 | position / lot / decision | ids | owner portfolio, tax lots, profile of record (D12) |
 | fetch_log | id | every call: url, outcome (ok/empty/failed/throttled), detail, at |
+| refresh_state | name | last refresh of reference files (e.g. ticker map) for read-path freshness |
 | schema_version | version | ordered migrations |
 
 ## Read path (every lookup)
@@ -72,6 +73,7 @@ Freshness is event-driven (SEC data changes only when a company files); backstop
 ## Decisions
 - D-STO-1 (2026-10-06): SQLite (owner). Nightly incremental from the daily index replaces nightly full bulk.
 - D-STO-2 (2026-10-07): Design approved by owner (D25, was P8).
+- D-STO-3 (2026-10-07): Schema 0001 built (`engine/store/migrations/`). corpus.db: `document` holds full text, `section` holds offsets, `section_fts` is a self-contained FTS5 table (porter unicode61) so snippet()/highlight() work; `http_cache` holds raw responses. Instant facts have NULL period_start; uniqueness via an expression index. Each migration runs in one transaction with its schema_version row.
 
 ## Open questions
 - Backfill universe: watchlist size and peers per group.
