@@ -1,6 +1,6 @@
 """Live SEC checks (opt-in): uv run pytest -m live -v -s
 
-About 6 requests, well under the rate limit. Uses temporary databases; nothing
+About 15 requests, well under the rate limit. Uses temporary databases; nothing
 is written to data/. Prints what it found so the output can be reviewed.
 """
 
@@ -12,6 +12,7 @@ import re
 import pytest
 
 from engine.sec.client import SecClient, user_agent_from_env, utc_now
+from engine.sec.documents import document_text, ingest_filing
 from engine.sec.identity import SUBMISSIONS_URL, load_entity, resolve
 from engine.sec.results import NotFound, Ok
 from engine.sec.submissions import earnings_releases, stored_filings, sync_filings
@@ -21,6 +22,7 @@ from engine.store.http import SqliteCache, SqliteFetchLog
 pytestmark = pytest.mark.live
 
 APPLE = "0000320193"
+_CORPUS: list = []  # the module's corpus.db, for document tests
 
 
 @pytest.fixture(scope="module")
@@ -29,6 +31,7 @@ def live(tmp_path_factory):
     engine = open_db("engine", folder)
     corpus = open_db("corpus", folder)
     client = SecClient(user_agent_from_env(), cache=SqliteCache(corpus), log=SqliteFetchLog(engine))
+    _CORPUS.append(corpus)
     yield client, engine
     print("\nfetch_log:")
     for row in engine.execute("SELECT outcome, status, from_cache, url, detail FROM fetch_log"):
@@ -117,3 +120,44 @@ def test_submissions_all_pages(live):
     if result.data.pages_total:
         assert rows[-1].filed < "2010-01-01", "older pages did not extend history"
     assert releases and all(f.has_item("2.02") for f in releases)
+
+
+@pytest.mark.parametrize("form", ["10-K", "8-K 2.02"])
+def test_documents_whole_text(live, form):
+    """Latest 10-K and latest earnings 8-K (+ EX-99.1): fetched via -index.htm, stored whole."""
+    client, engine = live
+    corpus = _CORPUS[0]
+    sync = sync_filings(client, engine, APPLE, utc_now())
+    assert isinstance(sync, Ok)
+    if form == "10-K":
+        filing = stored_filings(engine, APPLE, forms=["10-K"])[0]
+    else:
+        filing = earnings_releases(engine, APPLE)[0]
+
+    result = ingest_filing(client, corpus, filing, utc_now())
+    print(f"\n{form} {filing.accession} filed {filing.filed}: {result}")
+    assert isinstance(result, Ok) and result.data.complete
+    types = [d.doc_type for d in result.data.stored]
+    assert filing.form in types
+
+    for doc in result.data.stored:
+        text = document_text(corpus, doc.doc_id) or ""
+        leftover = len(re.findall(r"&#?\w+;|<[a-zA-Z/][^>]{0,40}>", text))
+        print(f"  {doc.doc_type} {doc.filename}: {doc.chars:,} chars, {leftover} markup leftovers")
+        print("  first 400 chars:", text[:400].replace("\n", " | "))
+        print("  last 300 chars:", text[-300:].replace("\n", " | "))
+        assert leftover < 20, "HTML entities or tags left in extracted text"
+
+    texts = {d.doc_type: document_text(corpus, d.doc_id) or "" for d in result.data.stored}
+    if form == "10-K":
+        main = texts["10-K"]
+        assert len(main) > 150_000, "10-K text looks truncated"
+        for phrase in ("Item 1A", "Risk Factors", "Item 7", "Discussion and Analysis"):
+            assert phrase in main, f"{phrase!r} missing from 10-K text"
+        hits = corpus.execute(
+            "SELECT count(*) FROM section_fts WHERE section_fts MATCH '\"risk factors\"'"
+        ).fetchone()[0]
+        assert hits >= 1
+    else:
+        assert "EX-99.1" in texts, "earnings 8-K has no EX-99.1"
+        assert "net sales" in texts["EX-99.1"].lower()
