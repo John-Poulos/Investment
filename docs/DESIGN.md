@@ -5,7 +5,8 @@ Updated 2026-10-07 · Basis: investment_strategy.txt (a guideline, not a spec) �
 ## Resume here
 - **Phase:** 2 — build M00 (SEC data, storage, search). Owner's old code reviewed; data-layer plan approved with SQLite storage.
 - **Environment (2026-10-06):** repo at C:\dev\Investment with .venv inside; GitHub repo John-Poulos/Investment (branch main, to be private); FTS5 verified; tzdata installed. Tooling files provided: .gitattributes, .gitignore, .pre-commit-config.yaml, CLAUDE.md, .claude/settings.json.
-- **Next action:** add missing module docs to the repo (M00_SEC_DATA, M00_SEARCH, M01_TIMEFRAMES, M02_THEMES, M04_FINANCIALS, MODULE_TEMPLATE; apply D27 to M01) → build `client.py`, `identity.py`, schema + migrations, fixture tests (Code tab).
+- **Built (2026-10-07):** `sec/client.py`, `sec/identity.py`, schema 0001–0002, 48 fixture tests; live run 1 passed identity checks. 404 = `NotFound` (D-SEC-4); ticker refresh held for review on large changes (D-SEC-5). PR John-Poulos/Investment#1.
+- **Next action:** owner re-runs live tests → `submissions.py`, `documents.py` (parses `{accession}-index.htm`).
 - **Awaiting owner:** nothing blocking (P8, P9 approved; M01 reviewed 2026-10-07).
 - **Parked:** Q2 (at M09), Q3 (at M07), Q5 (at M12); M02 design questions (M02_THEMES.md); M04 red flags still to design (M04 open questions).
 
@@ -65,6 +66,9 @@ In docs/: DESIGN.md · SOURCES.md · MODULE_TEMPLATE.md · M00_SEC_DATA.md · M0
 - **D22** No character limits on analysis text; limits for display only.
 - **D23** M02 discovers themes in filings and news and suggests them; owner decides.
 - **D24** Repo and tooling per P7 (owner proceeding 2026-10-06): uv, ruff (`ruff-check` + `ruff-format`), pytest (live SEC tests opt-in via `-m live`), pre-commit with gitleaks; LF line endings, CRLF for .ps1/.bat/.cmd; `tests/fixtures/` byte-exact; CLAUDE.md loads DESIGN.md for Code-tab sessions; `.claude/settings.json` (committed) denies reading .env and data/, allows tests/lint/uv sync/read-only git, asks before git push, uv add and live SEC tests; old engine code kept read-only in `reference/old_engine/` (excluded from ruff).
+- **D25** Storage & refresh per M00_STORAGE.md (owner approved 2026-10-07). (P8)
+- **D26** Search & grounded LLM per M00_SEARCH.md (owner approved 2026-10-07). (P9)
+- **D27** M01 σ bands: 1–2σ triggers; depth is reported uncapped. Beyond 2σ grades stronger only when CvD = CYCLICAL_TROUGH and the survival gate passes; otherwise shown as a warning with no added strength (owner, M01 review 2026-10-07; M01 rule 7).
 
 ## Approved revisions for modules without docs yet
 - **M03** Two S-curve types: (A) young company on its first curve; (B) established company with a new curve, tracked via segment data. (R6) Bessembinder stated as wealth creation. (R14)
@@ -76,10 +80,6 @@ In docs/: DESIGN.md · SOURCES.md · MODULE_TEMPLATE.md · M00_SEC_DATA.md · M0
 - **M11** Dated, checkable milestones separate early from wrong. (R4) Guidance ledger: score forward-looking statements against actuals; weight near-term, verifiable milestones; diff consecutive releases. (R19) Hurdle: S&P 500 TR; stretch TR + CPI. (R5) Theme and shared-killswitch exposure with user caps. (R23)
 - **M12** Signals only, no enforcement: covered-call window when regime is weak/sideways, IV high vs its own history, no earnings inside the option's life. Default template 30–45 DTE, ~15 delta, labeled index-derived (single-stock options carry little volatility premium on average). Tax/assignment notes informational. (R20, modified)
 - **Core** AMD–Google custom ASIC stays grade C until confirmed; AVGO–Google confirmed. (R10)
-
-- **D25** Storage & refresh per M00_STORAGE.md (owner approved 2026-10-07). (P8)
-- **D26** Search & grounded LLM per M00_SEARCH.md (owner approved 2026-10-07). (P9)
-- **D27** M01 sigma bands: 1–2σ is the default band, but the scale is not capped at 2σ; moves beyond 2σ stay visible and can grade as a stronger signal where the indicator supports it (owner, M01 review 2026-10-07).
 
 ## Proposed (pending approval)
 - None.

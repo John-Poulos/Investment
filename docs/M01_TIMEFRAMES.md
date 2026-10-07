@@ -1,6 +1,6 @@
 # M01 — Timeframe profiles
 
-Status: review (awaiting owner) · Updated: 2026-10-06 · Outline headings: Type of investing by time frame · Depends on: M00, M04 (CvD), M11 · Sources: S12, S19, S26, S28–S31
+Status: reviewed 2026-10-07 (D27) · Updated: 2026-10-07 · Outline headings: Type of investing by time frame · Depends on: M00, M04 (CvD), M11 · Sources: S12, S19, S26, S28–S31
 
 ## Purpose
 Defines the parameter profile each timeframe applies across all modules. Profiles change weights and recommendations, never visibility (D10). Profiles and bar sizes can be switched on the fly (D12). MY first; PT and ST later.
@@ -34,7 +34,7 @@ A holding = core lots under one primary profile + optional overlays (M12 options
 | Horizon | Years; thesis-driven, no fixed maximum | | |
 | Bars for signals | Weekly default; switchable (D12) | | |
 | Trend filter | 40-week moving average | | |
-| Entry zone / add trigger | 20-week mean − 1 to 2σ; calibrate by backtest | | |
+| Entry zone / add trigger | 20-week mean − 1 to 2σ triggers; depth reported uncapped (rule 7); calibrate by backtest | | |
 | Fundamental windows | TTM, YoY, 3-yr CAGR; 5-yr averages; full-cycle history for CvD | | |
 | Review cadence | After each 10-Q/10-K; event alerts in between | | |
 | Weights | Fundamentals, moat, capex, money flow lead; ownership medium; analysts low; technicals time entries | | |
@@ -49,12 +49,13 @@ A holding = core lots under one primary profile + optional overlays (M12 options
 4. Exit warnings fire on: CvD moving to CYCLE_PLUS_DAMAGE or STRUCTURAL_DECLINE; missed milestones or quietly removed targets (R19); killswitch hits (R23); valuation ceiling if the owner sets one. Warnings only (D16).
 5. Thesis review after each 10-Q/10-K; on-track milestones with a flat price → "early," hold (R4).
 6. Event alerts (8-K, opportunistic Form 4, guidance change, killswitch) surface immediately (R16).
+7. Band depth is reported as σ below the 20-week mean with no cap. Beyond 2σ grades as a stronger signal only when CvD = CYCLICAL_TROUGH and the survival gate passes (the M04 overreaction setup); in any other state the depth is shown as a warning with no added strength (D27).
 
 ## Failure modes
 | Input or indicator | How it can mislead | Guard |
 |---|---|---|
 | On-the-fly timeframes | Switching views until a signal appears ("timeframe shopping") | Decisions log the profile used; positions keep a profile of record |
-| σ add trigger | Fires again and again in a true decline (falling knife) | CvD gate (rule 3) |
+| σ add trigger | Fires again and again in a true decline (falling knife) | CvD gate (rule 3); depth beyond 2σ adds strength only under the gates (rule 7) |
 | σ bands | Fat tails break bands more often than a normal model implies | Backtest band-hit rates per stock |
 | Weekly bars | Hide intra-week gaps (e.g. earnings) | Daily bars on chart; gap alerts |
 | Quarterly cadence | Lags a fast-moving killswitch | Event alerts bypass cadence |
@@ -64,6 +65,7 @@ A holding = core lots under one primary profile + optional overlays (M12 options
 - D-M01-1 (2026-10-06): Entries support lump sum and tranches; tranche adds gated by CvD + survival gate + band trigger — target good companies in down cycles, not decliners.
 - D-M01-2 (2026-10-06): Exits are warnings; owner decides (D16).
 - D-M01-3 (2026-10-06): Timeframes switchable on the fly with profile-of-record logging (D12).
+- D-M01-4 (2026-10-07): σ bands not capped at 2σ; beyond 2σ is a stronger signal only when CvD and survival gates pass (owner, D27).
 
 ## Open questions
 - PT and ST columns — later phase.

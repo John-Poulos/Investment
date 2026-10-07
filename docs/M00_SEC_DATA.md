@@ -8,7 +8,7 @@ One client for all SEC data — identity, filings, documents, full-text search, 
 ## Rules
 1. One HTTP client and one rate limiter for all SEC calls across threads; target ≤ 8 req/s (SEC limit: 10/s per user, regardless of machines).
 2. `SEC_USER_AGENT` (name + email) required at startup; no placeholder.
-3. Typed results: `Ok(data)`, `Empty(paths_checked)`, `Failed(reason)`. A failure never becomes empty data.
+3. Typed results: `Ok(data)`, `Empty(paths_checked)`, `NotFound(url)`, `Failed(reason)`. A failure never becomes empty data. `NotFound` (HTTP 404) means no file at that URL — a wrong or broken link, not proof of no data; only a source parser that has tried every known path may report `Empty`, listing each path.
 4. Throttle (403/429, or the "Request Rate Threshold Exceeded" page even under a 200) trips a breaker that pauses all SEC calls ≥ 10 min.
 5. Cache raw responses by URL + params with per-endpoint TTL; parsers are versioned and re-run on cached raw; failures never cached; checked negatives cached briefly and labeled.
 6. Missing stays missing — never coerced to zero.
@@ -65,12 +65,17 @@ Revenue, cost of revenue, gross profit, operating income, net income, diluted EP
 | Pharma CIK scoring penalizes "Inc" names (review) | Ticker file primary |
 
 ## Verify in first integration test
-- `{accession}-index.json` exists and carries document types; else the resolver silently uses HTML.
+- ~~`{accession}-index.json` exists and carries document types~~ — checked live 2026-10-07: it does not exist (404); `index.json` is a folder listing (type = icon name); `{accession}-index.htm` carries document types → documents.py parses the HTML index.
 - bd_tools' EFTS behaviors still hold.
 - Throttle detection fires on a recorded block page (never by exceeding the limit).
 
 ## Decisions
 - D-SEC-1 (2026-10-06): Plan approved by owner, conditional on database storage (addressed in M00_STORAGE.md).
+- D-SEC-2 (2026-10-07): Built `client.py` (`sec/client.py`) and `identity.py`. HTTP 404 = `NotFound` (D-SEC-4); other 4xx fail without retry. While the throttle breaker is open, calls fail fast as `Failed(throttled)` rather than block, so the nightly job logs and moves on; `Retry-After` above 10 min extends it.
+- D-SEC-3 (2026-10-07): identity reads both ticker files daily into ticker history; a ticker under two CIKs keeps the first seen and is reported as a conflict; large changes are held for review (D-SEC-5). EDGAR company-name search fallback deferred until its atom output is checked live; old pharma name scoring dropped.
+- D-SEC-4 (2026-10-07): 404 is `NotFound` ("no file or active link at this URL"), logged and cached as `not_found` for ≤ 6 h; never read as "no data" by the client (owner).
+- D-SEC-5 (2026-10-07): The daily ticker refresh compares the full SEC ticker files with the stored map. It is held — stored map stays in use, lookups flagged stale, diff (added/dropped/changed) sent to the review queue — when more than 1% of stored tickers would drop or the count changes more than 10% either way. Owner approves with `force=True`. Dropped tickers only get an end date; history is kept. Every refresh is logged in `ticker_refresh_log` to calibrate the thresholds (owner).
 
 ## Open questions
+- Rate limiter is per process: a second process calling SEC (e.g. UI during the nightly job) would add to the rate. Keep bulk fetching in the nightly job; revisit with a cross-process limiter if needed.
 - EdgarTools: adopt only as a parser of content fetched by our client (keeps Rule 1's single limiter) — evaluate for XBRL dimensions and Form 4.
