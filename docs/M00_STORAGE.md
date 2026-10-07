@@ -24,7 +24,8 @@ Settings: WAL mode, `busy_timeout` 5 s, foreign keys on, `synchronous=NORMAL`. W
 | fact | cik, taxonomy, tag, unit, start, end, accession | every reported value with filed date (point-in-time) |
 | series | cik, concept, period_end, period_type | first and latest value + accessions, method, parser_version |
 | frame_value | taxonomy, tag, unit, frame, cik | peer-median source |
-| insider_txn | accession, line | issuer, owner, role, code, shares, price, shares_after, 10b5-1 flag |
+| insider_txn | accession, line | issuer, owner, role, code, shares, price, shares_after, 10b5-1 flag, ownership nature, derivative terms, referenced footnotes |
+| form4_doc | accession | one row per parsed Form 4: issuer, doc type, period, all reporting owners (JSON), 10b5-1 checkbox, parser version |
 | signal | ticker, module_id, signal, timeframe, as_of | D13 record |
 | extraction | id | LLM item + quote + passage_id + verification result (M00_SEARCH.md) |
 | guidance | id | R19 ledger: metric, period, range, unit, stated_on, source_ref, status |
@@ -81,6 +82,7 @@ Freshness is event-driven (SEC data changes only when a company files); backstop
 - D-STO-6 (2026-10-07): corpus migration 0003 adds document `parser_version`, `encoding`, `raw_size`, `description` (D-SEC-7).
 - D-STO-7 (2026-10-07): corpus migration 0004 adds section `title`, `splitter_version` and `split_log` (one row per document: outcome split/fallback/single, sections found, required items missing) (D-SRCH-4).
 - D-STO-8 (2026-10-07): engine migration 0004 adds `frame_value.period_start` (D-SEC-9).
+- D-STO-9 (2026-10-07): engine migration 0005 adds `form4_doc` and Form 4 detail columns on `insider_txn` (D-SEC-10).
 
 ## Open questions
 - Backfill universe: watchlist size and peers per group.
