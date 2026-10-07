@@ -100,7 +100,7 @@ def test_index_falls_back_to_html_then_reports_paths(make_client):
     assert [p.query for p in neither.paths_checked] == [INDEX_URL, INDEX_HTML_URL]
 
 
-def test_ingest_stores_primary_and_ex99_whole(make_client, dbs, clock):
+def test_ingest_stores_documents_with_sections(make_client, dbs, clock):
     _, corpus = dbs
     result = ingest_filing(make_client(FakeTransport(routes())), corpus, FILING, clock.now())
     assert isinstance(result, Ok) and result.data.complete
@@ -115,10 +115,18 @@ def test_ingest_stores_primary_and_ex99_whole(make_client, dbs, clock):
     assert row["description"] == "PRESS RELEASE"
     section = corpus.execute("SELECT * FROM section WHERE doc_id = ?", (ex99.doc_id,)).fetchone()
     assert (section["label"], section["start_offset"], section["end_offset"]) == (
-        "whole",
+        "EX-99.1",
         0,
         len(text),
     )
+    eight_k = result.data.stored[0]
+    labels = [
+        r[0]
+        for r in corpus.execute(
+            "SELECT label FROM section WHERE doc_id = ? ORDER BY start_offset", (eight_k.doc_id,)
+        )
+    ]
+    assert labels == ["cover", "8-K Item 2.02", "8-K Item 9.01"]
     hits = corpus.execute(
         "SELECT rowid FROM section_fts WHERE section_fts MATCH 'HBM3E'"
     ).fetchall()

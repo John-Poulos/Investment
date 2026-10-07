@@ -7,7 +7,8 @@ Updated 2026-10-07 · Basis: investment_strategy.txt (a guideline, not a spec) �
 - **Environment (2026-10-06):** repo at C:\dev\Investment with .venv inside; GitHub repo John-Poulos/Investment (branch main, to be private); FTS5 verified; tzdata installed. Tooling files provided: .gitattributes, .gitignore, .pre-commit-config.yaml, CLAUDE.md, .claude/settings.json.
 - **Built (2026-10-07):** `sec/client.py`, `sec/identity.py`, schema 0001–0002, 48 fixture tests; live run 1 passed identity checks. 404 = `NotFound` (D-SEC-4); ticker refresh held for review on large changes (D-SEC-5). PR John-Poulos/Investment#1.
 - **Built (branch m00-submissions, 2026-10-07):** `submissions.py` and `documents.py`, live-verified on AAPL (2,264 filings; 10-K 207k chars and 8-K + EX-99.1 stored whole, clean UTF-8); 71 fixture tests. PR #1 merged.
-- **Next action:** owner merges the m00-submissions PR → section splitter (M00_SEARCH Tier 2; strip the SEC header line seen at the top of exhibits), then `xbrl_facts.py`.
+- **Building (branch m00-sections):** section splitter (D-SRCH-4), 80 fixture tests. PR #2 merged.
+- **Next action:** owner runs live tests → PR + merge → `xbrl_facts.py` (concept map, period normalizer, point-in-time store).
 - **Awaiting owner:** nothing blocking (P8, P9 approved; M01 reviewed 2026-10-07).
 - **Parked:** Q2 (at M09), Q3 (at M07), Q5 (at M12); M02 design questions (M02_THEMES.md); M04 red flags still to design (M04 open questions).
 

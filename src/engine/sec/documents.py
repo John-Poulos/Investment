@@ -8,8 +8,7 @@ through the viewer (`/ix?doc=...`); the prefix is removed to get the file.
 
 Documents are stored whole (rule 7, D22): raw bytes stay in the HTTP cache
 (long TTL; filings are immutable) and the extracted text goes to corpus.db
-with the parser version, plus one "whole" section indexed in FTS5 until the
-section splitter exists (M00_SEARCH fallback).
+with the parser version, split into sections indexed in FTS5 (sections.py).
 """
 
 from __future__ import annotations
@@ -26,6 +25,7 @@ from urllib.parse import urljoin
 from engine.sec.client import SecClient, iso
 from engine.sec.identity import normalize_cik
 from engine.sec.results import Empty, Failed, NotFound, Ok, Probe, Result
+from engine.sec.sections import write_sections
 from engine.sec.submissions import Filing
 
 ARCHIVES = "https://www.sec.gov/Archives/edgar/data"
@@ -279,7 +279,7 @@ def store_document(
     raw: bytes,
     now: datetime,
 ) -> StoredDoc:
-    """Insert the document and its whole-document section (FTS5) in one transaction."""
+    """Insert the document and its sections (FTS5) in one transaction."""
     text, encoding = extract_text(raw, doc.filename)
     corpus.execute("BEGIN")
     try:
@@ -305,14 +305,7 @@ def store_document(
         )
         doc_id = cur.lastrowid
         assert doc_id is not None
-        section_id = corpus.execute(
-            "INSERT INTO section (doc_id, label, start_offset, end_offset) VALUES (?, ?, 0, ?)",
-            (doc_id, "whole", len(text)),
-        ).lastrowid
-        corpus.execute(
-            "INSERT INTO section_fts (rowid, label, body) VALUES (?, ?, ?)",
-            (section_id, f"{doc.doc_type or doc.filename} whole", text),
-        )
+        write_sections(corpus, doc_id, text, doc.doc_type, doc.filename, now)
         corpus.execute("COMMIT")
     except Exception:
         corpus.execute("ROLLBACK")
