@@ -6,7 +6,8 @@ Updated 2026-10-07 · Basis: investment_strategy.txt (a guideline, not a spec) �
 - **Phase:** 2 — build M00 (SEC data, storage, search). Owner's old code reviewed; data-layer plan approved with SQLite storage.
 - **Environment (2026-10-06):** repo at C:\dev\Investment with .venv inside; GitHub repo John-Poulos/Investment (branch main, to be private); FTS5 verified; tzdata installed. Tooling files provided: .gitattributes, .gitignore, .pre-commit-config.yaml, CLAUDE.md, .claude/settings.json.
 - **Built (2026-10-07):** `sec/client.py`, `sec/identity.py`, schema 0001–0002, 48 fixture tests; live run 1 passed identity checks. 404 = `NotFound` (D-SEC-4); ticker refresh held for review on large changes (D-SEC-5). PR John-Poulos/Investment#1.
-- **Next action:** owner re-runs live tests → `submissions.py`, `documents.py` (parses `{accession}-index.htm`).
+- **Building (branch m00-submissions):** `submissions.py` done (all pages, `filing_cik`, Item 2.02 filter), 60 fixture tests. PR #1 merged.
+- **Next action:** owner runs live tests → `documents.py` (parses `{accession}-index.htm`; strip `/ix?doc=` viewer prefix).
 - **Awaiting owner:** nothing blocking (P8, P9 approved; M01 reviewed 2026-10-07).
 - **Parked:** Q2 (at M09), Q3 (at M07), Q5 (at M12); M02 design questions (M02_THEMES.md); M04 red flags still to design (M04 open questions).
 

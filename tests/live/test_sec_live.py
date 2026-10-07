@@ -14,6 +14,7 @@ import pytest
 from engine.sec.client import SecClient, user_agent_from_env, utc_now
 from engine.sec.identity import SUBMISSIONS_URL, load_entity, resolve
 from engine.sec.results import NotFound, Ok
+from engine.sec.submissions import earnings_releases, stored_filings, sync_filings
 from engine.store.db import open_db
 from engine.store.http import SqliteCache, SqliteFetchLog
 
@@ -92,3 +93,27 @@ def test_filing_index_pages(live):
     print(f"-index.htm document table (first 3000 chars):\n{html[start : start + 3000]}")
     assert re.search(r">\s*Type\s*<", html), "no Type column in -index.htm"
     assert re.search(r">\s*10-K\s*<", html), "10-K document type not found in -index.htm"
+
+
+def test_submissions_all_pages(live):
+    """Full filing index for AAPL, including the older pages in filings.files."""
+    client, engine = live
+    result = sync_filings(client, engine, APPLE, utc_now())
+    print(f"\nsync: {result}")
+    assert isinstance(result, Ok) and result.data.complete
+
+    rows = stored_filings(engine, APPLE)
+    by_form: dict[str, int] = {}
+    for f in rows:
+        by_form[f.form] = by_form.get(f.form, 0) + 1
+    top = sorted(by_form.items(), key=lambda kv: -kv[1])[:15]
+    print(f"stored {len(rows)} filings, earliest {rows[-1].filed}, latest {rows[0].filed}")
+    print(f"pages: {result.data.pages_total} total, loaded {result.data.pages_loaded}")
+    print(f"top forms: {top}")
+    releases = earnings_releases(engine, APPLE)
+    print(f"8-K Item 2.02: {len(releases)}; latest {releases[0] if releases else None}")
+
+    assert len(rows) == result.data.filings_seen  # no accession lost or duplicated
+    if result.data.pages_total:
+        assert rows[-1].filed < "2010-01-01", "older pages did not extend history"
+    assert releases and all(f.has_item("2.02") for f in releases)
