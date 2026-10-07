@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+    <schemaVersion>X0508</schemaVersion>
+    <documentType>4/A</documentType>
+    <periodOfReport>2026-06-10</periodOfReport>
+    <aff10b5One>0</aff10b5One>
+    <issuer><issuerCik>42</issuerCik><issuerName>Example Semis Inc.</issuerName><issuerTradingSymbol>XSEM</issuerTradingSymbol></issuer>
+    <reportingOwner>
+        <reportingOwnerId><rptOwnerCik>0003333333</rptOwnerCik><rptOwnerName>Big Fund LP</rptOwnerName></reportingOwnerId>
+        <reportingOwnerRelationship><isTenPercentOwner>1</isTenPercentOwner></reportingOwnerRelationship>
+    </reportingOwner>
+    <reportingOwner>
+        <reportingOwnerId><rptOwnerCik>0003333334</rptOwnerCik><rptOwnerName>Big Fund GP LLC</rptOwnerName></reportingOwnerId>
+        <reportingOwnerRelationship><isTenPercentOwner>1</isTenPercentOwner><isOther>1</isOther><otherText>General partner</otherText></reportingOwnerRelationship>
+    </reportingOwner>
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle><value>Common Stock</value></securityTitle>
+            <transactionDate><value>2026-06-10</value></transactionDate>
+            <transactionCoding><transactionCode>G</transactionCode></transactionCoding>
+            <transactionAmounts>
+                <transactionShares><value>2500</value></transactionShares>
+                <transactionPricePerShare><footnoteId id="F1"/></transactionPricePerShare>
+                <transactionAcquiredDisposedCode><value>D</value></transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts><sharesOwnedFollowingTransaction><value>5000000</value></sharesOwnedFollowingTransaction></postTransactionAmounts>
+            <ownershipNature><directOrIndirectOwnership><value>I</value></directOrIndirectOwnership><natureOfOwnership><value>By fund</value></natureOfOwnership></ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeHolding>
+            <securityTitle><value>Common Stock</value></securityTitle>
+            <postTransactionAmounts><sharesOwnedFollowingTransaction><value>100</value></sharesOwnedFollowingTransaction></postTransactionAmounts>
+        </nonDerivativeHolding>
+    </nonDerivativeTable>
+    <derivativeTable>
+        <derivativeTransaction>
+            <securityTitle><value>Stock Option (right to buy)</value></securityTitle>
+            <conversionOrExercisePrice><value>45.10</value></conversionOrExercisePrice>
+            <transactionDate><value>2026-06-10</value></transactionDate>
+            <transactionCoding><transactionCode>M</transactionCode></transactionCoding>
+            <transactionAmounts>
+                <transactionShares><value>3000</value></transactionShares>
+                <transactionPricePerShare><value>0</value></transactionPricePerShare>
+                <transactionAcquiredDisposedCode><value>D</value></transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <underlyingSecurity>
+                <underlyingSecurityTitle><value>Common Stock</value></underlyingSecurityTitle>
+                <underlyingSecurityShares><value>3000</value></underlyingSecurityShares>
+            </underlyingSecurity>
+            <postTransactionAmounts><sharesOwnedFollowingTransaction><value>0</value></sharesOwnedFollowingTransaction></postTransactionAmounts>
+            <ownershipNature><directOrIndirectOwnership><value>D</value></directOrIndirectOwnership></ownershipNature>
+        </derivativeTransaction>
+    </derivativeTable>
+    <footnotes><footnote id="F1">Bona fide gift; no price.</footnote></footnotes>
+</ownershipDocument>

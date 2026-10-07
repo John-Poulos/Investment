@@ -23,6 +23,7 @@ from engine.sec.frames import (
     ttm_frame,
 )
 from engine.sec.identity import SUBMISSIONS_URL, load_entity, resolve
+from engine.sec.insiders import sync_insiders, transactions
 from engine.sec.results import NotFound, Ok
 from engine.sec.submissions import earnings_releases, stored_filings, sync_filings
 from engine.sec.xbrl_facts import get_series, sync_facts
@@ -323,3 +324,39 @@ def test_frames_match_companyfacts_and_peer_stats(live):
         end = v.end if v else "-"
         print(f"  {ticker:<5} TTM {ttm:>18} to {end}  growth {pct(growth.get(cik)):>8}  z {zs:>6}")
     assert stats.n >= 5
+
+
+def test_insiders_form4(live):
+    """AAPL Form 4s since 2025-07-01 (capped at 60 filings): raw XML parsed into rows."""
+    client, engine = live
+    assert isinstance(sync_filings(client, engine, APPLE, utc_now()), Ok)
+    result = sync_insiders(client, engine, APPLE, utc_now(), since="2025-07-01", limit=60)
+    assert isinstance(result, Ok)
+    s = result.data
+    print(f"\nForm 4 sync: {s}")
+    assert s.complete, f"failures: {s.failed}"
+    assert s.ingested > 0 and s.transactions > 0
+
+    rows = transactions(engine, APPLE)
+    codes: dict[str, int] = {}
+    flags = {"yes": 0, "no": 0, "not disclosed": 0}
+    for r in rows:
+        codes[r["code"]] = codes.get(r["code"], 0) + 1
+        key = {1: "yes", 0: "no", None: "not disclosed"}[r["is_10b5_1"]]
+        flags[key] += 1
+    print(f"rows: {len(rows)}; codes: {codes}; 10b5-1: {flags}")
+    docs = engine.execute(
+        "SELECT filename, issuer_ticker, aff_10b5_1 FROM form4_doc WHERE issuer_cik = ?", (APPLE,)
+    ).fetchall()
+    print(f"docs: {len(docs)}; tickers: {sorted({d['issuer_ticker'] for d in docs})}; "
+          f"checkbox present on {sum(d['aff_10b5_1'] is not None for d in docs)}")  # fmt: skip
+    print("latest 12 rows:")
+    for r in rows[:12]:
+        price = "n/a" if r["price"] is None else f"{r['price']:,.2f}"
+        after = "n/a" if r["shares_after"] is None else f"{r['shares_after']:,.0f}"
+        print(
+            f"  {r['txn_date']} {r['owner_name']:<22.22} {r['role']:<34.34} {r['code']} "
+            f"{r['acquired_disposed']} {r['shares'] or 0:>10,.0f} @ {price:>8} after {after:>12} "
+            f"10b5-1={r['is_10b5_1']} {r['table_kind']}"
+        )
+    assert all(r["issuer_cik"] == APPLE for r in rows)
