@@ -1,12 +1,12 @@
 # Investment Engine — Design (running)
 
-Updated 2026-10-06 · Basis: investment_strategy.txt (a guideline, not a spec) · Outputs are research signals, not financial or tax advice.
+Updated 2026-10-07 · Basis: investment_strategy.txt (a guideline, not a spec) · Outputs are research signals, not financial or tax advice.
 
 ## Resume here
 - **Phase:** 2 — build M00 (SEC data, storage, search). Owner's old code reviewed; data-layer plan approved with SQLite storage.
 - **Environment (2026-10-06):** repo at C:\dev\Investment with .venv inside; GitHub repo John-Poulos/Investment (branch main, to be private); FTS5 verified; tzdata installed. Tooling files provided: .gitattributes, .gitignore, .pre-commit-config.yaml, CLAUDE.md, .claude/settings.json.
-- **Next action:** owner finishes setup (push to John-Poulos/Investment; Claude Project with docs/ synced and project instructions; Code tab opened on C:\dev\Investment; old engine files in reference/old_engine/); owner approves P8–P9 → build `client.py`, `identity.py`, schema + migrations, fixture tests (Code tab).
-- **Awaiting owner:** P8 storage, P9 search/LLM; M01 review.
+- **Next action:** add missing module docs to the repo (M00_SEC_DATA, M00_SEARCH, M01_TIMEFRAMES, M02_THEMES, M04_FINANCIALS, MODULE_TEMPLATE; apply D27 to M01) → build `client.py`, `identity.py`, schema + migrations, fixture tests (Code tab).
+- **Awaiting owner:** nothing blocking (P8, P9 approved; M01 reviewed 2026-10-07).
 - **Parked:** Q2 (at M09), Q3 (at M07), Q5 (at M12); M02 design questions (M02_THEMES.md); M04 red flags still to design (M04 open questions).
 
 ## Working agreements
@@ -77,13 +77,16 @@ In docs/: DESIGN.md · SOURCES.md · MODULE_TEMPLATE.md · M00_SEC_DATA.md · M0
 - **M12** Signals only, no enforcement: covered-call window when regime is weak/sideways, IV high vs its own history, no earnings inside the option's life. Default template 30–45 DTE, ~15 delta, labeled index-derived (single-stock options carry little volatility premium on average). Tax/assignment notes informational. (R20, modified)
 - **Core** AMD–Google custom ASIC stays grade C until confirmed; AVGO–Google confirmed. (R10)
 
+- **D25** Storage & refresh per M00_STORAGE.md (owner approved 2026-10-07). (P8)
+- **D26** Search & grounded LLM per M00_SEARCH.md (owner approved 2026-10-07). (P9)
+- **D27** M01 sigma bands: 1–2σ is the default band, but the scale is not capped at 2σ; moves beyond 2σ stay visible and can grade as a stronger signal where the indicator supports it (owner, M01 review 2026-10-07).
+
 ## Proposed (pending approval)
-- **P8** Storage & refresh design (M00_STORAGE.md).
-- **P9** Search & grounded-LLM design (M00_SEARCH.md).
+- None.
 
 ## Phases
 0. Research/review — done 2026-10-06
-1. M01 multi-year profile ← in review
+1. M01 multi-year profile — reviewed 2026-10-07 (D27)
 2. M00 SEC data + storage + search ← current; then M02
 3. Remaining modules; M04 CvD approved early
 

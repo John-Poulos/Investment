@@ -1,6 +1,6 @@
 # M00 — Storage & refresh (SQLite)
 
-Status: proposed (P8) · Updated: 2026-10-06 · Serves: all modules · Sources: S39, S42, S48–S53
+Status: approved (D25) · Updated: 2026-10-07 · Serves: all modules · Sources: S39, S42, S48–S53
 
 ## Purpose
 Hold everything the engine knows in SQLite so lookups read locally first and SEC is called only for what changed.
@@ -70,7 +70,8 @@ Freshness is event-driven (SEC data changes only when a company files); backstop
 | Schema drift | schema_version + ordered migrations; tests migrate an empty DB |
 
 ## Decisions
-- D-STO-1 (2026-10-06): SQLite (owner). Nightly incremental from the daily index replaces nightly full bulk (proposed).
+- D-STO-1 (2026-10-06): SQLite (owner). Nightly incremental from the daily index replaces nightly full bulk.
+- D-STO-2 (2026-10-07): Design approved by owner (D25, was P8).
 
 ## Open questions
 - Backfill universe: watchlist size and peers per group.

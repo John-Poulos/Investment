@@ -1,0 +1,69 @@
+# M01 — Timeframe profiles
+
+Status: review (awaiting owner) · Updated: 2026-10-06 · Outline headings: Type of investing by time frame · Depends on: M00, M04 (CvD), M11 · Sources: S12, S19, S26, S28–S31
+
+## Purpose
+Defines the parameter profile each timeframe applies across all modules. Profiles change weights and recommendations, never visibility (D10). Profiles and bar sizes can be switched on the fly (D12). MY first; PT and ST later.
+
+## Position layers
+A holding = core lots under one primary profile + optional overlays (M12 options, shorter-term trades), each judged under its own profile (D11).
+
+## Inputs
+| Data | Source | Grade (A/B/C) | Refresh |
+|---|---|---|---|
+| Daily prices (weekly derived) | Free market data; source TBD at M02 | A | Daily |
+| 10-Q, 10-K, 8-K, Form 4 | SEC EDGAR | A | On filing |
+| CvD state, survival gate | M04 | Per input | On filing |
+| Tax lots (date, qty, cost) | User entry or broker export | A | On trade |
+| Available funds, conviction (1–5) | User settings | — | On change |
+| CPI, M2 | FRED | A | Monthly |
+| S&P 500 total return | Free proxy TBD (dividend-adjusted index ETF) | A | Daily |
+
+## Signals out
+| Signal | Type / range | Meaning | MY | PT | ST |
+|---|---|---|---|---|---|
+| profile_weights | module_id → weight | How much each module drives recommendations | ✓ | – | – |
+| entry_plan | lump / tranches + triggers | Proposed entry; owner decides | ✓ | – | – |
+| exit_warning | reason list | Warnings only; owner decides (D16) | ✓ | – | – |
+| review_due | date | Next scheduled thesis review | ✓ | – | – |
+| lot_status | <1 yr / ≥1 yr | Holding-period state per lot | ✓ | – | – |
+
+## Timeframe parameters (MY; PT/ST later)
+| Parameter | MY | PT | ST |
+|---|---|---|---|
+| Horizon | Years; thesis-driven, no fixed maximum | | |
+| Bars for signals | Weekly default; switchable (D12) | | |
+| Trend filter | 40-week moving average | | |
+| Entry zone / add trigger | 20-week mean − 1 to 2σ; calibrate by backtest | | |
+| Fundamental windows | TTM, YoY, 3-yr CAGR; 5-yr averages; full-cycle history for CvD | | |
+| Review cadence | After each 10-Q/10-K; event alerts in between | | |
+| Weights | Fundamentals, moat, capex, money flow lead; ownership medium; analysts low; technicals time entries | | |
+| Hurdle | S&P 500 TR; stretch TR + CPI | | |
+| Lot awareness | Warn before selling lots held < 1 yr | | |
+| Sizing | User caps per position and per shared killswitch (R23) | | |
+
+## Rules
+1. Entry needs the fundamental screen (R3), the confluence threshold (D13), and price in the entry zone.
+2. The entry plan offers lump sum or tranches, weighing available funds, conviction and regime; the owner decides.
+3. Every tranche after the first needs all three: CvD = CYCLICAL_TROUGH (or no slowdown), survival gate pass (M04), and the 1–2σ add trigger on the position's profile of record.
+4. Exit warnings fire on: CvD moving to CYCLE_PLUS_DAMAGE or STRUCTURAL_DECLINE; missed milestones or quietly removed targets (R19); killswitch hits (R23); valuation ceiling if the owner sets one. Warnings only (D16).
+5. Thesis review after each 10-Q/10-K; on-track milestones with a flat price → "early," hold (R4).
+6. Event alerts (8-K, opportunistic Form 4, guidance change, killswitch) surface immediately (R16).
+
+## Failure modes
+| Input or indicator | How it can mislead | Guard |
+|---|---|---|
+| On-the-fly timeframes | Switching views until a signal appears ("timeframe shopping") | Decisions log the profile used; positions keep a profile of record |
+| σ add trigger | Fires again and again in a true decline (falling knife) | CvD gate (rule 3) |
+| σ bands | Fat tails break bands more often than a normal model implies | Backtest band-hit rates per stock |
+| Weekly bars | Hide intra-week gaps (e.g. earnings) | Daily bars on chart; gap alerts |
+| Quarterly cadence | Lags a fast-moving killswitch | Event alerts bypass cadence |
+| Total-return proxy | ETF fees and tracking error differ from the index | Label as proxy |
+
+## Decisions
+- D-M01-1 (2026-10-06): Entries support lump sum and tranches; tranche adds gated by CvD + survival gate + band trigger — target good companies in down cycles, not decliners.
+- D-M01-2 (2026-10-06): Exits are warnings; owner decides (D16).
+- D-M01-3 (2026-10-06): Timeframes switchable on the fly with profile-of-record logging (D12).
+
+## Open questions
+- PT and ST columns — later phase.
