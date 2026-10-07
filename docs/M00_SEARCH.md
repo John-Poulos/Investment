@@ -1,6 +1,6 @@
 # M00 — Search & grounded LLM
 
-Status: proposed (P9) · Updated: 2026-10-06 · Serves: M02, M04, M07, M11 · Sources: S24, S47, S54, S56
+Status: approved (D26) · Updated: 2026-10-07 · Serves: M02, M04, M07, M11 · Sources: S24, S47, S54, S56
 
 ## Purpose
 Search whole filings and news; let an LLM work only on retrieved, stored passages, with every claim mechanically checked.
@@ -41,6 +41,7 @@ Model-agnostic; prompts versioned.
 ## Decisions
 - D-SRCH-1 (2026-10-06): No character limits on analysis text (owner).
 - D-SRCH-2 (2026-10-06): LLM only on curated, stored data; outputs grounded in sourced passages (owner).
+- D-SRCH-3 (2026-10-07): Design approved by owner (D26, was P9).
 
 ## Open questions
 - LLM provider and cost — decide at the R19 build.
