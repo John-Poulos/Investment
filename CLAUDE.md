@@ -17,7 +17,7 @@ Owner's old engine (pharma app) in `reference/old_engine/`: read-only source for
 Windows 11 · Python via uv · SQLite (WAL) in data/ · repo at C:\dev\Investment
 
 ## Commands
-`uv sync` · `uv run pytest` · `uv run ruff check --fix .` · `uv run ruff format .` · `uv run pre-commit run --all-files`
+`uv sync` · `uv run pytest` · live SEC tests (owner runs, sends log): `uv run python scripts/run_live.py <label>` · `uv run ruff check --fix .` · `uv run ruff format .` · `uv run pre-commit run --all-files`
 
 ## Module docs (read when working on that module)
 `docs/M00_SEC_DATA.md` · `docs/M00_STORAGE.md` · `docs/M00_SEARCH.md` · `docs/M01_TIMEFRAMES.md` · `docs/M02_THEMES.md` · `docs/M04_FINANCIALS.md` · `docs/SOURCES.md`
