@@ -9,6 +9,7 @@ a failed refresh serves the stored copy flagged stale, never a blank.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sqlite3
@@ -17,7 +18,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from engine.sec.client import SecClient, iso
-from engine.sec.results import Empty, Failed, Ok, Probe, Result
+from engine.sec.results import Empty, Failed, NotFound, Ok, Probe, Result
 
 TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 EXCHANGE_URL = "https://www.sec.gov/files/company_tickers_exchange.json"
@@ -26,7 +27,12 @@ SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
 TICKER_BACKSTOP = timedelta(days=1)
 SUBMISSIONS_BACKSTOP = timedelta(days=1)
 CACHE_TTL_S = 20 * 3600  # under a day, so the daily refresh refetches
-MIN_KEEP_RATIO = 0.5  # refuse a refresh that would drop over half the current tickers
+# Hold a refresh for owner review (D-SEC-5). Normal daily churn is well under 1%;
+# ticker_refresh_log records every refresh so these can be calibrated.
+DROP_HOLD_RATIO = 0.01  # more than 1% of stored tickers would drop
+SIZE_HOLD_RATIO = 0.10  # ticker count changes by more than 10% either way
+HOLD_KIND = "ticker_map_hold"
+HOLD_STATE = "ticker_map_hold"
 
 TICKER_MAP_PATH = "ticker map (company_tickers_exchange.json, company_tickers.json)"
 
@@ -41,10 +47,11 @@ class TickerRow:
 
 @dataclass(frozen=True)
 class TickerRefresh:
-    current: int
+    stored: int  # current tickers before the refresh
+    listed: int  # tickers in the new files
     added: int
-    changed: int
-    closed: int
+    changed: int  # ticker now points to a different CIK
+    dropped: int  # stored ticker absent from the files (span closed, history kept)
     conflicts: tuple[str, ...]
 
 
@@ -137,16 +144,27 @@ def parse_submissions(cik: str, data: dict[str, Any]) -> Entity:
 
 
 def refresh_ticker_map(
-    client: SecClient, conn: sqlite3.Connection, today: date, now: datetime
+    client: SecClient,
+    conn: sqlite3.Connection,
+    today: date,
+    now: datetime,
+    *,
+    force: bool = False,
 ) -> Result[TickerRefresh]:
-    """Fetch both ticker files and apply them to the ticker history in one transaction."""
+    """Fetch both ticker files and apply them to the ticker history in one transaction.
+
+    A refresh that drops more than 1% of stored tickers, or changes the count by
+    more than 10% either way, is held: nothing changes, the stored map stays in
+    use, and the diff goes to the review queue. `force=True` (owner approved the
+    diff) applies it anyway and closes the open hold.
+    """
     exch = client.get_json(EXCHANGE_URL, ttl_s=CACHE_TTL_S)
     tick = client.get_json(TICKERS_URL, ttl_s=CACHE_TTL_S)
     for res, url in ((exch, EXCHANGE_URL), (tick, TICKERS_URL)):
-        if isinstance(res, Empty):
-            return Failed("ticker file not found (HTTP 404)", url=url, status=404)
-        if isinstance(res, Failed):
-            return res
+        if isinstance(res, NotFound):
+            return Failed("ticker file not found at its URL (HTTP 404)", url=url, status=404)
+        if not isinstance(res, Ok):
+            return Failed(f"ticker file unavailable: {res}", url=url)
     assert isinstance(exch, Ok) and isinstance(tick, Ok)
 
     try:
@@ -158,46 +176,137 @@ def refresh_ticker_map(
         r["ticker"]: r
         for r in conn.execute("SELECT * FROM ticker WHERE valid_to IS NULL").fetchall()
     }
-    if current and len(rows) < MIN_KEEP_RATIO * len(current):
-        return Failed(
-            f"ticker files list {len(rows)} tickers vs {len(current)} stored; refusing refresh",
-            url=EXCHANGE_URL,
-        )
+    added = sorted(rows.keys() - current.keys())
+    dropped = sorted(current.keys() - rows.keys())
+    changed = sorted(
+        (t, current[t]["cik"], rows[t].cik)
+        for t in rows.keys() & current.keys()
+        if current[t]["cik"] != rows[t].cik
+    )
+    summary = TickerRefresh(
+        len(current), len(rows), len(added), len(changed), len(dropped), tuple(conflicts)
+    )
+
+    hold_reason = _hold_reason(summary) if current else None
+    if hold_reason and not force:
+        return _hold(conn, now, summary, hold_reason, added, dropped, changed)
 
     day = today.isoformat()
-    added = changed = closed = 0
     conn.execute("BEGIN")
     try:
         for t, row in rows.items():
             old = current.get(t)
             if old is None:
                 _insert_ticker(conn, t, row, day)
-                added += 1
             elif old["cik"] != row.cik:
                 conn.execute(
                     "UPDATE ticker SET valid_to = ? WHERE ticker = ? AND valid_to IS NULL",
                     (day, t),
                 )
                 _insert_ticker(conn, t, row, day)
-                changed += 1
             else:
                 conn.execute(
                     "UPDATE ticker SET name = ?, exchange = coalesce(?, exchange), source = ? "
                     "WHERE ticker = ? AND valid_to IS NULL",
                     (row.name, row.exchange, row.source, t),
                 )
-        for t in current.keys() - rows.keys():
+        for t in dropped:
             conn.execute(
                 "UPDATE ticker SET valid_to = ? WHERE ticker = ? AND valid_to IS NULL", (day, t)
             )
-            closed += 1
-        summary = TickerRefresh(len(rows), added, changed, closed, tuple(conflicts))
+        if force:
+            conn.execute(
+                "UPDATE review_queue SET resolved_at = ?, resolution = 'applied by owner (force)' "
+                "WHERE kind = ? AND resolved_at IS NULL",
+                (iso(now), HOLD_KIND),
+            )
+        _log_refresh(conn, now, summary, "forced" if force and hold_reason else "applied", None)
         _set_refresh_state(conn, "ticker_map", EXCHANGE_URL, now, summary)
+        conn.execute("DELETE FROM refresh_state WHERE name = ?", (HOLD_STATE,))
         conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")
         raise
     return Ok(summary, source_ref=EXCHANGE_URL, fetched_at=iso(now))
+
+
+def _hold_reason(s: TickerRefresh) -> str | None:
+    reasons = []
+    if s.dropped > DROP_HOLD_RATIO * s.stored:
+        reasons.append(
+            f"{s.dropped} of {s.stored} stored tickers would drop ({s.dropped / s.stored:.1%})"
+        )
+    if abs(s.listed - s.stored) > SIZE_HOLD_RATIO * s.stored:
+        reasons.append(f"files list {s.listed} tickers vs {s.stored} stored")
+    return "; ".join(reasons) or None
+
+
+def _hold(
+    conn: sqlite3.Connection,
+    now: datetime,
+    summary: TickerRefresh,
+    reason: str,
+    added: list[str],
+    dropped: list[str],
+    changed: list[tuple[str, str, str]],
+) -> Failed:
+    diff = {"added": added, "dropped": dropped, "changed": [list(c) for c in changed]}
+    digest = hashlib.sha256(json.dumps(diff, sort_keys=True).encode()).hexdigest()
+    conn.execute("BEGIN")
+    try:
+        open_items = conn.execute(
+            "SELECT item_id, payload FROM review_queue WHERE kind = ? AND resolved_at IS NULL",
+            (HOLD_KIND,),
+        ).fetchall()
+        item_id = next(
+            (r["item_id"] for r in open_items if json.loads(r["payload"])["digest"] == digest),
+            None,
+        )
+        if item_id is None:
+            payload = {"digest": digest, "summary": summary.__dict__, **diff}
+            item_id = conn.execute(
+                "INSERT INTO review_queue (module_id, kind, reason, payload, created_at) "
+                "VALUES ('M00', ?, ?, ?, ?)",
+                (
+                    HOLD_KIND,
+                    f"Ticker map refresh held: {reason}",
+                    json.dumps(payload, default=list),
+                    iso(now),
+                ),
+            ).lastrowid
+            _log_refresh(conn, now, summary, "held", item_id)
+        _set_refresh_state(conn, HOLD_STATE, EXCHANGE_URL, now, summary)
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    return Failed(
+        f"ticker map refresh held for owner review (item {item_id}): {reason}", url=EXCHANGE_URL
+    )
+
+
+def _log_refresh(
+    conn: sqlite3.Connection,
+    now: datetime,
+    s: TickerRefresh,
+    outcome: str,
+    review_item: int | None,
+) -> None:
+    conn.execute(
+        "INSERT INTO ticker_refresh_log (at, stored_before, listed, added, changed, dropped, "
+        "conflicts, outcome, review_item) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            iso(now),
+            s.stored,
+            s.listed,
+            s.added,
+            s.changed,
+            s.dropped,
+            len(s.conflicts),
+            outcome,
+            review_item,
+        ),
+    )
 
 
 def _insert_ticker(conn: sqlite3.Connection, ticker: str, row: TickerRow, day: str) -> None:
@@ -223,11 +332,9 @@ def _set_refresh_state(
     )
 
 
-def _ticker_map_age(conn: sqlite3.Connection, now: datetime) -> timedelta | None:
-    row = conn.execute("SELECT fetched_at FROM refresh_state WHERE name = 'ticker_map'").fetchone()
-    if row is None:
-        return None
-    return now - datetime.fromisoformat(row["fetched_at"])
+def _refreshed_at(conn: sqlite3.Connection, name: str) -> datetime | None:
+    row = conn.execute("SELECT fetched_at FROM refresh_state WHERE name = ?", (name,)).fetchone()
+    return datetime.fromisoformat(row["fetched_at"]) if row else None
 
 
 def resolve(
@@ -242,21 +349,29 @@ def resolve(
     if cik is not None:
         return Ok(cik, source_ref="numeric CIK")
 
+    applied = _refreshed_at(conn, "ticker_map")
+    held = _refreshed_at(conn, HOLD_STATE)
+    due = applied is None or now - applied >= TICKER_BACKSTOP
+    held_recently = held is not None and now - held < TICKER_BACKSTOP
     stale = False
-    age = _ticker_map_age(conn, now)
-    if age is None or age >= TICKER_BACKSTOP:
-        refreshed = refresh_ticker_map(client, conn, now.date(), now)
-        if isinstance(refreshed, Failed):
-            if age is None:
-                return refreshed
-            stale = True
+    if due:
+        if held_recently:
+            stale = True  # awaiting owner review; don't re-diff on every lookup
+        else:
+            refreshed = refresh_ticker_map(client, conn, now.date(), now)
+            if isinstance(refreshed, Failed):
+                if applied is None:
+                    return refreshed
+                stale = True
+            applied = _refreshed_at(conn, "ticker_map")
+    fetched_at = iso(applied) if applied else ""
 
     ticker = normalize_ticker(ident)
     row = conn.execute(
         "SELECT cik FROM ticker WHERE ticker = ? AND valid_to IS NULL", (ticker,)
     ).fetchone()
     if row is not None:
-        return Ok(row["cik"], source_ref=TICKER_MAP_PATH, stale=stale)
+        return Ok(row["cik"], source_ref=TICKER_MAP_PATH, fetched_at=fetched_at, stale=stale)
 
     probes = [Probe(TICKER_MAP_PATH, ticker, "no current match" + (" (stale)" if stale else ""))]
     for old in conn.execute(
@@ -292,7 +407,8 @@ def load_entity(
 
     url = SUBMISSIONS_URL.format(cik=norm)
     res = client.get_json(url, ttl_s=CACHE_TTL_S)
-    if isinstance(res, Failed):
+    if isinstance(res, Failed | NotFound):
+        # A 404 here means the submissions file is not at its URL; keep what we have.
         if stored is not None:
             return Ok(
                 _entity_from_row(stored),
@@ -302,7 +418,7 @@ def load_entity(
                 stale=True,
             )
         return res
-    if isinstance(res, Empty):
+    if not isinstance(res, Ok):
         return res
 
     try:

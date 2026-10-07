@@ -81,3 +81,17 @@ def test_fts5_domain_terms(tmp_path):
         "WHERE section_fts MATCH 'HBM3E'"
     ).fetchone()[0]
     assert "[HBM3E]" in snippet
+
+
+def test_migration_0002_maps_old_empty_rows(tmp_path, monkeypatch):
+    conn = connect(tmp_path / "engine.db")
+    all_engine = migrations("engine")
+    monkeypatch.setattr(db, "migrations", lambda name: all_engine[:1])
+    migrate(conn, "engine")
+    conn.execute(
+        "INSERT INTO fetch_log (url, outcome, status, from_cache, detail, at) "
+        "VALUES ('u', 'empty', 404, 0, 'HTTP 404', '2026-10-07T00:00:00+00:00')"
+    )
+    monkeypatch.setattr(db, "migrations", lambda name: all_engine)
+    assert migrate(conn, "engine") == len(all_engine)
+    assert conn.execute("SELECT outcome FROM fetch_log").fetchone()[0] == "not_found"

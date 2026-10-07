@@ -3,11 +3,11 @@
 - One rate limiter for every SEC call in the process, across threads (≤ 8 req/s).
 - `SEC_USER_AGENT` (name + email) required; placeholders rejected.
 - 5xx and network errors retry with exponential backoff; other 4xx fail.
-- 404 is a checked negative (`Empty`), never a failure.
+- 404 is `NotFound` (no file at that URL), never a failure and never "no data".
 - A throttle (403/429, or the rate-threshold page under any status) opens a
   breaker that fails every SEC call fast for ≥ 10 minutes.
 - Raw responses are cached by URL + params with a caller-supplied TTL.
-  Failures are never cached; checked negatives are cached briefly.
+  Failures are never cached; 404s are cached briefly and labeled not_found.
 """
 
 from __future__ import annotations
@@ -26,11 +26,11 @@ from urllib.parse import urlencode
 
 import requests
 
-from engine.sec.results import Empty, Failed, Ok, Probe, Result
+from engine.sec.results import Failed, NotFound, Ok, Result
 
 TARGET_RATE_PER_S = 8.0  # SEC allows 10/s per user; we target ≤ 8
 BREAKER_SECONDS = 600.0  # rule 4: pause all SEC calls ≥ 10 min after a throttle
-EMPTY_TTL_S = 6 * 3600  # checked negatives are cached briefly
+NOT_FOUND_TTL_S = 6 * 3600  # 404s are cached briefly so a broken link is not re-hit
 MAX_ATTEMPTS = 4
 TIMEOUT_S = 30.0
 THROTTLE_MARKER = b"Request Rate Threshold Exceeded"
@@ -108,7 +108,7 @@ class CachedResponse:
     status: int
     body: bytes
     content_type: str
-    outcome: str  # "ok" | "empty"
+    outcome: str  # "ok" | "not_found"
     fetched_at: str
 
 
@@ -245,14 +245,14 @@ class SecClient:
             hit = self._cache.get(key, now)
             if hit is not None:
                 self._log.write(key, hit.outcome, "cache hit", hit.status, True, now)
-                if hit.outcome == "empty":
-                    return Empty((Probe("SEC (cached negative)", key, f"HTTP {hit.status}"),))
+                if hit.outcome == "not_found":
+                    return NotFound(key, hit.status, from_cache=True)
                 return Ok(hit.body, source_ref=key, fetched_at=hit.fetched_at, from_cache=True)
 
         result, resp = self._fetch(url, params, key)
-        if isinstance(result, Ok | Empty) and resp is not None and self._cache is not None:
-            outcome = "ok" if isinstance(result, Ok) else "empty"
-            life = ttl_s if outcome == "ok" else min(ttl_s, EMPTY_TTL_S)
+        if isinstance(result, Ok | NotFound) and resp is not None and self._cache is not None:
+            outcome = "ok" if isinstance(result, Ok) else "not_found"
+            life = ttl_s if outcome == "ok" else min(ttl_s, NOT_FOUND_TTL_S)
             if life > 0:
                 fetched = self._now()
                 self._cache.put(
@@ -335,8 +335,10 @@ class SecClient:
                 continue
 
             if resp.status == 404:
-                self._log.write(key, "empty", "HTTP 404", 404, False, self._now())
-                return Empty((Probe("SEC", key, "HTTP 404"),)), resp
+                self._log.write(
+                    key, "not_found", "HTTP 404: no file at this URL", 404, False, self._now()
+                )
+                return NotFound(key), resp
 
             if resp.status >= 400:
                 failed = Failed(f"HTTP {resp.status}", url=url, status=resp.status)

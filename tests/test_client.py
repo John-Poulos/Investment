@@ -12,7 +12,7 @@ from engine.sec.client import (
     is_throttle,
     validate_user_agent,
 )
-from engine.sec.results import Empty, Failed, Ok
+from engine.sec.results import Empty, Failed, NotFound, Ok
 from tests.conftest import AGENT, FakeTransport, fixture_bytes, ok
 
 URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json"
@@ -62,15 +62,19 @@ def test_cache_expires(make_client, clock):
     assert len(transport.calls) == 2
 
 
-def test_404_is_checked_negative_and_cached_briefly(make_client, clock):
+def test_404_is_not_found_and_cached_briefly(make_client, clock, dbs):
     transport = FakeTransport({URL: [ok(b"not found", status=404)]})
     client = make_client(transport)
 
     first = client.get_json(URL, ttl_s=30 * DAY)
     again = client.get_json(URL, ttl_s=30 * DAY)
-    assert isinstance(first, Empty) and first.paths_checked[0].result == "HTTP 404"
-    assert isinstance(again, Empty)
+    assert isinstance(first, NotFound) and first.url == URL and not first.from_cache
+    assert isinstance(again, NotFound) and again.from_cache
+    assert not isinstance(first, Empty)  # a missing file is never "no data"
     assert len(transport.calls) == 1
+    engine, corpus = dbs
+    assert {r[0] for r in engine.execute("SELECT outcome FROM fetch_log")} == {"not_found"}
+    assert corpus.execute("SELECT outcome FROM http_cache").fetchone()[0] == "not_found"
 
     clock.advance(7 * 3600)  # past the short negative TTL, well inside the 30-day TTL
     client.get_json(URL, ttl_s=30 * DAY)

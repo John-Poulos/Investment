@@ -29,7 +29,8 @@ Settings: WAL mode, `busy_timeout` 5 s, foreign keys on, `synchronous=NORMAL`. W
 | guidance | id | R19 ledger: metric, period, range, unit, stated_on, source_ref, status |
 | review_queue | id | D8 items awaiting owner |
 | position / lot / decision | ids | owner portfolio, tax lots, profile of record (D12) |
-| fetch_log | id | every call: url, outcome (ok/empty/failed/throttled), detail, at |
+| fetch_log | id | every call: url, outcome (ok/not_found/failed/throttled), detail, at |
+| ticker_refresh_log | id | each ticker-map refresh: counts (stored, listed, added, changed, dropped), applied/held/forced |
 | refresh_state | name | last refresh of reference files (e.g. ticker map) for read-path freshness |
 | schema_version | version | ordered migrations |
 
@@ -74,6 +75,7 @@ Freshness is event-driven (SEC data changes only when a company files); backstop
 - D-STO-1 (2026-10-06): SQLite (owner). Nightly incremental from the daily index replaces nightly full bulk.
 - D-STO-2 (2026-10-07): Design approved by owner (D25, was P8).
 - D-STO-3 (2026-10-07): Schema 0001 built (`engine/store/migrations/`). corpus.db: `document` holds full text, `section` holds offsets, `section_fts` is a self-contained FTS5 table (porter unicode61) so snippet()/highlight() work; `http_cache` holds raw responses. Instant facts have NULL period_start; uniqueness via an expression index. Each migration runs in one transaction with its schema_version row.
+- D-STO-4 (2026-10-07): Migration 0002 rebuilds `fetch_log` and `http_cache` for the `not_found` outcome (D-SEC-4) and adds `ticker_refresh_log` (D-SEC-5).
 
 ## Open questions
 - Backfill universe: watchlist size and peers per group.

@@ -7,12 +7,13 @@ is written to data/. Prints what it found so the output can be reviewed.
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
 from engine.sec.client import SecClient, user_agent_from_env, utc_now
 from engine.sec.identity import SUBMISSIONS_URL, load_entity, resolve
-from engine.sec.results import Empty, Failed, Ok
+from engine.sec.results import NotFound, Ok
 from engine.store.db import open_db
 from engine.store.http import SqliteCache, SqliteFetchLog
 
@@ -43,10 +44,10 @@ def test_ticker_map_and_resolve(live):
 
     state = engine.execute("SELECT detail FROM refresh_state WHERE name='ticker_map'").fetchone()
     detail = json.loads(state["detail"])
-    print(f"ticker map: {detail['current']} tickers, {len(detail['conflicts'])} conflicts")
+    print(f"ticker map: {detail['listed']} tickers, {len(detail['conflicts'])} conflicts")
     for line in detail["conflicts"][:20]:
         print("   conflict:", line)
-    assert detail["current"] > 5000
+    assert detail["listed"] > 5000
 
     for ticker in ("BRK.B", "NVDA", "MU", "AVGO"):
         print(f"resolve {ticker} -> {resolve(client, engine, ticker, utc_now())}")
@@ -61,8 +62,12 @@ def test_entity_from_submissions(live):
     assert result.data.sic and result.data.fiscal_year_end
 
 
-def test_accession_index_json_has_document_types(live):
-    """M00_SEC_DATA 'verify in first integration test': {accession}-index.json."""
+def test_filing_index_pages(live):
+    """Which per-filing index carries document types (M00_SEC_DATA, first integration test).
+
+    Finding 2026-10-07: {accession}-index.json does not exist (404); index.json is a
+    folder listing (type = icon name); {accession}-index.htm lists document types.
+    """
     client, _ = live
     subs = client.get_json(SUBMISSIONS_URL.format(cik=APPLE), ttl_s=3600)
     assert isinstance(subs, Ok)
@@ -71,16 +76,19 @@ def test_accession_index_json_has_document_types(live):
     acc = recent["accessionNumber"][i]
     base = f"https://www.sec.gov/Archives/edgar/data/320193/{acc.replace('-', '')}"
 
-    for url in (f"{base}/{acc}-index.json", f"{base}/index.json", f"{base}/{acc}-index.htm"):
-        res = client.get_bytes(url, ttl_s=3600)
-        kind = type(res).__name__
-        size = len(res.data) if isinstance(res, Ok) else 0
-        print(f"\n{kind:6} {url} ({size} bytes)")
-        if isinstance(res, Ok):
-            print("   first 600 bytes:", res.data[:600].decode("utf-8", "replace"))
-        elif isinstance(res, Empty | Failed):
-            print("  ", res)
+    missing = client.get_bytes(f"{base}/{acc}-index.json", ttl_s=3600)
+    print(f"\n{acc}-index.json -> {missing}")
+    assert isinstance(missing, NotFound), "accession-index.json now exists; revisit documents.py"
 
-    index_json = client.get_bytes(f"{base}/{acc}-index.json", ttl_s=3600)
-    assert isinstance(index_json, Ok), "accession-index.json missing: resolver must use HTML"
-    assert b'"type"' in index_json.data, "accession-index.json lacks document types"
+    listing = client.get_json(f"{base}/index.json", ttl_s=3600)
+    assert isinstance(listing, Ok)
+    names = [item["name"] for item in listing.data["directory"]["item"]]
+    print(f"index.json lists {len(names)} files: {names}")
+
+    page = client.get_text(f"{base}/{acc}-index.htm", ttl_s=3600)
+    assert isinstance(page, Ok)
+    html = page.data
+    start = html.find("tableFile")
+    print(f"-index.htm document table (first 3000 chars):\n{html[start : start + 3000]}")
+    assert re.search(r">\s*Type\s*<", html), "no Type column in -index.htm"
+    assert re.search(r">\s*10-K\s*<", html), "10-K document type not found in -index.htm"

@@ -17,7 +17,7 @@ from engine.sec.identity import (
     refresh_ticker_map,
     resolve,
 )
-from engine.sec.results import Empty, Failed, Ok
+from engine.sec.results import Empty, Failed, NotFound, Ok
 from tests.conftest import FakeTransport, fixture_bytes, ok
 
 APPLE = "0000320193"
@@ -69,80 +69,128 @@ def test_parse_rejects_changed_layout():
         parse_ticker_files({"fields": ["cik", "ticker"], "data": []}, {})
 
 
-def test_refresh_tracks_history(make_client, dbs, clock):
+def big_map(n: int = 300, drop=(), reassign=None, extra: int = 0) -> bytes:
+    """Synthetic map of n tickers T000.. (CIK 1000+i); 1% of 300 = 3 tickers."""
+    reassign = reassign or {}
+    rows = [
+        [reassign.get(i, 1000 + i), f"CO {i}", f"T{i:03d}", "NYSE"]
+        for i in range(n)
+        if i not in drop
+    ]
+    rows += [[5000 + j, f"NEW {j}", f"N{j:03d}", "NYSE"] for j in range(extra)]
+    return exchange_file(rows)
+
+
+def refresh(make_client, engine, clock, exchange: bytes, **kwargs):
+    client = make_client(FakeTransport(ticker_routes(exchange=exchange, tickers=b"{}")))
+    return refresh_ticker_map(client, engine, clock.now().date(), clock.now(), **kwargs)
+
+
+def next_day(clock):
+    clock.advance(86400)  # past the raw-cache TTL, so new files are fetched
+
+
+def refresh_outcomes(engine):
+    return [
+        r[0] for r in engine.execute("SELECT outcome FROM ticker_refresh_log ORDER BY refresh_id")
+    ]
+
+
+def open_holds(engine):
+    return engine.execute(
+        "SELECT * FROM review_queue WHERE kind = ? AND resolved_at IS NULL", (identity.HOLD_KIND,)
+    ).fetchall()
+
+
+def test_first_refresh_merges_fixture_files(make_client, dbs, clock):
     engine, _ = dbs
     first = refresh_ticker_map(
         make_client(FakeTransport(ticker_routes())), engine, clock.now().date(), clock.now()
     )
     assert isinstance(first, Ok) and first.data.added == 6 and len(first.data.conflicts) == 1
+    assert refresh_outcomes(engine) == ["applied"]
 
-    clock.advance(86400)
-    moved = exchange_file(
-        [
-            [320193, "Apple Inc.", "AAPL", "Nasdaq"],
-            [1045810, "NVIDIA CORP", "NVDA", "Nasdaq"],
-            [723125, "MICRON TECHNOLOGY INC", "MU", "Nasdaq"],
-            [1067983, "BERKSHIRE HATHAWAY INC", "BRK-B", "NYSE"],
-            [99, "NEW HOLDER OF TICKER", "INTC", "Nasdaq"],  # ticker reassigned
-        ]
-    )
-    second = refresh_ticker_map(
-        make_client(FakeTransport(ticker_routes(exchange=moved))),
-        engine,
-        clock.now().date(),
-        clock.now(),
-    )
+
+def test_refresh_tracks_reassigned_ticker(make_client, dbs, clock):
+    engine, _ = dbs
+    assert isinstance(refresh(make_client, engine, clock, big_map()), Ok)
+    next_day(clock)
+    second = refresh(make_client, engine, clock, big_map(reassign={5: 99}))
     assert isinstance(second, Ok)
-    assert second.data.changed == 1 and second.data.closed == 0
-    assert current(engine, "INTC")["cik"] == "0000000099"
+    assert (second.data.changed, second.data.dropped) == (1, 0)
     history = engine.execute(
-        "SELECT cik, valid_from, valid_to FROM ticker WHERE ticker = 'INTC' ORDER BY valid_from"
+        "SELECT cik, valid_from, valid_to FROM ticker WHERE ticker = 'T005' ORDER BY valid_from"
     ).fetchall()
     assert [tuple(r) for r in history] == [
-        ("0000050863", "2026-10-07", "2026-10-08"),
+        ("0000001005", "2026-10-07", "2026-10-08"),
         ("0000000099", "2026-10-08", None),
     ]
 
 
-def test_refresh_closes_dropped_ticker_and_resolve_reports_history(make_client, dbs, clock):
+def test_drops_within_one_percent_apply_and_keep_history(make_client, dbs, clock):
     engine, _ = dbs
-    refresh_ticker_map(
-        make_client(FakeTransport(ticker_routes())), engine, clock.now().date(), clock.now()
-    )
-    clock.advance(86400)
-    without_intc = exchange_file(
-        [
-            [320193, "Apple Inc.", "AAPL", "Nasdaq"],
-            [1045810, "NVIDIA CORP", "NVDA", "Nasdaq"],
-            [723125, "MICRON TECHNOLOGY INC", "MU", "Nasdaq"],
-            [1067983, "BERKSHIRE HATHAWAY INC", "BRK-B", "NYSE"],
-        ]
-    )
-    client = make_client(FakeTransport(ticker_routes(exchange=without_intc)))
-    result = refresh_ticker_map(client, engine, clock.now().date(), clock.now())
-    assert isinstance(result, Ok) and result.data.closed == 1
+    refresh(make_client, engine, clock, big_map())
+    next_day(clock)
+    result = refresh(make_client, engine, clock, big_map(drop={1, 2, 3}))  # exactly 1%
+    assert isinstance(result, Ok) and result.data.dropped == 3
+    assert refresh_outcomes(engine) == ["applied", "applied"]
 
-    looked_up = resolve(client, engine, "intc", clock.now())
+    client = make_client(FakeTransport(ticker_routes(exchange=big_map(drop={1, 2, 3}))))
+    looked_up = resolve(client, engine, "t001", clock.now())
     assert isinstance(looked_up, Empty)
     assert [p.path for p in looked_up.paths_checked] == [identity.TICKER_MAP_PATH, "ticker history"]
-    assert "0000050863" in looked_up.paths_checked[1].result
+    assert "0000001001" in looked_up.paths_checked[1].result
 
 
-def test_refresh_refuses_shrunken_file(make_client, dbs, clock):
+def test_drops_over_one_percent_are_held_for_review(make_client, dbs, clock):
     engine, _ = dbs
-    refresh_ticker_map(
-        make_client(FakeTransport(ticker_routes())), engine, clock.now().date(), clock.now()
-    )
-    clock.advance(86400)  # past the raw-cache TTL, so the new files are fetched
-    tiny = exchange_file([[320193, "Apple Inc.", "AAPL", "Nasdaq"]])
-    result = refresh_ticker_map(
-        make_client(FakeTransport(ticker_routes(exchange=tiny, tickers=b"{}"))),
-        engine,
-        clock.now().date(),
-        clock.now(),
-    )
-    assert isinstance(result, Failed) and "refusing" in result.reason
-    assert current(engine, "NVDA") is not None
+    refresh(make_client, engine, clock, big_map())
+    next_day(clock)
+    bad = big_map(drop={1, 2, 3, 4})
+    held = refresh(make_client, engine, clock, bad)
+    assert isinstance(held, Failed) and "held for owner review" in held.reason
+    assert current(engine, "T001") is not None  # nothing changed
+
+    [item] = open_holds(engine)
+    payload = json.loads(item["payload"])
+    assert payload["dropped"] == ["T001", "T002", "T003", "T004"]
+    assert payload["summary"]["stored"] == 300
+
+    next_day(clock)
+    refresh(make_client, engine, clock, bad)  # same diff again: no duplicate review item
+    assert len(open_holds(engine)) == 1
+    assert refresh_outcomes(engine) == ["applied", "held"]
+
+    forced = refresh(make_client, engine, clock, bad, force=True)
+    assert isinstance(forced, Ok) and forced.data.dropped == 4
+    assert current(engine, "T001") is None
+    assert open_holds(engine) == []
+    assert refresh_outcomes(engine) == ["applied", "held", "forced"]
+
+
+def test_count_change_over_ten_percent_is_held(make_client, dbs, clock):
+    engine, _ = dbs
+    refresh(make_client, engine, clock, big_map())
+    next_day(clock)
+    assert isinstance(refresh(make_client, engine, clock, big_map(extra=30)), Ok)  # exactly 10%
+    next_day(clock)
+    held = refresh(make_client, engine, clock, big_map(extra=30 + 34))  # 364 vs 330 stored
+    assert isinstance(held, Failed) and "files list 364 tickers vs 330 stored" in held.reason
+
+
+def test_resolve_during_hold_serves_stored_map_without_rediffing(make_client, dbs, clock):
+    engine, _ = dbs
+    refresh(make_client, engine, clock, big_map())
+    next_day(clock)
+    transport = FakeTransport(ticker_routes(exchange=big_map(drop=set(range(10))), tickers=b"{}"))
+    client = make_client(transport)
+
+    first = resolve(client, engine, "T050", clock.now())
+    assert isinstance(first, Ok) and first.stale and first.fetched_at == "2026-10-07T12:00:00+00:00"
+    calls = len(transport.calls)
+    second = resolve(client, engine, "T001", clock.now())
+    assert isinstance(second, Ok) and second.stale
+    assert len(transport.calls) == calls and len(open_holds(engine)) == 1
 
 
 def test_resolve_numeric_and_ticker(make_client, dbs, clock):
@@ -206,10 +254,10 @@ def test_load_entity_stale_on_failure(make_client, dbs, clock):
     assert isinstance(result, Ok) and result.stale and result.data.name == "Apple Inc."
 
 
-def test_load_entity_unknown_cik_is_empty(make_client, dbs, clock):
+def test_load_entity_missing_submissions_file_is_not_found(make_client, dbs, clock):
     engine, _ = dbs
     url = SUBMISSIONS_URL.format(cik="0000000001")
     result = load_entity(
         make_client(FakeTransport({url: [ok(b"", 404)]})), engine, "1", clock.now()
     )
-    assert isinstance(result, Empty)
+    assert isinstance(result, NotFound) and result.url == url  # no file, not "no company"
