@@ -7,8 +7,13 @@ import pytest
 
 from engine.sec.documents import filing_folder
 from engine.sec.insiders import (
+    BASIS_FORM_NO,
+    BASIS_FORM_ONLY,
+    BASIS_ROW_NO,
+    BASIS_ROW_YES,
     ingest_form4,
     parse_form4,
+    plan_flag,
     raw_xml_name,
     sync_insiders,
     transactions,
@@ -57,7 +62,9 @@ def test_parse_checkbox_form():
         "D",
         390000.0,
     )
-    assert t.is_10b5_1 is True and t.equity_swap is False
+    # Checkbox set on the form, but this row's only footnote is about price: not identified.
+    assert t.is_10b5_1 is None and t.plan_basis == BASIS_FORM_ONLY
+    assert t.equity_swap is False
     assert "Weighted average price" in t.footnotes["F1"]
 
 
@@ -67,8 +74,8 @@ def test_parse_old_form_uses_footnotes_and_declared_encoding():
     assert form.owners[0].name == "Müller Hans"  # ISO-8859-1 decoded correctly
     assert form.owners[0].role == "Director"
     sale, buy = form.transactions
-    assert sale.code == "S" and sale.is_10b5_1 is True  # footnote on the row mentions 10b5-1
-    assert buy.code == "P" and buy.is_10b5_1 is None  # not disclosed, not guessed as False
+    assert sale.code == "S" and sale.is_10b5_1 is True and sale.plan_basis == BASIS_ROW_YES
+    assert buy.code == "P" and buy.is_10b5_1 is None and buy.plan_basis is None  # not disclosed
 
 
 def test_parse_joint_filing_gift_and_exercise():
@@ -77,7 +84,7 @@ def test_parse_joint_filing_gift_and_exercise():
     assert [o.role for o in form.owners] == ["10% Owner", "10% Owner; Other (General partner)"]
     gift, exercise = form.transactions  # the holding row is not a transaction
     assert gift.code == "G" and gift.price is None  # missing stays missing
-    assert gift.is_10b5_1 is False  # checkbox explicitly unset, no 10b5-1 footnote
+    assert gift.is_10b5_1 is False and gift.plan_basis == BASIS_FORM_NO  # checkbox unset
     assert (gift.direct_indirect, gift.nature_of_ownership) == ("I", "By fund")
     assert exercise.table_kind == "derivative" and exercise.code == "M"
     assert (exercise.conversion_price, exercise.underlying_shares) == (45.10, 3000.0)
@@ -108,8 +115,9 @@ def test_ingest_stores_rows_and_document(make_client, dbs, clock):
         "0001111111",
         "Officer (Chief Executive Officer)",
         "S",
-        1,
+        None,
     )
+    assert row["plan_basis"] == BASIS_FORM_ONLY
     doc = engine.execute("SELECT * FROM form4_doc").fetchone()
     assert doc["filename"] == "form4.xml" and doc["aff_10b5_1"] == 1
     assert json.loads(doc["owners"])[0]["role"] == "Officer (Chief Executive Officer)"
@@ -206,3 +214,38 @@ def test_parse_failure_is_failed_not_empty(make_client, dbs, clock):
     res = ingest_form4(make_client(FakeTransport({xml_url(f): [ok(b"<html/>")]})), engine, f,
                        clock.now())  # fmt: skip
     assert isinstance(res, Failed) and "ownershipDocument" in res.reason
+
+
+@pytest.mark.parametrize(
+    ("footnotes", "checkbox", "expected"),
+    [
+        (["Sold pursuant to a Rule 10b5-1 trading plan adopted May 1, 2025."], None,
+         (True, BASIS_ROW_YES)),
+        (["Sold pursuant to a Rule 10b5-1 trading plan adopted May 1, 2025."], False,
+         (True, BASIS_ROW_YES)),  # row evidence beats the form-level box
+        (["These shares were not sold pursuant to a Rule 10b5-1 plan."], True,
+         (False, BASIS_ROW_NO)),
+        (["The transaction was not made under a 10b5-1 trading plan."], None,
+         (False, BASIS_ROW_NO)),
+        (["Price is a weighted average."], True, (None, BASIS_FORM_ONLY)),
+        ([], False, (False, BASIS_FORM_NO)),
+        ([], None, (None, None)),
+        (["Weighted average. The sales were effected under a 10b5-1 plan."], True,
+         (True, BASIS_ROW_YES)),
+    ],
+)  # fmt: skip
+def test_plan_flag(footnotes, checkbox, expected):
+    assert plan_flag(footnotes, checkbox) == expected
+
+
+def test_sync_reports_deferred_separately(make_client, dbs, clock):
+    engine, _ = dbs
+    a, b = filing("0000000042-26-000401", filed="2026-06-02"), filing("0000000042-26-000402")
+    engine.execute("BEGIN")
+    store_filings(engine, [a, b], clock.now())
+    engine.execute("COMMIT")
+    transport = FakeTransport({xml_url(a): [ok(NEW)], xml_url(b): [ok(NEW)]})
+    first = sync_insiders(make_client(transport), engine, ISSUER, clock.now(), limit=1)
+    assert (first.data.ingested, first.data.already, first.data.deferred) == (1, 0, 1)
+    second = sync_insiders(make_client(transport), engine, ISSUER, clock.now(), limit=1)
+    assert (second.data.ingested, second.data.already, second.data.deferred) == (1, 1, 0)

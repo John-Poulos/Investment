@@ -25,3 +25,6 @@ ALTER TABLE insider_txn ADD COLUMN conversion_price NUMERIC;
 ALTER TABLE insider_txn ADD COLUMN underlying_title TEXT;
 ALTER TABLE insider_txn ADD COLUMN underlying_shares NUMERIC;
 ALTER TABLE insider_txn ADD COLUMN footnotes TEXT;   -- JSON {id: text} referenced by the row
+-- Evidence behind is_10b5_1: row footnote (yes/no), form checkbox unset (no),
+-- form checkbox set but row not identified (NULL), NULL = not disclosed.
+ALTER TABLE insider_txn ADD COLUMN plan_basis TEXT;

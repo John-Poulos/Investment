@@ -10,9 +10,12 @@ Insider Transactions Data Sets are a faster backfill path, deferred until checke
 - Every non-derivative and derivative transaction becomes a row; holdings
   without a transaction are not rows. Joint filings keep every reporting owner
   (form4_doc.owners); rows carry the first owner for querying.
-- 10b5-1: 1 if the 2023+ checkbox (aff10b5One) is set or a footnote referenced
-  by the row mentions 10b5-1; 0 if the checkbox is explicitly unset and no such
-  footnote; NULL (not disclosed) otherwise — never guessed as 0.
+- 10b5-1 is judged per row. The 2023+ checkbox (aff10b5One) is per form: the
+  filer ticks it if any transaction was under a plan and footnotes which ones.
+  Row = 1 when a footnote on the row says it was under a 10b5-1 plan; 0 when a
+  row footnote says it was not, or the checkbox is explicitly unset; NULL when
+  the checkbox is set but the row is not identified (form-level flag kept on
+  form4_doc) or nothing is disclosed. `plan_basis` records which applied.
 - Missing values stay missing (a gift with no price stores NULL, not 0).
 """
 
@@ -36,6 +39,12 @@ PARSER_VERSION = "form4-1"
 FORM4_FORMS = ("4", "4/A")
 DOC_TTL_S = 3650 * 86400  # filings are immutable
 _10B51 = re.compile(r"10b5-?1", re.IGNORECASE)
+_NEGATED = re.compile(r"\bnot\b[^.]{0,60}?\b(pursuant|under|made|in accordance)\b", re.IGNORECASE)
+
+BASIS_ROW_YES = "row footnote: under 10b5-1 plan"
+BASIS_ROW_NO = "row footnote: not under 10b5-1 plan"
+BASIS_FORM_NO = "form checkbox unset"
+BASIS_FORM_ONLY = "form checkbox set; row not identified"
 
 
 @dataclass(frozen=True)
@@ -83,6 +92,7 @@ class Transaction:
     underlying_shares: float | None
     footnotes: dict[str, str]
     is_10b5_1: bool | None
+    plan_basis: str | None  # evidence for is_10b5_1; None = not disclosed
 
 
 @dataclass(frozen=True)
@@ -184,13 +194,7 @@ def parse_form4(xml: bytes | str) -> Form4:
     for kind, path in tables:
         for t in root.findall(path):
             refs = {i: footnotes[i] for i in _footnote_ids(t) if i in footnotes}
-            mentions = any(_10B51.search(text) for text in refs.values())
-            if aff is True or mentions:
-                flag: bool | None = True
-            elif aff is False:
-                flag = False
-            else:
-                flag = None
+            flag, basis = plan_flag(refs.values(), aff)
             amounts = t.find("transactionAmounts")
             coding = t.find("transactionCoding")
             underlying = t.find("underlyingSecurity")
@@ -216,6 +220,7 @@ def parse_form4(xml: bytes | str) -> Form4:
                     underlying_shares=_num(_text(underlying, "underlyingSecurityShares")),
                     footnotes=refs,
                     is_10b5_1=flag,
+                    plan_basis=basis,
                 )
             )
 
@@ -230,6 +235,24 @@ def parse_form4(xml: bytes | str) -> Form4:
         transactions=tuple(txns),
         footnotes=footnotes,
     )
+
+
+def plan_flag(
+    row_footnotes: Iterable[str], checkbox: bool | None
+) -> tuple[bool | None, str | None]:
+    """(is_10b5_1, basis) for one row from its footnotes and the form-level checkbox."""
+    verdicts = []
+    for text in row_footnotes:
+        for sentence in re.split(r"(?<=[.;])\s+", text):
+            if _10B51.search(sentence):
+                verdicts.append(not _NEGATED.search(sentence))
+    if verdicts:
+        return (True, BASIS_ROW_YES) if any(verdicts) else (False, BASIS_ROW_NO)
+    if checkbox is False:
+        return False, BASIS_FORM_NO
+    if checkbox is True:
+        return None, BASIS_FORM_ONLY
+    return None, None
 
 
 def raw_xml_name(primary_doc: str | None) -> str | None:
@@ -284,8 +307,8 @@ def store_form4(
         "INSERT INTO insider_txn (accession, line, issuer_cik, owner_cik, owner_name, role, "
         "table_kind, security_title, txn_date, code, acquired_disposed, shares, price, "
         "shares_after, direct_indirect, is_10b5_1, officer_title, deemed_date, equity_swap, "
-        "nature_of_ownership, conversion_price, underlying_title, underlying_shares, footnotes) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "nature_of_ownership, conversion_price, underlying_title, underlying_shares, footnotes, "
+        f"plan_basis) VALUES ({', '.join('?' * 25)})",
         [
             (
                 filing.accession,
@@ -312,6 +335,7 @@ def store_form4(
                 t.underlying_title,
                 t.underlying_shares,
                 json.dumps(t.footnotes) if t.footnotes else None,
+                t.plan_basis,
             )  # fmt: skip
             for t in form.transactions
         ],
@@ -371,7 +395,8 @@ class InsiderSync:
     issuer_cik: str
     filings: int
     ingested: int
-    already: int
+    already: int  # parsed in an earlier run
+    deferred: int  # beyond this run's limit; picked up next run
     transactions: int
     failed: tuple[str, ...] = field(default_factory=tuple)  # "accession: reason"
 
@@ -404,9 +429,8 @@ def sync_insiders(
             "SELECT accession FROM form4_doc WHERE parser_version = ?", (PARSER_VERSION,)
         )
     }
-    todo = [f for f in filings if f.accession not in done]
-    if limit is not None:
-        todo = todo[:limit]
+    pending = [f for f in filings if f.accession not in done]
+    todo = pending if limit is None else pending[:limit]
 
     ingested = rows = 0
     failed = []
@@ -421,8 +445,10 @@ def sync_insiders(
         else:
             reason = res.reason if isinstance(res, Failed) else str(res)
             failed.append(f"{f.accession}: {reason}")
-    summary = InsiderSync(norm, len(filings), ingested, len(filings) - len(todo), rows,
-                          tuple(failed))  # fmt: skip
+    summary = InsiderSync(
+        norm, len(filings), ingested, len(filings) - len(pending), len(pending) - len(todo),
+        rows, tuple(failed),
+    )  # fmt: skip
     return Ok(summary, fetched_at=iso(now))
 
 

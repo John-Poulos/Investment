@@ -339,12 +339,24 @@ def test_insiders_form4(live):
 
     rows = transactions(engine, APPLE)
     codes: dict[str, int] = {}
-    flags = {"yes": 0, "no": 0, "not disclosed": 0}
+    basis: dict[str, int] = {}
+    by_code_basis: dict[tuple[str, str], int] = {}
     for r in rows:
         codes[r["code"]] = codes.get(r["code"], 0) + 1
-        key = {1: "yes", 0: "no", None: "not disclosed"}[r["is_10b5_1"]]
-        flags[key] += 1
-    print(f"rows: {len(rows)}; codes: {codes}; 10b5-1: {flags}")
+        key = f"{r['is_10b5_1']} / {r['plan_basis'] or 'not disclosed'}"
+        basis[key] = basis.get(key, 0) + 1
+        ck = (r["code"], r["plan_basis"] or "not disclosed")
+        by_code_basis[ck] = by_code_basis.get(ck, 0) + 1
+    print(f"rows: {len(rows)}; codes: {codes}")
+    print("10b5-1 (value / basis):")
+    for k, n in sorted(basis.items()):
+        print(f"  {n:>4}  {k}")
+    print("by code and basis:")
+    for (code, b), n in sorted(by_code_basis.items()):
+        print(f"  {code}  {n:>4}  {b}")
+    gifts_yes = [r for r in rows if r["code"] == "G" and r["is_10b5_1"] == 1
+                 and r["plan_basis"] != "row footnote: under 10b5-1 plan"]  # fmt: skip
+    assert not gifts_yes, "gift flagged as a plan trade without row evidence"
     docs = engine.execute(
         "SELECT filename, issuer_ticker, aff_10b5_1 FROM form4_doc WHERE issuer_cik = ?", (APPLE,)
     ).fetchall()
@@ -357,6 +369,6 @@ def test_insiders_form4(live):
         print(
             f"  {r['txn_date']} {r['owner_name']:<22.22} {r['role']:<34.34} {r['code']} "
             f"{r['acquired_disposed']} {r['shares'] or 0:>10,.0f} @ {price:>8} after {after:>12} "
-            f"10b5-1={r['is_10b5_1']} {r['table_kind']}"
+            f"10b5-1={r['is_10b5_1']} ({r['plan_basis'] or 'not disclosed'})"
         )
     assert all(r["issuer_cik"] == APPLE for r in rows)
