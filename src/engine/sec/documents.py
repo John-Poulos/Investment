@@ -33,7 +33,8 @@ SEC_ROOT = "https://www.sec.gov"
 INDEX_TTL_S = 3650 * 86400  # filings are immutable; amendments are new accessions
 DOC_TTL_S = 3650 * 86400  # keeps raw bytes for re-parsing
 PARSER_VERSION = "html-text-1"
-DEFAULT_EXTRA_TYPES = ("EX-99.1",)  # earnings exhibit (R19)
+# Exhibits fetched by default, by form. EX-99.1 = 8-K press release (R19).
+DEFAULT_EXTRA_TYPES: dict[str, tuple[str, ...]] = {"8-K": ("EX-99.1",), "8-K/A": ("EX-99.1",)}
 
 
 @dataclass(frozen=True)
@@ -342,10 +343,14 @@ def ingest_filing(
 ) -> Result[FilingDocs]:
     """Store the documents of `filing` whose type is wanted.
 
-    Default: the primary document (type = the filing's form) plus EX-99.1.
+    Default: the primary document (type = the filing's form), plus EX-99.1 for 8-Ks.
     Documents already stored are not fetched again.
     """
-    wanted = set(types) if types is not None else {filing.form, *DEFAULT_EXTRA_TYPES}
+    wanted = (
+        set(types)
+        if types is not None
+        else {filing.form, *DEFAULT_EXTRA_TYPES.get(filing.form, ())}
+    )
     index = fetch_filing_index(client, filing.cik, filing.accession)
     if not isinstance(index, Ok):
         return index

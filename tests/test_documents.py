@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from engine.sec.documents import (
@@ -148,3 +150,13 @@ def test_ingest_propagates_index_failure(make_client, dbs, clock):
     _, corpus = dbs
     transport = FakeTransport({INDEX_URL: [ok(b"", 503)]})
     assert isinstance(ingest_filing(make_client(transport), corpus, FILING, clock.now()), Failed)
+
+
+def test_ex99_is_a_default_only_for_8k(make_client, dbs, clock):
+    _, corpus = dbs
+    transport = FakeTransport(routes())
+    ten_k = replace(FILING, form="10-K")
+    result = ingest_filing(make_client(transport), corpus, ten_k, clock.now())
+    assert isinstance(result, Ok)
+    assert result.data.not_listed == ("10-K",)  # only the form itself was wanted
+    assert DOC_EX99 not in [c[0] for c in transport.calls]

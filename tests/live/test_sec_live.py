@@ -147,6 +147,7 @@ def test_documents_whole_text(live, form):
         print("  first 400 chars:", text[:400].replace("\n", " | "))
         print("  last 300 chars:", text[-300:].replace("\n", " | "))
         assert leftover < 20, "HTML entities or tags left in extracted text"
+        assert "�" not in text, "replacement characters: text was decoded wrongly"
 
     texts = {d.doc_type: document_text(corpus, d.doc_id) or "" for d in result.data.stored}
     if form == "10-K":
