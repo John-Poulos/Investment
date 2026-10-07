@@ -46,4 +46,5 @@ Model-agnostic; prompts versioned.
 
 ## Open questions
 - LLM provider and cost — decide at the R19 build.
+- BM25 favors short sections: live 2026-10-07, "risk factors" ranked 10-K Items 1C, cover and 7 above Item 1A (68k chars). Decide ranking at the search build: label filters (`label:"Item 1A"`), column weights, or length normalization.
 - Free news feeds for M02 (semis, AI infrastructure, energy, robotics).
