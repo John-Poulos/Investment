@@ -14,6 +14,7 @@ import pytest
 
 from engine.sec.client import SecClient, user_agent_from_env, utc_now
 from engine.sec.documents import document_text, ingest_filing
+from engine.sec.frames import concept_frame, peer_stats, robust_z, ttm_frame, yoy_growth
 from engine.sec.identity import SUBMISSIONS_URL, load_entity, resolve
 from engine.sec.results import NotFound, Ok
 from engine.sec.submissions import earnings_releases, stored_filings, sync_filings
@@ -246,3 +247,60 @@ def test_xbrl_facts_series(live):
     capex_q = get_series(engine, APPLE, "capex", "Q")
     assert any(q.method.startswith("derived") for q in capex_q), "capex quarters not derived"
     assert get_series(engine, APPLE, "eps_diluted", "TTM") == []
+
+
+SEMIS = {
+    "0001045810": "NVDA",
+    "0000002488": "AMD",
+    "0000050863": "INTC",
+    "0000723125": "MU",
+    "0001730168": "AVGO",
+    "0000804328": "QCOM",
+    "0000097476": "TXN",
+    "0000006281": "ADI",
+}
+
+
+def test_frames_match_companyfacts_and_peer_stats(live):
+    """Frames cross-checked against AAPL's own series; semis TTM YoY growth vs peers."""
+    client, engine = live
+    if not get_series(engine, APPLE, "revenue", "Q"):
+        assert isinstance(sync_facts(client, engine, APPLE, utc_now(), force=True), Ok)
+
+    rev = concept_frame(client, engine, "revenue", "CY2025Q2", utc_now())
+    assert isinstance(rev, Ok) and rev.data.complete
+    print(f"\nrevenue CY2025Q2: {len(rev.data.values):,} companies; tags 404: "
+          f"{[p.query for p in rev.data.tags_missing]}")  # fmt: skip
+    aapl = rev.data.values[APPLE]
+    own = next(q for q in get_series(engine, APPLE, "revenue", "Q") if q.end == "2025-06-28")
+    print(f"AAPL frame {aapl.value:,} ({aapl.tag}, {aapl.start}..{aapl.end}) vs series "
+          f"{own.latest.value:,}")  # fmt: skip
+    assert aapl.value == own.latest.value and aapl.end == own.end
+
+    assets = concept_frame(client, engine, "total_assets", "CY2025Q2I", utc_now())
+    assert isinstance(assets, Ok)
+    own_assets = next(i for i in get_series(engine, APPLE, "total_assets", "I")
+                      if i.end == "2025-06-28")  # fmt: skip
+    print(f"AAPL assets frame {assets.data.values[APPLE].value:,} vs series "
+          f"{own_assets.latest.value:,}")  # fmt: skip
+    assert assets.data.values[APPLE].value == own_assets.latest.value
+
+    now = ttm_frame(client, engine, "revenue", 2025, 2, utc_now())
+    year_ago = ttm_frame(client, engine, "revenue", 2024, 2, utc_now())
+    assert isinstance(now, Ok) and isinstance(year_ago, Ok)
+    growth = yoy_growth(now.data, year_ago.data)
+    stats = peer_stats(growth, SEMIS)
+    print(
+        f"\nsemis TTM revenue YoY to CY2025Q2: n={stats.n}, median={stats.median:.1%}, "
+        f"q1={stats.q1:.1%}, q3={stats.q3:.1%}, low_confidence={stats.low_confidence}"
+    )
+    print(f"  missing: {[SEMIS[c] for c in stats.missing]}")
+    for cik, ticker in SEMIS.items():
+        v = now.data.values.get(cik)
+        g = growth.get(cik)
+        z = robust_z(g, stats)
+        gs = "n/a" if g is None else f"{g:+.1%}"
+        zs = "n/a" if z is None else f"{z:+.2f}"
+        ttm = f"{v.value:,}" if v else "missing"
+        print(f"  {ticker:<5} TTM {ttm:>18}  growth {gs:>8}  z {zs:>6}  tags {v.tag if v else '-'}")
+    assert stats.n >= 5
