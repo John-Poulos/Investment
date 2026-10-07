@@ -11,9 +11,13 @@ company's fiscal period to the nearest calendar period.
 - Peer statistics: median, quartiles, robust z = (x − median) ÷ (IQR ÷ 1.35).
   Peers without a value are listed, never counted as zero; fewer than five peers
   is flagged low confidence (M04 switches to its fixed-gap fallback).
-- TTM = four calendar-quarter frames summed, only for companies with all four.
-  Cash-flow items reported year-to-date only rarely appear in quarterly frames;
-  use xbrl_facts series for those.
+- Frame TTM = four calendar-quarter frames summed, only for companies with all
+  four. Live 2026-10-07: calendar-Q4 frames are sparse (most companies report Q4
+  only inside the annual figure), so frame TTM misses most companies. Peer TTM,
+  quarterly flows and growth therefore come from each peer's own xbrl_facts
+  series (series_values, series_yoy), which derives Q4 and TTM and avoids
+  calendar alignment for off-calendar fiscal years. Frames remain the source
+  for instants, annual values and market-wide breadth.
 """
 
 from __future__ import annotations
@@ -29,7 +33,7 @@ from typing import Any
 from engine.sec.client import SecClient, iso
 from engine.sec.identity import normalize_cik
 from engine.sec.results import Failed, NotFound, Ok, Probe, Result
-from engine.sec.xbrl_facts import CONCEPT_BY_NAME, Concept
+from engine.sec.xbrl_facts import CONCEPT_BY_NAME, Concept, get_series
 
 FRAMES_URL = "https://data.sec.gov/api/xbrl/frames/{taxonomy}/{tag}/{unit}/{period}.json"
 FRAME_BACKSTOP = timedelta(days=30)
@@ -302,3 +306,63 @@ def yoy_growth(now: ConceptFrame, year_ago: ConceptFrame) -> dict[str, float]:
 
 def values_of(frame: ConceptFrame) -> dict[str, float]:
     return {cik: v.value for cik, v in frame.values.items()}
+
+
+# --- Peer values from each company's own series ------------------------------------
+
+
+def series_values(
+    engine: sqlite3.Connection,
+    ciks: Iterable[str],
+    concept: str,
+    ptype: str,
+    target_end: str,
+    *,
+    tolerance_days: int = 45,
+    version: str = "latest",
+) -> dict[str, FrameValue]:
+    """Each peer's series point (Q, FY, TTM or I) ending closest to `target_end`.
+
+    Requires sync_facts for each peer. Peers without a point within the tolerance
+    are absent (missing, not zero); fiscal calendars that differ by up to the
+    tolerance are compared as the same period.
+    """
+    target = date.fromisoformat(target_end)
+    out = {}
+    for raw in ciks:
+        cik = normalize_cik(raw) or raw
+        best, best_gap = None, None
+        for row in get_series(engine, cik, concept, ptype):
+            gap = abs((date.fromisoformat(row.end) - target).days)
+            if gap <= tolerance_days and (best_gap is None or gap < best_gap):
+                best, best_gap = row, gap
+        if best is not None:
+            v = getattr(best, version)
+            out[cik] = FrameValue(
+                cik, v.value, best.method, v.accession, best.start, best.end, None
+            )
+    return out
+
+
+def series_yoy(
+    engine: sqlite3.Connection,
+    ciks: Iterable[str],
+    concept: str,
+    target_end: str,
+    *,
+    ptype: str = "TTM",
+    tolerance_days: int = 45,
+) -> dict[str, float]:
+    """Year-over-year growth per peer from its own series (TTM by default)."""
+    peers = list(ciks)
+    now = series_values(engine, peers, concept, ptype, target_end, tolerance_days=tolerance_days)
+    year_ago_end = (date.fromisoformat(target_end) - timedelta(days=364)).isoformat()
+    before = series_values(
+        engine, peers, concept, ptype, year_ago_end, tolerance_days=tolerance_days
+    )
+    out = {}
+    for cik, v in now.items():
+        prior = before.get(cik)
+        if prior is not None and prior.value > 0 and v.end != prior.end:
+            out[cik] = v.value / prior.value - 1
+    return out

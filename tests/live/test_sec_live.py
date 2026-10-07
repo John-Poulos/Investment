@@ -14,7 +14,14 @@ import pytest
 
 from engine.sec.client import SecClient, user_agent_from_env, utc_now
 from engine.sec.documents import document_text, ingest_filing
-from engine.sec.frames import concept_frame, peer_stats, robust_z, ttm_frame, yoy_growth
+from engine.sec.frames import (
+    concept_frame,
+    peer_stats,
+    robust_z,
+    series_values,
+    series_yoy,
+    ttm_frame,
+)
 from engine.sec.identity import SUBMISSIONS_URL, load_entity, resolve
 from engine.sec.results import NotFound, Ok
 from engine.sec.submissions import earnings_releases, stored_filings, sync_filings
@@ -262,7 +269,7 @@ SEMIS = {
 
 
 def test_frames_match_companyfacts_and_peer_stats(live):
-    """Frames cross-checked against AAPL's own series; semis TTM YoY growth vs peers."""
+    """Frames cross-checked against AAPL's own series; semis TTM YoY growth from own series."""
     client, engine = live
     if not get_series(engine, APPLE, "revenue", "Q"):
         assert isinstance(sync_facts(client, engine, APPLE, utc_now(), force=True), Ok)
@@ -285,22 +292,34 @@ def test_frames_match_companyfacts_and_peer_stats(live):
           f"{own_assets.latest.value:,}")  # fmt: skip
     assert assets.data.values[APPLE].value == own_assets.latest.value
 
-    now = ttm_frame(client, engine, "revenue", 2025, 2, utc_now())
-    year_ago = ttm_frame(client, engine, "revenue", 2024, 2, utc_now())
-    assert isinstance(now, Ok) and isinstance(year_ago, Ok)
-    growth = yoy_growth(now.data, year_ago.data)
+    # Frame TTM coverage: calendar-Q4 frames are sparse, so few companies get a frame TTM.
+    frame_ttm = ttm_frame(client, engine, "revenue", 2025, 2, utc_now())
+    assert isinstance(frame_ttm, Ok)
+    covered = [SEMIS[c] for c in SEMIS if c in frame_ttm.data.values]
+    print(f"\nframe TTM CY2025Q2: {len(frame_ttm.data.values):,} of {len(rev.data.values):,} "
+          f"companies; semis covered: {covered}")  # fmt: skip
+
+    # Peer growth from each peer's own series (derived Q4, TTM, own fiscal calendar).
+    for cik in SEMIS:
+        res = sync_facts(client, engine, cik, utc_now(), force=True)
+        assert isinstance(res, Ok), f"{SEMIS[cik]}: {res}"
+    growth = series_yoy(engine, SEMIS, "revenue", "2025-06-30")
     stats = peer_stats(growth, SEMIS)
+
+    def pct(x):
+        return "n/a" if x is None else f"{x:+.1%}"
+
     print(
-        f"\nsemis TTM revenue YoY to CY2025Q2: n={stats.n}, median={stats.median:.1%}, "
-        f"q1={stats.q1:.1%}, q3={stats.q3:.1%}, low_confidence={stats.low_confidence}"
+        f"\nsemis TTM revenue YoY to ~2025-06-30 (own series): n={stats.n}, "
+        f"median={pct(stats.median)}, q1={pct(stats.q1)}, q3={pct(stats.q3)}, "
+        f"low_confidence={stats.low_confidence}, missing={[SEMIS[c] for c in stats.missing]}"
     )
-    print(f"  missing: {[SEMIS[c] for c in stats.missing]}")
+    ttm_now = series_values(engine, SEMIS, "revenue", "TTM", "2025-06-30")
     for cik, ticker in SEMIS.items():
-        v = now.data.values.get(cik)
-        g = growth.get(cik)
-        z = robust_z(g, stats)
-        gs = "n/a" if g is None else f"{g:+.1%}"
+        v = ttm_now.get(cik)
+        z = robust_z(growth.get(cik), stats)
         zs = "n/a" if z is None else f"{z:+.2f}"
         ttm = f"{v.value:,}" if v else "missing"
-        print(f"  {ticker:<5} TTM {ttm:>18}  growth {gs:>8}  z {zs:>6}  tags {v.tag if v else '-'}")
+        end = v.end if v else "-"
+        print(f"  {ticker:<5} TTM {ttm:>18} to {end}  growth {pct(growth.get(cik)):>8}  z {zs:>6}")
     assert stats.n >= 5

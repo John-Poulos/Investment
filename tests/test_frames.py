@@ -13,6 +13,8 @@ from engine.sec.frames import (
     peer_stats,
     previous_quarters,
     robust_z,
+    series_values,
+    series_yoy,
     ttm_frame,
     values_of,
     yoy_growth,
@@ -189,3 +191,37 @@ def test_frame_404_is_not_found(make_client, dbs, clock):
     result = fetch_frame(make_client(transport), engine, TOP[0], TOP[1], "USD", "CY2010Q1",
                          clock.now())  # fmt: skip
     assert isinstance(result, NotFound)
+
+
+def put_series(engine, cik, end, value, ptype="TTM", concept="revenue"):
+    engine.execute(
+        "INSERT INTO series (cik, concept, period_end, period_type, period_start, unit, "
+        "first_value, first_accession, first_filed, latest_value, latest_accession, latest_filed, "
+        "method, parser_version) VALUES (?, ?, ?, ?, NULL, 'USD', ?, 'a1', 'f1', ?, 'a2', 'f2', "
+        "'TTM sum of quarters', 'facts-1')",
+        (cik, concept, end, ptype, value - 1, value),
+    )
+
+
+def test_series_values_pick_closest_period_within_tolerance(dbs):
+    engine, _ = dbs
+    put_series(engine, A, "2025-06-28", 400)  # off-calendar fiscal quarter end
+    put_series(engine, A, "2025-03-29", 380)
+    put_series(engine, B, "2025-06-30", 900)
+    put_series(engine, C, "2025-01-31", 50)  # too far from the target: missing, not zero
+    got = series_values(engine, [A, B, C], "revenue", "TTM", "2025-06-30")
+    assert {c: v.value for c, v in got.items()} == {A: 400, B: 900}
+    assert got[A].end == "2025-06-28" and got[A].accession == "a2"
+    first = series_values(engine, [A], "revenue", "TTM", "2025-06-30", version="first")
+    assert first[A].value == 399
+
+
+def test_series_yoy(dbs):
+    engine, _ = dbs
+    put_series(engine, A, "2025-06-28", 120)
+    put_series(engine, A, "2024-06-29", 100)
+    put_series(engine, B, "2025-06-30", 50)
+    put_series(engine, B, "2024-06-30", -10)  # non-positive prior: no growth
+    put_series(engine, C, "2025-06-30", 70)  # no prior year: no growth
+    growth = series_yoy(engine, [A, B, C], "revenue", "2025-06-30")
+    assert growth == {A: pytest.approx(0.2)}
