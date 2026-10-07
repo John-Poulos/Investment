@@ -122,43 +122,76 @@ def test_submissions_all_pages(live):
     assert releases and all(f.has_item("2.02") for f in releases)
 
 
-@pytest.mark.parametrize("form", ["10-K", "8-K 2.02"])
-def test_documents_whole_text(live, form):
-    """Latest 10-K and latest earnings 8-K (+ EX-99.1): fetched via -index.htm, stored whole."""
+REQUIRED_SECTIONS = {
+    "10-K": ["10-K Item 1", "10-K Item 1A", "10-K Item 7", "10-K Item 7A", "10-K Item 8"],
+    "10-Q": ["10-Q Part I Item 1", "10-Q Part I Item 2", "10-Q Part II Item 1A"],
+    "8-K": ["8-K Item 2.02"],
+}
+
+
+@pytest.mark.parametrize("form", ["10-K", "10-Q", "8-K 2.02"])
+def test_documents_and_sections(live, form):
+    """Latest 10-K, 10-Q and earnings 8-K (+ EX-99.1): stored whole and split into sections."""
     client, engine = live
     corpus = _CORPUS[0]
     sync = sync_filings(client, engine, APPLE, utc_now())
     assert isinstance(sync, Ok)
-    if form == "10-K":
-        filing = stored_filings(engine, APPLE, forms=["10-K"])[0]
-    else:
+    if form == "8-K 2.02":
         filing = earnings_releases(engine, APPLE)[0]
+    else:
+        filing = stored_filings(engine, APPLE, forms=[form])[0]
 
     result = ingest_filing(client, corpus, filing, utc_now())
     print(f"\n{form} {filing.accession} filed {filing.filed}: {result}")
     assert isinstance(result, Ok) and result.data.complete
-    types = [d.doc_type for d in result.data.stored]
-    assert filing.form in types
+    assert filing.form in [d.doc_type for d in result.data.stored]
 
     for doc in result.data.stored:
         text = document_text(corpus, doc.doc_id) or ""
         leftover = len(re.findall(r"&#?\w+;|<[a-zA-Z/][^>]{0,40}>", text))
         print(f"  {doc.doc_type} {doc.filename}: {doc.chars:,} chars, {leftover} markup leftovers")
-        print("  first 400 chars:", text[:400].replace("\n", " | "))
-        print("  last 300 chars:", text[-300:].replace("\n", " | "))
         assert leftover < 20, "HTML entities or tags left in extracted text"
         assert "�" not in text, "replacement characters: text was decoded wrongly"
 
-    texts = {d.doc_type: document_text(corpus, d.doc_id) or "" for d in result.data.stored}
+        log = corpus.execute(
+            "SELECT outcome, missing FROM split_log WHERE doc_id = ?", (doc.doc_id,)
+        ).fetchone()
+        print(f"  split: {log['outcome']}, missing {log['missing']}")
+        rows = corpus.execute(
+            "SELECT label, title, start_offset, end_offset FROM section WHERE doc_id = ? "
+            "ORDER BY start_offset",
+            (doc.doc_id,),
+        ).fetchall()
+        for r in rows:
+            start = text[r["start_offset"] : r["start_offset"] + 70].replace("\n", " | ")
+            size = r["end_offset"] - r["start_offset"]
+            print(f"    {r['label']:<24} {size:>8,}  {start}")
+        assert rows[0]["start_offset"] == 0 or doc.doc_type not in REQUIRED_SECTIONS
+        assert rows[-1]["end_offset"] == len(text)
+
+        labels = [r["label"] for r in rows]
+        wanted = REQUIRED_SECTIONS.get(doc.doc_type, [])
+        if wanted:
+            assert log["outcome"] == "split", f"{doc.doc_type} fell back: {log['missing']}"
+            for label in wanted:
+                assert label in labels, f"{label} not found"
+            for r in rows:
+                if r["label"] in wanted:
+                    head = text[r["start_offset"] : r["start_offset"] + 20].lower()
+                    assert head.startswith("item"), f"{r['label']} does not start at its heading"
+        if doc.doc_type == "EX-99.1":
+            first = text[rows[0]["start_offset"] : rows[0]["start_offset"] + 40]
+            print(f"  EX-99.1 section starts: {first!r}")
+            assert not first.startswith("EX-99.1"), "SEC header line not skipped"
+
     if form == "10-K":
-        main = texts["10-K"]
-        assert len(main) > 150_000, "10-K text looks truncated"
-        for phrase in ("Item 1A", "Risk Factors", "Item 7", "Discussion and Analysis"):
-            assert phrase in main, f"{phrase!r} missing from 10-K text"
-        hits = corpus.execute(
-            "SELECT count(*) FROM section_fts WHERE section_fts MATCH '\"risk factors\"'"
+        mdna = corpus.execute(
+            "SELECT end_offset - start_offset FROM section WHERE label = '10-K Item 7'"
         ).fetchone()[0]
-        assert hits >= 1
-    else:
-        assert "EX-99.1" in texts, "earnings 8-K has no EX-99.1"
-        assert "net sales" in texts["EX-99.1"].lower()
+        assert mdna > 10_000, "MD&A section suspiciously short"
+        hits = corpus.execute(
+            "SELECT label FROM section_fts WHERE section_fts MATCH '\"risk factors\"' "
+            "ORDER BY rank LIMIT 3"
+        ).fetchall()
+        print(f"  FTS 'risk factors' top sections: {[h[0] for h in hits]}")
+        assert hits

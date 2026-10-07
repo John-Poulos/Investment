@@ -79,6 +79,7 @@ Freshness is event-driven (SEC data changes only when a company files); backstop
 - D-STO-4 (2026-10-07): Migration 0002 rebuilds `fetch_log` and `http_cache` for the `not_found` outcome (D-SEC-4) and adds `ticker_refresh_log` (D-SEC-5).
 - D-STO-5 (2026-10-07): Migration 0003 adds `filing_cik` and filing `is_inline_xbrl`, `size` (D-SEC-6).
 - D-STO-6 (2026-10-07): corpus migration 0003 adds document `parser_version`, `encoding`, `raw_size`, `description` (D-SEC-7).
+- D-STO-7 (2026-10-07): corpus migration 0004 adds section `title`, `splitter_version` and `split_log` (one row per document: outcome split/fallback/single, sections found, required items missing) (D-SRCH-4).
 
 ## Open questions
 - Backfill universe: watchlist size and peers per group.

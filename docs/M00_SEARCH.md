@@ -42,7 +42,9 @@ Model-agnostic; prompts versioned.
 - D-SRCH-1 (2026-10-06): No character limits on analysis text (owner).
 - D-SRCH-2 (2026-10-06): LLM only on curated, stored data; outputs grounded in sourced passages (owner).
 - D-SRCH-3 (2026-10-07): Design approved by owner (D26, was P9).
+- D-SRCH-4 (2026-10-07): Section splitter built (`sec/sections.py`, version items-1). Splits stored text at line-start "Item N" headings, never changing the text. 10-K headings appear in the table of contents and the body: items are taken in order and, for each, the occurrence after the previous item with the longest body wins. 10-Q labels carry the part (item numbers repeat). Sections tile the document: cover, items, signatures. Required items missing (10-K 1/7/8; 10-Q Part I 1/2; 8-K any) → one "whole" section; every outcome and what was missing goes to `split_log`, countable per form. Exhibits: one section starting after SEC's header lines. `resplit()` re-runs on stored text after a splitter change.
 
 ## Open questions
 - LLM provider and cost — decide at the R19 build.
+- BM25 favors short sections: live 2026-10-07, "risk factors" ranked 10-K Items 1C, cover and 7 above Item 1A (68k chars). Decide ranking at the search build: label filters (`label:"Item 1A"`), column weights, or length normalization.
 - Free news feeds for M02 (semis, AI infrastructure, energy, robotics).
