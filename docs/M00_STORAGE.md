@@ -19,7 +19,8 @@ Settings: WAL mode, `busy_timeout` 5 s, foreign keys on, `synchronous=NORMAL`. W
 | entity | cik | name, SIC, fiscal year end, exchange |
 | ticker | ticker, valid_from | maps to cik; keeps ticker history |
 | peer_group / peer_member | group_id, cik | source = SIC or owner (D19) |
-| filing | accession | cik, form, filed, accepted_at, report_date, 8-K items, primary_doc, ingested_at |
+| filing | accession | cik (first lister), form, filed, accepted_at, report_date, 8-K items, primary_doc, is_xbrl, is_inline_xbrl, size, ingested_at |
+| filing_cik | accession, cik | every CIK whose submissions list the accession |
 | fact | cik, taxonomy, tag, unit, start, end, accession | every reported value with filed date (point-in-time) |
 | series | cik, concept, period_end, period_type | first and latest value + accessions, method, parser_version |
 | frame_value | taxonomy, tag, unit, frame, cik | peer-median source |
@@ -76,6 +77,8 @@ Freshness is event-driven (SEC data changes only when a company files); backstop
 - D-STO-2 (2026-10-07): Design approved by owner (D25, was P8).
 - D-STO-3 (2026-10-07): Schema 0001 built (`engine/store/migrations/`). corpus.db: `document` holds full text, `section` holds offsets, `section_fts` is a self-contained FTS5 table (porter unicode61) so snippet()/highlight() work; `http_cache` holds raw responses. Instant facts have NULL period_start; uniqueness via an expression index. Each migration runs in one transaction with its schema_version row.
 - D-STO-4 (2026-10-07): Migration 0002 rebuilds `fetch_log` and `http_cache` for the `not_found` outcome (D-SEC-4) and adds `ticker_refresh_log` (D-SEC-5).
+- D-STO-5 (2026-10-07): Migration 0003 adds `filing_cik` and filing `is_inline_xbrl`, `size` (D-SEC-6).
+- D-STO-6 (2026-10-07): corpus migration 0003 adds document `parser_version`, `encoding`, `raw_size`, `description` (D-SEC-7).
 
 ## Open questions
 - Backfill universe: watchlist size and peers per group.

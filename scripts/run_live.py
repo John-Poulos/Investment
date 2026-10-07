@@ -8,6 +8,7 @@ Writes logs/live_<label>_<YYYYMMDD-HHMMSS>.txt and prints its path.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from datetime import datetime
@@ -24,11 +25,20 @@ def main() -> int:
     log = logs / f"live_{label}_{datetime.now():%Y%m%d-%H%M%S}.txt"
 
     cmd = [sys.executable, "-m", "pytest", "-m", "live", "-v", "-s", *extra]
+    # Redirected output on Windows defaults to cp1252, which cannot print characters
+    # such as the ☒ on 10-K cover pages and garbles dashes; force UTF-8 like the log file.
+    env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
     with log.open("w", encoding="utf-8") as out:
         out.write(f"command: {' '.join(cmd)}\ncwd: {ROOT}\nstarted: {datetime.now()}\n\n")
         out.flush()
         proc = subprocess.run(
-            cmd, cwd=ROOT, stdout=out, stderr=subprocess.STDOUT, text=True, encoding="utf-8"
+            cmd,
+            cwd=ROOT,
+            env=env,
+            stdout=out,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
         )
         out.write(f"\nexit code: {proc.returncode}\n")
 
