@@ -29,12 +29,15 @@ dev = [
 
 [tool.ruff]
 line-length = 100
+extend-exclude = ["reference"]
+force-exclude = true
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "PTH"]
 
 [tool.ruff.format]
 line-ending = "lf"
+
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

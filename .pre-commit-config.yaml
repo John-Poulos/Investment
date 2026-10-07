@@ -1,5 +1,6 @@
 # Refresh versions:  uv run pre-commit autoupdate
 # Run on all files:  uv run pre-commit run --all-files
+exclude: '^reference/'
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0

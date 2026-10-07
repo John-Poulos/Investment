@@ -4,8 +4,8 @@ Updated 2026-10-06 · Basis: investment_strategy.txt (a guideline, not a spec) �
 
 ## Resume here
 - **Phase:** 2 — build M00 (SEC data, storage, search). Owner's old code reviewed; data-layer plan approved with SQLite storage.
-- **Environment (2026-10-06):** venv in C:\dev\Investment; FTS5 verified; tzdata installed. Tooling files provided: .gitattributes, .gitignore, .pre-commit-config.yaml, CLAUDE.md.
-- **Next action:** owner runs setup (uv init, tooling, first commit, private repo, Claude Project syncs docs/); owner approves P8–P9 → build `client.py`, `identity.py`, schema + migrations, fixture tests.
+- **Environment (2026-10-06):** repo at C:\dev\Investment with .venv inside; GitHub repo John-Poulos/Investment (branch main, to be private); FTS5 verified; tzdata installed. Tooling files provided: .gitattributes, .gitignore, .pre-commit-config.yaml, CLAUDE.md, .claude/settings.json.
+- **Next action:** owner finishes setup (push to John-Poulos/Investment; Claude Project with docs/ synced and project instructions; Code tab opened on C:\dev\Investment; old engine files in reference/old_engine/); owner approves P8–P9 → build `client.py`, `identity.py`, schema + migrations, fixture tests (Code tab).
 - **Awaiting owner:** P8 storage, P9 search/LLM; M01 review.
 - **Parked:** Q2 (at M09), Q3 (at M07), Q5 (at M12); M02 design questions (M02_THEMES.md); M04 red flags still to design (M04 open questions).
 
@@ -64,7 +64,7 @@ In docs/: DESIGN.md · SOURCES.md · MODULE_TEMPLATE.md · M00_SEC_DATA.md · M0
 - **D21** LLM only on curated, stored data; every output cites stored passages and is mechanically verified (M00_SEARCH.md).
 - **D22** No character limits on analysis text; limits for display only.
 - **D23** M02 discovers themes in filings and news and suggests them; owner decides.
-- **D24** Repo and tooling per P7 (owner proceeding 2026-10-06): uv, ruff (`ruff-check` + `ruff-format`), pytest (live SEC tests opt-in via `-m live`), pre-commit with gitleaks; LF line endings, CRLF for .ps1/.bat/.cmd; `tests/fixtures/` byte-exact; CLAUDE.md loads DESIGN.md for Code-tab sessions.
+- **D24** Repo and tooling per P7 (owner proceeding 2026-10-06): uv, ruff (`ruff-check` + `ruff-format`), pytest (live SEC tests opt-in via `-m live`), pre-commit with gitleaks; LF line endings, CRLF for .ps1/.bat/.cmd; `tests/fixtures/` byte-exact; CLAUDE.md loads DESIGN.md for Code-tab sessions; `.claude/settings.json` (committed) denies reading .env and data/, allows tests/lint/uv sync/read-only git, asks before git push, uv add and live SEC tests; old engine code kept read-only in `reference/old_engine/` (excluded from ruff).
 
 ## Approved revisions for modules without docs yet
 - **M03** Two S-curve types: (A) young company on its first curve; (B) established company with a new curve, tracked via segment data. (R6) Bessembinder stated as wealth creation. (R14)

@@ -10,6 +10,9 @@ Start here: @docs/DESIGN.md (resume point, decisions, working agreements)
 - No character limits on analysis text. Missing data stays missing, never zero.
 - LLM output is accepted only with a verbatim quote verified against a stored passage.
 
+## Reference code
+Owner's old engine (pharma app) in `reference/old_engine/`: read-only source for reuse; never imported. What to keep, change or drop is mapped in `docs/M00_SEC_DATA.md`.
+
 ## Environment
 Windows 11 · Python via uv · SQLite (WAL) in data/ · repo at C:\dev\Investment
 
