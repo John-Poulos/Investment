@@ -29,6 +29,7 @@ Settings: WAL mode, `busy_timeout` 5 s, foreign keys on, `synchronous=NORMAL`. W
 | signal | ticker, module_id, signal, timeframe, as_of | D13 record |
 | extraction | id | LLM item + quote + passage_id + verification result (M00_SEARCH.md) |
 | guidance | id | R19 ledger: metric, period, range, unit, stated_on, source_ref, status |
+| event | accession, item, cik | one row per 8-K item: category, severity, title, consuming modules, amended flag, catalog version |
 | review_queue | id | D8 items awaiting owner |
 | position / lot / decision | ids | owner portfolio, tax lots, profile of record (D12) |
 | fetch_log | id | every call: url, outcome (ok/not_found/failed/throttled), detail, at |
@@ -83,6 +84,7 @@ Freshness is event-driven (SEC data changes only when a company files); backstop
 - D-STO-7 (2026-10-07): corpus migration 0004 adds section `title`, `splitter_version` and `split_log` (one row per document: outcome split/fallback/single, sections found, required items missing) (D-SRCH-4).
 - D-STO-8 (2026-10-07): engine migration 0004 adds `frame_value.period_start` (D-SEC-9).
 - D-STO-9 (2026-10-07): engine migration 0005 adds `form4_doc` and Form 4 detail columns on `insider_txn` (D-SEC-10).
+- D-STO-10 (2026-10-07): engine migration 0006 adds `event` (D-SEC-11).
 
 ## Open questions
 - Backfill universe: watchlist size and peers per group.

@@ -319,6 +319,12 @@ def stored_filings(
     return rows
 
 
+def filing_by_accession(conn: sqlite3.Connection, accession: str) -> Filing | None:
+    """One stored filing, attributed to the CIK that first listed it."""
+    row = conn.execute("SELECT * FROM filing WHERE accession = ?", (accession,)).fetchone()
+    return _filing_from_row(row, row["cik"]) if row else None
+
+
 def earnings_releases(conn: sqlite3.Connection, cik: str, since: str | None = None) -> list[Filing]:
     """8-Ks carrying Item 2.02 (results of operations), not just any 8-K (R19)."""
     return stored_filings(conn, cik, forms=("8-K", "8-K/A"), since=since, item="2.02")
