@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import date
 
 import pytest
 
@@ -16,6 +17,7 @@ from engine.sec.documents import document_text, ingest_filing
 from engine.sec.identity import SUBMISSIONS_URL, load_entity, resolve
 from engine.sec.results import NotFound, Ok
 from engine.sec.submissions import earnings_releases, stored_filings, sync_filings
+from engine.sec.xbrl_facts import get_series, sync_facts
 from engine.store.db import open_db
 from engine.store.http import SqliteCache, SqliteFetchLog
 
@@ -195,3 +197,52 @@ def test_documents_and_sections(live, form):
         ).fetchall()
         print(f"  FTS 'risk factors' top sections: {[h[0] for h in hits]}")
         assert hits
+
+
+def test_xbrl_facts_series(live):
+    """AAPL companyfacts: concept map, derived quarters, TTM, point-in-time versions."""
+    client, engine = live
+    result = sync_facts(client, engine, APPLE, utc_now(), force=True)
+    assert isinstance(result, Ok)
+    s = result.data
+    print(f"\nfacts: {s.facts_seen:,} seen, {s.facts_new:,} new, {s.series_rows:,} series rows")
+    for concept, tags in s.concepts.items():
+        print(f"  {concept:<24} {', '.join(tags)}")
+    print(f"missing: {[p.path for p in s.missing]}")
+    print(f"skipped units: {s.skipped_units}")
+    for name in ("revenue", "net_income", "operating_cash_flow", "cash", "total_assets"):
+        assert name in s.concepts, f"{name} not mapped"
+
+    for concept in ("revenue", "capex", "net_income"):
+        quarters = get_series(engine, APPLE, concept, "Q")
+        print(f"\n{concept} last 6 quarters (first → latest, method):")
+        for q in quarters[-6:]:
+            print(f"  {q.start}..{q.end}  {q.first.value:>18,} → {q.latest.value:>18,}  {q.method}")
+        restated = [q for q in quarters if q.restated]
+        print(f"  quarters: {len(quarters)}, restated: {len(restated)}")
+
+    revenue_q = get_series(engine, APPLE, "revenue", "Q")
+    last8 = revenue_q[-8:]
+    for a, b in zip(last8, last8[1:], strict=False):
+        gap = (date.fromisoformat(b.start) - date.fromisoformat(a.end)).days
+        assert gap == 1, f"revenue quarters not contiguous: {a.end} → {b.start}"
+
+    # Cross-check with the Q3 FY2026 press release text: "quarterly revenue of $109.4 billion".
+    q3 = next((q for q in revenue_q if q.end == "2026-06-27"), None)
+    assert q3 is not None, "no revenue quarter ending 2026-06-27"
+    print(f"\nQ3 FY2026 revenue (XBRL): {q3.latest.value:,}")
+    assert abs(q3.latest.value - 109.4e9) < 0.06e9
+
+    # TTM at a fiscal year end equals the reported FY (latest values), and derived Q4s exist.
+    fy = {r.end: r for r in get_series(engine, APPLE, "revenue", "FY")}
+    ttm = {r.end: r for r in get_series(engine, APPLE, "revenue", "TTM")}
+    shared = sorted(set(fy) & set(ttm))[-3:]
+    print(
+        f"FY vs TTM at year ends: {[(e, fy[e].latest.value, ttm[e].latest.value) for e in shared]}"
+    )
+    assert shared
+    for end in shared:
+        assert abs(fy[end].latest.value - ttm[end].latest.value) <= 0.001 * fy[end].latest.value
+    capex_q = get_series(engine, APPLE, "capex", "Q")
+    assert any(q.method.startswith("derived") for q in capex_q), "capex quarters not derived"
+    assert get_series(engine, APPLE, "eps_diluted", "TTM") == []
