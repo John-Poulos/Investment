@@ -1,0 +1,44 @@
+# --- Secrets and personal settings ---
+.env
+.env.*
+!.env.example
+CLAUDE.local.md
+.claude/settings.local.json
+
+# --- Data: SQLite databases, raw SEC cache, downloads ---
+data/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+
+# --- Tool caches and reports ---
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Logs and run reports ---
+logs/
+*.log
+
+# --- Editors and Windows ---
+.vscode/
+.idea/
+desktop.ini
+$RECYCLE.BIN/

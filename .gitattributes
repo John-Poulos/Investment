@@ -1,2 +1,26 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Line endings: store LF in the repo and check out LF on every OS.
+# The eol setting here takes precedence over Git's core.autocrlf for these files.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary files: never convert line endings, never diff as text.
+*.db      binary
+*.sqlite  binary
+*.sqlite3 binary
+*.zip     binary
+*.gz      binary
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.ico     binary
+*.pdf     binary
+*.xlsx    binary
+
+# Recorded SEC responses stay byte-exact: tests check character offsets and
+# verbatim quotes. Keep this line last; later lines override earlier ones.
+tests/fixtures/** -text

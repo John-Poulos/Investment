@@ -1,0 +1,32 @@
+# Refresh versions:  uv run pre-commit autoupdate
+# Run on all files:  uv run pre-commit run --all-files
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=5120"]   # blocks stray databases; a full 10-K fixture still fits
+      - id: check-case-conflict  # Windows file names are case-insensitive
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-toml
+      - id: detect-private-key
+      - id: end-of-file-fixer
+        exclude: '^tests/fixtures/'
+      - id: trailing-whitespace
+        exclude: '^tests/fixtures/'
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+        exclude: '^tests/fixtures/|\.(ps1|bat|cmd)$'
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.10
+    hooks:
+      - id: ruff-check           # lint (with fixes) must run before the formatter
+        args: ["--fix"]
+      - id: ruff-format
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks             # first run downloads Go and builds gitleaks
