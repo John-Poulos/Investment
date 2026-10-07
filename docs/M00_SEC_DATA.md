@@ -81,4 +81,5 @@ Revenue, cost of revenue, gross profit, operating income, net income, diluted EP
 
 ## Open questions
 - Rate limiter is per process: a second process calling SEC (e.g. UI during the nightly job) would add to the rate. Keep bulk fetching in the nightly job; revisit with a cross-process limiter if needed.
+- Concept map review (from AAPL live run 2026-10-07): capex falls back to `PaymentsToAcquireProductiveAssets`, which can include intangibles; `shares_outstanding` mixes cover-page (dei) and balance-sheet counts at their own dates. Decide at M04 whether to keep, split, or flag these.
 - EdgarTools: adopt only as a parser of content fetched by our client (keeps Rule 1's single limiter) — evaluate for XBRL dimensions and Form 4.
