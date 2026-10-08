@@ -9,7 +9,7 @@ Hold everything the engine knows in SQLite so lookups read locally first and SEC
 | File | Contents | Backup |
 |---|---|---|
 | data/engine.db | Entities, tickers, peer groups, filing index, XBRL facts, normalized series, insider trades, signals, guidance ledger, review queue, positions/lots, decisions | Nightly online backup; the one to protect |
-| data/corpus.db | Documents, sections, FTS5 index, raw HTTP cache | Rebuildable from SEC |
+| data/corpus.db | Documents, sections, passages, FTS5 indexes, raw HTTP cache | Rebuildable from SEC |
 
 Settings: WAL mode, `busy_timeout` 5 s, foreign keys on, `synchronous=NORMAL`. WAL needs every process on the same machine (no network drives); readers and one writer run concurrently.
 
@@ -96,6 +96,7 @@ Freshness is event-driven (SEC data changes only when a company files); backstop
 - D-STO-10 (2026-10-07): engine migration 0006 adds `event` (D-SEC-11).
 - D-STO-11 (2026-10-07): engine migration 0007 adds `fulltext_query` and `fulltext_hit` (D-SEC-14).
 - D-STO-12 (2026-10-07): engine migration 0008 adds `refresh_run` and `refresh_day` (D-SEC-15).
+- D-STO-13 (2026-10-08): corpus migration 0005 adds `passage` (section, seq, offsets, chunker version) and self-contained `passage_fts` (D-SRCH-10).
 
 ## Open questions
 - Backfill universe: watchlist size and peers per group.
