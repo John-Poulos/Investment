@@ -1,6 +1,6 @@
 # M00 — User interface
 
-Status: **proposed** (P10, pending owner approval) · Updated: 2026-10-08 · Serves: all modules · Depends on: M00 data, storage, search, LLM · Sources: S66–S70
+Status: approved (D29, owner 2026-10-08) · Updated: 2026-10-08 · Serves: all modules · Depends on: M00 data, storage, search, LLM · Sources: S66–S70
 
 ## Purpose
 One screen to see everything the engine knows about an equity, with every number one click from its source, and one place to clear the review queue. TradingView-like layout (D3).
@@ -91,8 +91,10 @@ Nightly run reports, guidance scan summary, Gemini call log with tokens and cost
 | Free-tier price limits hit | Partial chart history | Pacing under 50/hour; missing days marked missing, never filled |
 
 ## Decisions
-- (pending) P10 — this document.
+- D-UI-1 (2026-10-08): Design approved as written (D29, was P10) (owner).
+- D-UI-2 (2026-10-08): Daily prices from Tiingo free tier; key `TIINGO_API_KEY` in `.env` (owner created it; never read or logged by code). No live backup feed: a Tiingo outage leaves bars missing and flagged stale; if outages persist, swap the adapter (U7) — EODHD personal ($19.99/mo, history to 1962, personal use) is the noted fallback (S70) (owner).
+- D-UI-3 (2026-10-08): Peer prices fetched when a peer is first opened, then nightly while it is on the watchlist or tracked tier (owner).
+- D-UI-4 (2026-10-08): Changes during the build: a static mockup of each screen with real stored data is reviewed before that screen is built; after each build step the owner runs the app and comments; every change is recorded here as D-UI-n in the same commit as the code.
 
 ## Open questions
-- Prices for peers beyond watchlist and tracked tiers: fetch on demand when a peer is opened, or never (500 symbols/month cap)?
 - Phone-sized layout: not planned while local-only.
