@@ -226,15 +226,24 @@ def _mark(conn: sqlite3.Connection, name: str, source_ref: str, now: datetime, d
 
 
 def sync_filings(
-    client: SecClient, conn: sqlite3.Connection, cik: str, now: datetime
+    client: SecClient,
+    conn: sqlite3.Connection,
+    cik: str,
+    now: datetime,
+    *,
+    fresh: bool = False,
 ) -> Result[FilingSync]:
-    """Bring the stored filing index for `cik` up to date with SEC (all pages)."""
+    """Bring the stored filing index for `cik` up to date with SEC (all pages).
+
+    `fresh=True` refetches the main submissions file even if a cached copy exists
+    (the nightly refresh uses it when the daily index shows a new filing).
+    """
     norm = normalize_cik(cik)
     if norm is None:
         return Empty((Probe("CIK", str(cik), "not a CIK"),))
 
     url = SUBMISSIONS_URL.format(cik=norm)
-    main = client.get_json(url, ttl_s=CACHE_TTL_S)
+    main = client.get_json(url, ttl_s=CACHE_TTL_S, fresh=fresh)
     if not isinstance(main, Ok):
         return main  # NotFound: no submissions file at this URL; Failed: retry later
 

@@ -1,0 +1,37 @@
+# Companies the nightly refresh tracks (M00_STORAGE refresh jobs).
+# Tickers are resolved against SEC's ticker files on every run; any that do not
+# resolve are reported in the run report and kept here, never dropped.
+# Owner list 2026-10-07. Later, M02 may recommend additions; the owner decides (D23).
+
+[watchlist]
+tickers = [
+    "AAPL",  # owner wrote APPL; Apple's ticker is AAPL
+    "TSLA",
+    "MU",
+    "MSTR",
+    "SPCX",  # owner: SpaceX; reported as unresolved until SEC lists a filer under this ticker
+    "MSFT",
+    "AMZN",
+    "GOOG",  # same company (CIK) as GOOGL
+    "BA",
+    "NVDA",
+    "ETV",   # closed-end fund: files N-CSR, not 10-K; most company modules will have no data
+    "GFS",
+    "INTC",
+    "META",
+    "MRVL",
+    "INFQ",
+]
+
+[backfill]
+# First time a company is seen: how far back to parse Form 4s, and which documents to store.
+form4_years = 3
+earnings_8k = 4        # most recent earnings 8-Ks (+ EX-99.1) to store
+latest_annual = true   # latest 10-K
+latest_quarterly = true
+
+[nightly]
+# Forms whose documents are stored when a watchlist company files them.
+document_forms = ["10-K", "10-K/A", "10-Q", "10-Q/A", "8-K", "8-K/A", "20-F", "6-K"]
+recheck_days = 1       # re-read the previous day's index (late Form 4s land a day later)
+holiday_after_days = 3 # a missing daily index older than this is a market holiday, not a delay

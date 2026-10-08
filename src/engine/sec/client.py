@@ -236,12 +236,18 @@ class SecClient:
         return {"User-Agent": self.user_agent, "Accept-Encoding": "gzip, deflate"}
 
     def get_bytes(
-        self, url: str, params: Mapping[str, Any] | None = None, *, ttl_s: float
+        self,
+        url: str,
+        params: Mapping[str, Any] | None = None,
+        *,
+        ttl_s: float,
+        fresh: bool = False,
     ) -> Result[bytes]:
+        """`fresh=True` skips the cached copy (still caches the new response)."""
         key = cache_key(url, params)
         now = self._now()
 
-        if self._cache is not None and ttl_s > 0:
+        if self._cache is not None and ttl_s > 0 and not fresh:
             hit = self._cache.get(key, now)
             if hit is not None:
                 self._log.write(key, hit.outcome, "cache hit", hit.status, True, now)
@@ -268,9 +274,14 @@ class SecClient:
         return result
 
     def get_json(
-        self, url: str, params: Mapping[str, Any] | None = None, *, ttl_s: float
+        self,
+        url: str,
+        params: Mapping[str, Any] | None = None,
+        *,
+        ttl_s: float,
+        fresh: bool = False,
     ) -> Result[Any]:
-        result = self.get_bytes(url, params, ttl_s=ttl_s)
+        result = self.get_bytes(url, params, ttl_s=ttl_s, fresh=fresh)
         if not isinstance(result, Ok):
             return result
         try:
@@ -285,9 +296,14 @@ class SecClient:
         )
 
     def get_text(
-        self, url: str, params: Mapping[str, Any] | None = None, *, ttl_s: float
+        self,
+        url: str,
+        params: Mapping[str, Any] | None = None,
+        *,
+        ttl_s: float,
+        fresh: bool = False,
     ) -> Result[str]:
-        result = self.get_bytes(url, params, ttl_s=ttl_s)
+        result = self.get_bytes(url, params, ttl_s=ttl_s, fresh=fresh)
         if not isinstance(result, Ok):
             return result
         return Ok(

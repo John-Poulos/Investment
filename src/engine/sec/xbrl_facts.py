@@ -402,7 +402,7 @@ def sync_facts(
     seen = new = 0
     refreshed = force or _due(engine, norm, now)
     if refreshed:
-        res = client.get_json(url, ttl_s=CACHE_TTL_S)
+        res = client.get_json(url, ttl_s=CACHE_TTL_S, fresh=force)
         if not isinstance(res, Ok):
             return res  # NotFound: no companyfacts file (e.g. no XBRL filer); Failed: retry
         if not isinstance(res.data, dict) or "facts" not in res.data:
