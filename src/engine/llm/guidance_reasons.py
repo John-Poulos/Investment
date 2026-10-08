@@ -8,6 +8,7 @@ those passages, and only from the release that announced the change.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass, replace
 from decimal import Decimal
@@ -17,6 +18,9 @@ from typing import Any
 from engine.guidance.changes import Change, changes_for
 from engine.llm.runs import Citation, Observation, Request
 from engine.llm.verify import quote_found, unsupported_numbers
+
+# the "next passage" is often only legal boilerplate; it is not sent (saves tokens)
+_BOILERPLATE = re.compile(r"\s*(?:\S+\s+){0,12}?(?:contains )?forward-looking statements", re.I)
 
 USE_CASE = "guidance_reasons"
 PROMPT_VERSION = "guidance_reasons-1"
@@ -89,8 +93,9 @@ def describe(c: Change) -> str:
     prev = fmt_range(c.prev_low, c.prev_high, c.unit)
     new = fmt_range(c.new_low, c.new_high, c.unit)
     how = "earlier release" if c.source == "releases" else "prior stated in the same sentence"
+    basis = "" if c.basis == "unspecified" else f" ({c.basis})"  # shown only when stated
     return (
-        f"{c.metric} ({c.basis}) for {c.period}: {c.kind} from {prev} ({how}) to {new}, "
+        f"{c.metric}{basis} for {c.period}: {c.kind} from {prev} ({how}) to {new}, "
         f"announced in release {c.accession} filed {c.stated_on}."
     )
 
@@ -138,7 +143,7 @@ def _passages(
             "WHERE p.section_id = ? AND p.seq IN (?, ?) ORDER BY p.seq",
             (hit["section_id"], hit["seq"], hit["seq"] + 1),
         ):
-            if p["passage_id"] not in out:
+            if p["passage_id"] not in out and not _BOILERPLATE.match(p["body"]):
                 out[p["passage_id"]] = SourcePassage(
                     "",
                     p["passage_id"],

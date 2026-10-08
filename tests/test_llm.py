@@ -55,8 +55,11 @@ def test_numbers_must_come_from_quotes_or_facts():
 def test_classify():
     assert classify((D(1), D(2)), (D(1), D(2))) == "reaffirmed"
     assert classify((D(1), D(2)), (D(2), D(3))) == "raised"
-    assert classify((D(1), D(3)), (D(1), D(2))) == "lowered"
+    assert classify((D(2), D(4)), (D(1), D(3))) == "lowered"
     assert classify((D(1), D(4)), (D(2), D(3))) == "narrowed"
+    assert classify((D(125), D(145)), (D(130), D(145))) == "raised low end"
+    assert classify((D(125), D(145)), (D(125), D(140))) == "lowered high end"
+    assert classify((D(7), D(7)), (D(8), D(8))) == "raised"  # point guidance
     assert classify((D(2), D(3)), (D(1), D(4))) == "widened"
 
 
@@ -116,7 +119,7 @@ def test_prepare_asks_only_moved_guidance_with_its_passages(meta):
     prep = guidance_reasons.prepare(engine, corpus, CIK)
     assert list(prep.asked) == ["C1"] and prep.asked["C1"].metric == "capex"
     assert (
-        "C1: capex (unspecified) for FY2026: raised from $115 billion – $135 billion (earlier release) to $125 billion – $145 billion"
+        "C1: capex for FY2026: raised from $115 billion – $135 billion (earlier release) to $125 billion – $145 billion"
         in prep.request.user
     )
     assert REASON_QUOTE in prep.request.user
@@ -219,3 +222,17 @@ def test_prompt_file_is_versioned():
         .exists()
     )
     assert guidance_reasons.PROMPT_VERSION == "guidance_reasons-1"
+
+
+def test_basis_shown_only_when_stated_and_boilerplate_not_sent(meta):
+    engine, corpus = meta
+    prep = guidance_reasons.prepare(engine, corpus, CIK)
+    assert "(unspecified)" not in prep.request.user
+    c = prep.asked["C1"]
+    from dataclasses import replace as dc_replace
+
+    assert "capex (GAAP) for FY2026" in guidance_reasons.describe(dc_replace(c, basis="GAAP"))
+    assert not guidance_reasons._BOILERPLATE.match("Rules and contacts. Revenue rose.")
+    assert guidance_reasons._BOILERPLATE.match(
+        "This press release contains forward-looking statements regarding our future plans"
+    )

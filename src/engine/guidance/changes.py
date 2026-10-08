@@ -7,7 +7,9 @@ release is not stored. Flagged rows (`not_meaningful`, D-SRCH-15) are skipped.
 
 Kinds, on (low, high):
 - reaffirmed: same range
-- raised / lowered: both ends moved up / down (or one moved, the other held)
+- raised / lowered: both ends moved up / down
+- raised low end / lowered low end / raised high end / lowered high end: one end moved,
+  the other held (e.g. $125-145B → $130-145B, which companies often call "narrowed")
 - narrowed / widened: low up and high down / low down and high up
 """
 
@@ -25,7 +27,7 @@ class Change:
     basis: str
     period: str
     unit: str
-    kind: str  # raised | lowered | narrowed | widened | reaffirmed
+    kind: str  # see module docstring
     source: str  # releases | stated_prior
     prev_low: Decimal
     prev_high: Decimal
@@ -44,10 +46,14 @@ def classify(prev: tuple[Decimal, Decimal], new: tuple[Decimal, Decimal]) -> str
     dh = (nh > ph) - (nh < ph)
     if dl == 0 and dh == 0:
         return "reaffirmed"
-    if dl >= 0 and dh >= 0:
+    if dl > 0 and dh > 0:
         return "raised"
-    if dl <= 0 and dh <= 0:
+    if dl < 0 and dh < 0:
         return "lowered"
+    if dh == 0:
+        return "raised low end" if dl > 0 else "lowered low end"
+    if dl == 0:
+        return "raised high end" if dh > 0 else "lowered high end"
     return "narrowed" if dl > 0 else "widened"
 
 
