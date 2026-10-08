@@ -19,7 +19,7 @@
     <table class="data">
       <tr><th>Filed</th><th>Form</th><th>Items / document</th></tr>
       {% for f in filings %}
-      <tr><td>{{ f.filed }}</td><td><a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.form }}</a></td><td class="muted">{{ f.items or f.primary_doc_desc or '' }}</td></tr>
+      <tr><td>{{ f.filed }}</td><td><a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.form }}</a></td><td class="muted">{{ f['items'] or f.primary_doc_desc or f.primary_doc or '' }}</td></tr>
       {% endfor %}
     </table>
     {% else %}<p class="empty">No filings stored.</p>{% endif %}

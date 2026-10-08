@@ -35,6 +35,10 @@ def client(tmp_path: Path, clock):
         (CIK,),
     )
     engine.execute(
+        "INSERT INTO filing (accession, cik, form, filed, primary_doc, ingested_at) VALUES ('0001326801-26-000099', ?, '4', '2026-09-23', 'wk-form4_1.xml', 'n')",
+        (CIK,),
+    )
+    engine.execute(
         "INSERT INTO event (accession, item, cik, form, filed, category, severity, title, modules, amended, catalog) "
         "VALUES ('0001628280-25-047114', '2.02', ?, '8-K', '2025-10-29', 'earnings', 'medium', 'Results of operations', '[]', 0, 'c1')",
         (CIK,),
@@ -115,3 +119,18 @@ def test_missing_values_are_dashes_not_zero():
     assert fmt_number(51242000000) == "51.24B"
     assert fmt_number(-2.16, "per_share") == "-2.16"
     assert fmt_number(1234567, "shares_exact") == "1,234,567"
+
+
+@pytest.mark.parametrize(
+    "tab", ["overview", "financials", "insiders", "events", "search", "guidance"]
+)
+def test_no_python_objects_leak_into_pages(client, tab):
+    html = client.get(f"/c/META?tab={tab}").text
+    assert "built-in method" not in html and "object at 0x" not in html
+
+
+def test_filing_rows_show_items_or_document(client):
+    for tab in ("overview", "events"):
+        html = client.get(f"/c/META?tab={tab}").text
+        assert "2.02,9.01" in html  # 8-K items
+        assert "wk-form4_1.xml" in html  # Form 4: no items, shows its document
