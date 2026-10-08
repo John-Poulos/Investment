@@ -9,7 +9,7 @@ tickers = [
     "TSLA",
     "MU",
     "MSTR",
-    "SPCX",  # owner: SpaceX; reported as unresolved until SEC lists a filer under this ticker
+    "SPCX",  # SpaceX: confirmed 2026-10-07 = SPACE EXPLORATION TECHNOLOGIES CORP
     "MSFT",
     "AMZN",
     "GOOG",  # same company (CIK) as GOOGL
