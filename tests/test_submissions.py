@@ -8,9 +8,11 @@ from engine.sec.identity import SUBMISSIONS_URL
 from engine.sec.results import Failed, NotFound, Ok
 from engine.sec.submissions import (
     PAGE_URL,
+    Filing,
     earnings_releases,
     parse_filing_arrays,
     parse_items,
+    store_filings,
     stored_filings,
     sync_filings,
 )
@@ -143,3 +145,15 @@ def test_accession_listed_under_two_ciks(make_client, dbs, clock):
         "SELECT cik FROM filing_cik WHERE accession = ? ORDER BY cik", (form4.accession,)
     ).fetchall()
     assert [r[0] for r in links] == [CIK, insider]
+
+
+def test_earnings_releases_include_pre_2004_item_12(dbs, clock):
+    engine, _ = dbs
+    old = Filing("0000000042-03-000007", CIK, "8-K", "2003-10-16", None, None, ("12", "7"),
+                 "x.htm", None, None, None, None)  # fmt: skip
+    late = Filing("0000000042-05-000007", CIK, "8-K", "2005-02-01", None, None, ("12",),
+                  "y.htm", None, None, None, None)  # fmt: skip
+    engine.execute("BEGIN")
+    store_filings(engine, [old, late], clock.now())
+    engine.execute("COMMIT")
+    assert [f.accession for f in earnings_releases(engine, CIK)] == [old.accession]

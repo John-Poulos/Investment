@@ -3,7 +3,14 @@ from __future__ import annotations
 import pytest
 
 from engine.sec.documents import filing_folder
-from engine.sec.events import CATALOG, build_events, classify_filing, events, ingest_event_documents
+from engine.sec.events import (
+    CATALOG,
+    LEGACY_ITEMS,
+    build_events,
+    classify_filing,
+    events,
+    ingest_event_documents,
+)
 from engine.sec.results import Ok
 from engine.sec.submissions import Filing, store_filings
 from tests.conftest import FakeTransport, fixture_bytes, ok
@@ -62,7 +69,7 @@ def test_one_event_per_item(built):
     assert summary.events == 15  # 2 + 1 + 2 + 2 + 3 + 1 + 2 (pre-2004) + 1 (unlisted) + 1 (6-K)
     assert summary.by_category["earnings"] == 1
     assert summary.by_category["red_flag"] == 2
-    assert summary.unknown_items == {"5": 1, "7": 1, "unlisted": 1}  # kept, not dropped
+    assert summary.unknown_items == {"unlisted": 1}  # kept, not dropped; pre-2004 codes now map
 
 
 def test_amendment_and_foreign_report(built):
@@ -126,3 +133,31 @@ def test_ingest_event_documents_lists_failures(built, dbs, make_client, clock):
     result = ingest_event_documents(make_client(transport), engine, corpus, [ev], clock.now())
     assert isinstance(result, Ok) and not result.data.complete
     assert result.data.failed[0].startswith(ev.accession)
+
+
+def test_pre_2004_items_map_onto_current_items():
+    old = classify_filing(
+        filing("0000000042-03-000002", items=("12", "7", "4"), filed="2003-10-15")
+    )
+    assert [(e.item, e.category, e.severity) for e in old] == [
+        ("12", "earnings", "medium"),  # old Item 12 = results of operations (now 2.02)
+        ("7", "exhibits", "none"),
+        ("4", "red_flag", "medium"),  # auditor change (now 4.01)
+    ]
+    assert "pre-2004 Item 12 = 2.02" in old[0].title
+
+
+def test_plain_numbers_after_2004_stay_unknown():
+    [e] = classify_filing(filing("0000000042-05-000001", items=("12",), filed="2005-01-10"))
+    assert e.category == "unknown" and e.item == "12"
+
+
+def test_legacy_map_targets_exist():
+    assert set(LEGACY_ITEMS) == {str(n) for n in range(1, 13)}
+    assert all(current in CATALOG for _, current in LEGACY_ITEMS.values())
+
+
+def test_pre_2004_events_count_in_queries(built):
+    engine, summary = built
+    old = [e for e in events(engine, CIK) if e.filed < "2004-01-01"]
+    assert sorted(e.category for e in old) == ["disclosure", "exhibits"]  # old 5 and 7

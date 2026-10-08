@@ -2,8 +2,9 @@
 
 Each item on an 8-K / 8-K/A becomes one event (6-K current reports of foreign
 filers carry no item codes and become one "6-K" event). Classification uses a
-versioned catalog of every Form 8-K item; item codes outside the catalog (e.g.
-pre-2004 numbering) are kept as category "unknown", never dropped.
+versioned catalog of every Form 8-K item; pre-2004 item numbers map onto the
+current item they correspond to (LEGACY_ITEMS); anything else outside the
+catalog is kept as category "unknown", never dropped.
 
 Severity is a default for alerting (M01 rule 6: events surface immediately);
 defaults approved by the owner 2026-10-07 and adjustable later (M00_SEC_DATA,
@@ -23,9 +24,14 @@ from engine.sec.client import SecClient
 from engine.sec.documents import FilingDocs, ingest_filing
 from engine.sec.identity import normalize_cik
 from engine.sec.results import Empty, Failed, Ok, Probe, Result
-from engine.sec.submissions import Filing, filing_by_accession, stored_filings
+from engine.sec.submissions import (
+    NEW_8K_ITEMS_FROM,
+    Filing,
+    filing_by_accession,
+    stored_filings,
+)
 
-CATALOG_VERSION = "items-2026-10"
+CATALOG_VERSION = "items-2026-10.1"
 EVENT_FORMS = ("8-K", "8-K/A", "6-K", "6-K/A")
 SEVERITIES = ("high", "medium", "low", "none")
 
@@ -141,6 +147,35 @@ FOREIGN = ItemSpec(
 )
 UNKNOWN_SEVERITY = "low"
 
+# Form 8-K items before the 2004 overhaul (effective 2004-08-23) used plain numbers.
+# Mapped onto the current item they correspond to, so older events count in
+# backtests (owner 2026-10-07). The event keeps the original code.
+NEW_ITEMS_FROM = NEW_8K_ITEMS_FROM
+LEGACY_ITEMS: dict[str, tuple[str, str]] = {
+    "1": ("Changes in Control of Registrant", "5.01"),
+    "2": ("Acquisition or Disposition of Assets", "2.01"),
+    "3": ("Bankruptcy or Receivership", "1.03"),
+    "4": ("Changes in Registrant's Certifying Accountant", "4.01"),
+    "5": ("Other Events", "8.01"),
+    "6": ("Resignations of Registrant's Directors", "5.02"),
+    "7": ("Financial Statements and Exhibits", "9.01"),
+    "8": ("Change in Fiscal Year", "5.03"),
+    "9": ("Regulation FD Disclosure", "7.01"),
+    "10": ("Amendments to the Registrant's Code of Ethics, or Waiver", "5.05"),
+    "11": ("Temporary Suspension of Trading Under Employee Benefit Plans", "5.04"),
+    "12": ("Results of Operations and Financial Condition", "2.02"),
+}
+
+
+def legacy_spec(code: str, filed: str) -> ItemSpec | None:
+    """The current-catalog spec for a pre-2004 item code, or None."""
+    if filed >= NEW_ITEMS_FROM or code not in LEGACY_ITEMS:
+        return None
+    title, current = LEGACY_ITEMS[code]
+    spec = CATALOG[current]
+    return ItemSpec(f"{title} (pre-2004 Item {code} = {current})", spec.category, spec.severity,
+                    spec.modules)  # fmt: skip
+
 
 @dataclass(frozen=True)
 class Event:
@@ -170,7 +205,7 @@ def classify_filing(filing: Filing) -> list[Event]:
     else:
         pairs = []
         for code in filing.items:
-            spec = CATALOG.get(code)
+            spec = CATALOG.get(code) or legacy_spec(code, filing.filed)
             if spec is None:
                 spec = ItemSpec(f"Item {code} (not in catalog {CATALOG_VERSION})", "unknown",
                                 UNKNOWN_SEVERITY, ())  # fmt: skip

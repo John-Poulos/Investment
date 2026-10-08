@@ -7,9 +7,9 @@ Updated 2026-10-07 · Basis: investment_strategy.txt (a guideline, not a spec) �
 - **Environment (2026-10-06):** repo at C:\dev\Investment with .venv inside; GitHub repo John-Poulos/Investment (branch main, to be private); FTS5 verified; tzdata installed. Tooling files provided: .gitattributes, .gitignore, .pre-commit-config.yaml, CLAUDE.md, .claude/settings.json.
 - **Built (2026-10-07):** `sec/client.py`, `sec/identity.py`, schema 0001–0002, 48 fixture tests; live run 1 passed identity checks. 404 = `NotFound` (D-SEC-4); ticker refresh held for review on large changes (D-SEC-5). PR John-Poulos/Investment#1.
 - **Built (branch m00-submissions, 2026-10-07):** `submissions.py` and `documents.py`, live-verified on AAPL (2,264 filings; 10-K 207k chars and 8-K + EX-99.1 stored whole, clean UTF-8); 71 fixture tests. PR #1 merged.
-- **Built (branch m00-events, 2026-10-07):** `events.py` (D-SEC-11), live-verified on AAPL (413 events; earnings = Item 2.02 filings; 5.02 section stored); severity defaults approved (D-SEC-12); 147 fixture tests. PRs #1–#6 merged.
-- **Next action:** owner merges the m00-events PR and decides on the pre-2004 8-K item map → `fulltext.py`, `refresh.py`.
-- **Awaiting owner:** pre-2004 8-K item map (M00_SEC_DATA open questions); nothing blocking.
+- **Built (branch m00-fulltext, 2026-10-07):** pre-2004 8-K item map (D-SEC-13); `fulltext.py` EFTS client with trend counts by documents, filings and companies (D-SEC-14), live-verified; 171 fixture tests. PRs #1–#7 merged.
+- **Next action:** owner merges the m00-fulltext PR → `refresh.py` (nightly job), the last M00 data-layer piece.
+- **Awaiting owner:** nothing blocking.
 - **Parked:** Q2 (at M09), Q3 (at M07), Q5 (at M12); M02 design questions (M02_THEMES.md); M04 red flags still to design (M04 open questions).
 
 ## Working agreements

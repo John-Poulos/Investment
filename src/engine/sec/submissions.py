@@ -325,9 +325,19 @@ def filing_by_accession(conn: sqlite3.Connection, accession: str) -> Filing | No
     return _filing_from_row(row, row["cik"]) if row else None
 
 
+NEW_8K_ITEMS_FROM = "2004-08-23"  # Form 8-K item numbering changed on this date
+
+
 def earnings_releases(conn: sqlite3.Connection, cik: str, since: str | None = None) -> list[Filing]:
-    """8-Ks carrying Item 2.02 (results of operations), not just any 8-K (R19)."""
-    return stored_filings(conn, cik, forms=("8-K", "8-K/A"), since=since, item="2.02")
+    """8-Ks carrying Item 2.02 (results of operations), not just any 8-K (R19).
+
+    Before 2004-08-23 the same item was numbered 12 (D-SEC-13), so those count too.
+    """
+    return [
+        f
+        for f in stored_filings(conn, cik, forms=("8-K", "8-K/A"), since=since)
+        if f.has_item("2.02") or (f.filed < NEW_8K_ITEMS_FROM and f.has_item("12"))
+    ]
 
 
 def _filing_from_row(row: sqlite3.Row, cik: str) -> Filing:
