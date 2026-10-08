@@ -11,6 +11,7 @@ import re
 import sqlite3
 import tomllib
 from dataclasses import dataclass, field
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -415,3 +416,138 @@ def layout(text: str, base: int = 0, hl: tuple[int, int] | None = None) -> list[
             width = max(len(r[0]) for r in blk.rows)
             blk.rows = [(cells + [("", False)] * (width - len(cells)), h) for cells, h in blk.rows]
     return blocks
+
+
+# --- Guidance (R19) ------------------------------------------------------------------
+
+METRIC_ORDER = (
+    "revenue", "gross_margin", "operating_expenses", "total_expenses", "operating_income",
+    "operating_margin", "other_income", "tax_rate", "net_income", "eps_diluted", "capex",
+    "shares_basic", "shares_diluted",
+)  # fmt: skip
+
+
+@dataclass
+class GuidanceRow:
+    guidance_id: int
+    stated_on: str
+    accession: str
+    filename: str
+    value: str
+    kind: str  # range | plusminus | approx | point
+    source: str  # sentence | table
+    quote: str
+    quote_start: int
+    quote_end: int
+    doc_sha256: str
+    change: str  # first stated | raised | ... (code, guidance/changes.py)
+    prior: str | None
+    flag: str | None
+    flag_reason: str | None
+    reason: dict[str, Any] | None = None  # verified Gemini observation, with citations
+
+
+@dataclass
+class GuidanceGroup:
+    metric: str
+    basis: str
+    period: str
+    rows: list[GuidanceRow]
+
+
+@dataclass
+class GuidanceView:
+    groups: list[GuidanceGroup]
+    no_guidance: list[str]  # filing dates of releases scanned with no numeric guidance
+    open_reviews: int
+    last_call: dict[str, Any] | None
+
+
+def _period_key(period: str) -> tuple[int, int]:
+    parts = period.split()
+    year = int(parts[0][2:])
+    q = int(parts[1][1:]) if len(parts) > 1 and parts[1].startswith("Q") else 5
+    return (year, q)
+
+
+def guidance_view(engine: sqlite3.Connection, cik: str) -> GuidanceView:
+    from engine.guidance.changes import changes_for
+    from engine.llm.guidance_reasons import USE_CASE, fmt_range
+    from engine.llm.runs import load_observations
+
+    kinds = {c.guidance_id: c.kind for c in changes_for(engine, cik)}
+    reasons: dict[int, dict[str, Any]] = {}
+    call = engine.execute(
+        "SELECT call_id, model, created_at, cost_usd FROM llm_call WHERE cik = ? AND use_case = ? "
+        "AND status = 'ok' ORDER BY call_id DESC LIMIT 1",
+        (cik, USE_CASE),
+    ).fetchone()
+    last_call = None
+    if call:
+        obs = load_observations(engine, call["call_id"])
+        for o in obs:
+            gid = o.subject.get("guidance_id")
+            if o.verified and gid is not None:
+                reasons[gid] = {
+                    "claim": o.claim,
+                    "citations": [c.__dict__ for c in o.citations],
+                }
+        last_call = dict(call) | {
+            "verified": sum(o.verified for o in obs),
+            "rejected": sum(not o.verified for o in obs),
+        }
+    groups: dict[tuple[str, str, str], GuidanceGroup] = {}
+    for r in engine.execute(
+        "SELECT * FROM guidance WHERE cik = ? ORDER BY stated_on, guidance_id", (cik,)
+    ):
+        key = (r["metric"], r["basis"], r["period"])
+        g = groups.setdefault(key, GuidanceGroup(*key, []))
+        low, high = Decimal(str(r["low"])), Decimal(str(r["high"]))
+        prior = None
+        if r["prior_low"] is not None:
+            prior = fmt_range(
+                Decimal(str(r["prior_low"])), Decimal(str(r["prior_high"])), r["unit"]
+            )
+        g.rows.append(
+            GuidanceRow(
+                r["guidance_id"],
+                r["stated_on"],
+                r["accession"],
+                r["filename"],
+                fmt_range(low, high, r["unit"]),
+                r["kind"],
+                r["source"],
+                r["quote"],
+                r["quote_start"],
+                r["quote_end"],
+                r["doc_sha256"],
+                kinds.get(r["guidance_id"], "first stated" if not g.rows else "—"),
+                prior,
+                r["flag"],
+                r["flag_reason"],
+                reasons.get(r["guidance_id"]),
+            )  # fmt: skip
+        )
+    order = {m: i for i, m in enumerate(METRIC_ORDER)}
+    ordered = sorted(
+        groups.values(),
+        key=lambda g: (
+            [-x for x in _period_key(g.period)],
+            order.get(g.metric, 99),
+            g.basis,
+        ),
+    )
+    none = [
+        r[0]
+        for r in engine.execute(
+            "SELECT filed FROM guidance_scan WHERE cik = ? AND outcome = 'none' "
+            "ORDER BY filed DESC",
+            (cik,),
+        )
+    ]
+    reviews = engine.execute(
+        "SELECT count(*) FROM review_queue WHERE resolved_at IS NULL AND cik = ? "
+        "AND kind IN ('guidance_unparsed', 'guidance_conflict', 'llm_rejected')",
+        (cik,),
+    ).fetchone()[0]
+    return GuidanceView(ordered, none, reviews, last_call)

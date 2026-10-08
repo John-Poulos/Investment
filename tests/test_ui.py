@@ -92,7 +92,7 @@ def test_tabs_render_from_stored_data(client):
     fin = client.get("/c/META?tab=financials").text
     assert "51.24B" in fin and "2025-09-30" in fin
     assert "No Form 4 transactions stored." in client.get("/c/META?tab=insiders").text
-    assert "build step 3" in client.get("/c/META?tab=guidance").text
+    assert "No numeric guidance found" in client.get("/c/META?tab=guidance").text
 
 
 def test_search_tab_and_phrase_fallback(client):

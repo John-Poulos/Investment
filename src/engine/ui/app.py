@@ -15,12 +15,17 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from engine.llm import guidance_reasons
+from engine.llm.provider import GeminiProvider, estimate_tokens, load_settings
+from engine.llm.runs import cached_call
+from engine.llm.runs import run as llm_run
 from engine.prices import store as prices
 from engine.prices.tiingo import MissingKey, TiingoClient, token_from_env
 from engine.store.db import connect, migrate
@@ -29,10 +34,11 @@ from engine.ui.settings import UiSettings
 from engine.ui.viewer import Viewer, current_viewer, require_owner
 
 HERE = Path(__file__).parent
+EXPECTED_OUTPUT_TOKENS = 1500  # allowance for the cost estimate (reply + thinking)
 
 TABS = (
     ("overview", "Overview", True),
-    ("guidance", "Guidance", False),  # build step 3
+    ("guidance", "Guidance", True),
     ("financials", "Financials", True),
     ("insiders", "Insiders", True),
     ("events", "Events and filings", True),
@@ -41,7 +47,6 @@ TABS = (
     ("ask", "Ask", False),  # reserved (D-SRCH-18)
 )
 NOT_BUILT = {
-    "guidance": "The Guidance tab arrives in build step 3 (ledger, changes, Analyze).",
     "themes": "Themes arrive with M02.",
     "ask": "Reserved for grounded Q&A, to be decided after the fixed analyses prove themselves.",
 }
@@ -131,6 +136,7 @@ def create_app(settings: UiSettings) -> FastAPI:
         q: Annotated[str, Query(max_length=300)] = "",
         bar: str = "D",
         msg: str = "",
+        detail: str = "",
     ):
         ticker = ticker.upper()
         bar = "W" if bar.upper() == "W" else "D"
@@ -151,6 +157,7 @@ def create_app(settings: UiSettings) -> FastAPI:
             "q": q,
             "bar": bar,
             "msg": msg,
+            "detail": detail,
             "price_state": services.price_state(engine, ticker),
         }
         if tab == "overview":
@@ -159,6 +166,9 @@ def create_app(settings: UiSettings) -> FastAPI:
             ctx["readable"] = services.stored_accessions(
                 corpus, [f["accession"] for f in ctx["filings"]]
             )
+        elif tab == "guidance":
+            ctx["guidance"] = services.guidance_view(engine, cik)
+            ctx["analyze"] = analyze_estimate(engine, corpus, cik)
         elif tab == "financials":
             ctx["tables"] = services.financials(engine, cik)
         elif tab == "insiders":
@@ -176,6 +186,68 @@ def create_app(settings: UiSettings) -> FastAPI:
         elif tab == "search" and q.strip():
             ctx["result"] = services.company_search(corpus, cik, q.strip())
         return templates.TemplateResponse(request, "company.html", ctx)
+
+    def analyze_estimate(engine, corpus, cik) -> dict:
+        """What an Analyze run would send and cost (no call is made)."""
+        prep = guidance_reasons.prepare(engine, corpus, cik)
+        req = prep.request
+        if req is None:
+            return {"possible": False, "changes": len(prep.changes)}
+        llm = load_settings()
+        est_in = estimate_tokens(req.system + req.user)
+        return {
+            "possible": True,
+            "asked": len(prep.asked),
+            "passages": len(prep.passages),
+            "tokens": est_in,
+            "cost": llm.cost(est_in, EXPECTED_OUTPUT_TOKENS),
+            "model": llm.model,
+            "cached": cached_call(engine, req, llm.model) is not None,
+            "prep": prep,
+        }
+
+    @app.get("/c/{ticker}/analyze/guidance-reasons", response_class=HTMLResponse)
+    def analyze_page(
+        request: Request, ticker: str, engine: Engine, corpus: Corpus, viewer: ViewerDep
+    ):
+        ticker = ticker.upper()
+        cik = services.resolve_ticker(engine, ticker)
+        if cik is None:
+            raise HTTPException(404, f"Unknown ticker {ticker}.")
+        ctx = frame(engine) | {
+            "viewer": viewer,
+            "ticker": ticker,
+            "company": services.company(engine, cik),
+            "est": analyze_estimate(engine, corpus, cik),
+            "describe": guidance_reasons.describe,
+        }
+        return templates.TemplateResponse(request, "analyze.html", ctx)
+
+    @app.post("/c/{ticker}/analyze/guidance-reasons")
+    def analyze_run(
+        ticker: str,
+        engine: Engine,
+        corpus: Corpus,
+        owner: OwnerDep,
+        rerun: str = "0",
+    ) -> RedirectResponse:
+        """Owner-confirmed Gemini call (D-SRCH-18): stored result reused unless rerun."""
+        ticker = ticker.upper()
+        cik = services.resolve_ticker(engine, ticker)
+        if cik is None:
+            raise HTTPException(404, f"Unknown ticker {ticker}.")
+        req = guidance_reasons.prepare(engine, corpus, cik).request
+        if req is None:
+            return RedirectResponse(f"/c/{ticker}?tab=guidance&msg=nothing-to-ask", 303)
+        try:
+            provider = settings.llm_factory() if settings.llm_factory else GeminiProvider()
+            res = llm_run(engine, provider, load_settings(), req, datetime.now(UTC),
+                          rerun=rerun == "1")  # fmt: skip
+        except Exception as e:  # key missing, network, unreadable reply: say so, store nothing new
+            detail = quote(f"{type(e).__name__}: {e}"[:200])
+            return RedirectResponse(f"/c/{ticker}?tab=guidance&msg=llm-error&detail={detail}", 303)
+        msg = "stored-result" if res.cached else "analyzed"
+        return RedirectResponse(f"/c/{ticker}?tab=guidance&msg={msg}", 303)
 
     @app.get("/api/bars/{ticker}")
     def bars_api(ticker: str, engine: Engine, viewer: ViewerDep, bar: str = "D") -> JSONResponse:

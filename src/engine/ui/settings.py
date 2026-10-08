@@ -18,6 +18,7 @@ class UiSettings:
     data_dir: Path = ROOT / "data"
     watchlist: Path = ROOT / "config" / "watchlist.toml"
     tiingo_factory: Callable[[Any], Any] | None = None  # tests inject a fake client
+    llm_factory: Callable[[], Any] | None = None  # tests inject a FakeProvider
 
 
 def from_env() -> UiSettings:

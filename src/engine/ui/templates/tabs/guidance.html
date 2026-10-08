@@ -1,0 +1,54 @@
+{% set g = guidance %}
+<div class="gbar">
+  <span class="muted">
+    {% if g.last_call %}Stated reasons: {{ g.last_call.model }}, {{ g.last_call.created_at[:10] }} · {{ g.last_call.verified }} verified{% if g.last_call.rejected %}, {{ g.last_call.rejected }} rejected (review queue){% endif %}
+    {% else %}No Gemini analysis run yet for this company.{% endif %}
+  </span>
+  <span class="push"></span>
+  {% if analyze.possible %}
+  <a class="btn" href="/c/{{ ticker }}/analyze/guidance-reasons">{% if g.last_call %}Re-run or view{% else %}Analyze reasons{% endif %} (~${{ '%.4f' | format(analyze.cost) }})</a>
+  {% else %}<span class="muted">Nothing to analyze: no raised, lowered, narrowed or widened guidance.</span>{% endif %}
+</div>
+{% if msg == 'analyzed' %}<div class="okbox">Gemini run stored. Verified reasons are shown below with their quotes.</div>
+{% elif msg == 'stored-result' %}<div class="okbox">An identical request was already stored; shown at no cost.</div>
+{% elif msg == 'llm-error' %}<div class="warnbox">The Gemini call did not complete: {{ detail }}. Nothing new was stored as fact.</div>
+{% elif msg == 'nothing-to-ask' %}<div class="warnbox">Nothing to ask: no changed guidance with source passages.</div>{% endif %}
+
+{% if not g.groups %}
+<p class="empty">No numeric guidance found in the stored earnings releases{% if g.no_guidance %} ({{ g.no_guidance | length }} release{{ 's' if g.no_guidance | length != 1 }} scanned, none with guidance; often given on the call instead — DATA_SOURCES DS1){% endif %}.</p>
+{% endif %}
+
+{% for grp in g.groups %}
+<section class="ggroup">
+  <h2>{{ grp.period }} · {{ grp.metric | replace('_', ' ') }}{% if grp.basis != 'unspecified' %} <span class="muted">({{ grp.basis }})</span>{% endif %}</h2>
+  <table class="data gtable">
+    <tr><th style="width:12%">Release</th><th style="width:24%">Guidance</th><th style="width:15%">Change</th><th>Stated reason (verified quote)</th></tr>
+    {% for r in grp.rows %}
+    <tr{% if r.flag %} class="flagged"{% endif %}>
+      <td style="white-space:nowrap">{{ r.stated_on }}</td>
+      <td>
+        <a href="/source/{{ r.accession }}/{{ r.filename }}?start={{ r.quote_start }}&end={{ r.quote_end }}&sha={{ r.doc_sha256 }}" title="{{ r.quote }}">{{ r.value }}</a>
+        {% if r.prior %}<div class="muted">prior stated: {{ r.prior }}</div>{% endif %}
+        {% if r.flag %}<div class="muted" title="{{ r.flag_reason }}">{{ r.flag | replace('_', ' ') }}: {{ r.flag_reason }}</div>{% endif %}
+      </td>
+      <td>{{ r.change }}</td>
+      <td>
+        {% if r.reason %}
+          {{ r.reason.claim }}
+          {% for c in r.reason.citations %}
+          <div class="quote"><a href="/doc/{{ c.accession }}?file={{ c.filename }}&start={{ c.start }}&end={{ c.end }}#hl">“{{ c.quote }}”</a></div>
+          {% endfor %}
+        {% elif r.change in ('first stated', 'reaffirmed', '—') %}<span class="muted">—</span>
+        {% else %}<span class="muted">not analyzed</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+{% endfor %}
+
+{% if g.no_guidance %}
+<p class="note">Releases scanned with no numeric guidance: {{ g.no_guidance | join(', ') }}. Guidance given only on the earnings call is not collected yet (DATA_SOURCES DS1).</p>
+{% endif %}
+{% if g.open_reviews %}<p class="note">{{ g.open_reviews }} open review item{{ 's' if g.open_reviews != 1 }} for this company (unparsed sentences, conflicts or rejected Gemini output) — review queue screen in build step 4.</p>{% endif %}
+<p class="note">Values are parsed by code from the company's earnings releases (R19); click a value to see its exact sentence or table row. Changes are computed by code. Reasons are Gemini's reading of the release, shown only when every quote and number was verified against the stored text; they are interpretations.</p>

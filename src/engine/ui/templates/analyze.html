@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Analyze guidance — {{ ticker }}{% endblock %}
+{% block topleft %}<a href="/c/{{ ticker }}?tab=guidance">← {{ ticker }} guidance</a><span class="name">Analyze stated reasons</span>{% endblock %}
+{% block body %}
+<main class="detail" style="max-width: 960px">
+{% if not est.possible %}
+  <p class="empty">Nothing to analyze: no raised, lowered, narrowed or widened guidance with source passages.</p>
+{% else %}
+  <h2>What will be sent to Gemini</h2>
+  <p>{{ est.asked }} guidance change{{ 's' if est.asked != 1 }} computed by code, with {{ est.passages }} passage{{ 's' if est.passages != 1 }} from the releases that announced them. Gemini may only quote those passages; every quote and number is checked before anything is stored.</p>
+  <table class="data">
+    <tr><th>Change (code)</th></tr>
+    {% for cid, c in est.prep.asked.items() %}<tr><td>{{ cid }}: {{ describe(c) }}</td></tr>{% endfor %}
+  </table>
+  <p class="note">Passages: {% for p in est.prep.passages %}{{ p.label }} = {{ p.accession }} ({{ p.filed }}){{ ', ' if not loop.last }}{% endfor %}</p>
+  <h2>Cost</h2>
+  <p>Model {{ est.model }} · about {{ '{:,}'.format(est.tokens) }} input tokens · estimated <b>${{ '%.4f' | format(est.cost) }}</b> (local estimate; actual tokens and cost are logged).</p>
+  {% if viewer.is_owner %}
+    {% if est.cached %}
+    <div class="okbox">A result for this exact request is already stored — viewing it costs nothing.</div>
+    <form method="post" action="/c/{{ ticker }}/analyze/guidance-reasons?rerun=0" style="display:inline"><button class="btn" type="submit">Show stored result</button></form>
+    <form method="post" action="/c/{{ ticker }}/analyze/guidance-reasons?rerun=1" style="display:inline"><button class="btn" type="submit">Re-run with Gemini (~${{ '%.4f' | format(est.cost) }})</button></form>
+    {% else %}
+    <form method="post" action="/c/{{ ticker }}/analyze/guidance-reasons?rerun=0"><button class="btn" type="submit">Run with Gemini (~${{ '%.4f' | format(est.cost) }})</button></form>
+    {% endif %}
+  {% else %}
+    <p class="muted">Only the owner can start a Gemini run.</p>
+  {% endif %}
+{% endif %}
+</main>
+{% endblock %}

@@ -83,3 +83,10 @@ table.doc { border-collapse: collapse; font: 12px/1.4 var(--font); }
 table.doc td { padding: 2px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
 table.doc td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 table.doc tr.hit td { background: var(--hl); }
+.gbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.ggroup { margin-bottom: 14px; }
+.gtable td { vertical-align: top; }
+.quote { margin-top: 3px; font: 12px/1.5 Georgia, serif; }
+tr.flagged td { color: var(--flag); }
+.okbox { background: var(--accent-bg); color: var(--accent); padding: 6px 10px; border-radius: var(--radius); margin-bottom: 8px; }
+a.btn:hover { text-decoration: none; }
