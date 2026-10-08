@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}{{ ticker }} — Investment engine{% endblock %}
+{% block topleft %}
+  <span class="name">{{ ticker }}</span>
+  <span class="muted">{{ company.name if company else '—' }}</span>
+{% endblock %}
+{% block body %}
+<div class="upper">
+  <div class="chart">
+    <div class="area">Daily candles and volume — waits for Tiingo prices (build step 2)
+      <div class="marks">{% for d in earnings_dates[-6:] %}<span title="Earnings release (8-K Item 2.02)">▲ ER {{ d }}</span>{% endfor %}</div>
+    </div>
+  </div>
+  {% include "_side.html" %}
+</div>
+<nav class="tabs">
+  {% for key, label, built in tabs %}
+  <a href="/c/{{ ticker }}?tab={{ key }}" class="{% if key == tab %}on{% elif not built %}later{% endif %}">{{ label }}</a>
+  {% endfor %}
+</nav>
+<main class="detail">
+{% if not_built %}
+  <p class="empty">{{ not_built }}</p>
+{% else %}
+  {% include "tabs/" ~ tab ~ ".html" %}
+{% endif %}
+</main>
+{% endblock %}

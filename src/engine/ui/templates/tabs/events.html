@@ -1,0 +1,25 @@
+<div class="grid2">
+  <section>
+    <h2>8-K events</h2>
+    {% if events %}
+    <table class="data">
+      <tr><th>Filed</th><th>Item</th><th>Category</th><th>Title</th></tr>
+      {% for e in events %}
+      <tr><td>{{ e.filed }}</td><td class="sev-{{ e.severity }}">{{ e.item }}</td><td class="muted">{{ e.category }}{% if e.amended %} (amended){% endif %}</td><td><a href="{{ e.url }}" target="_blank" rel="noopener">{{ e.title }}</a></td></tr>
+      {% endfor %}
+    </table>
+    {% else %}<p class="empty">No 8-K events stored.</p>{% endif %}
+  </section>
+  <section>
+    <h2>Filings</h2>
+    {% if filings %}
+    <table class="data">
+      <tr><th>Filed</th><th>Form</th><th>Report date</th><th>Description</th></tr>
+      {% for f in filings %}
+      <tr><td>{{ f.filed }}</td><td><a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.form }}</a></td><td>{{ f.report_date or '—' }}</td><td class="muted">{{ f.items or f.primary_doc_desc or '' }}</td></tr>
+      {% endfor %}
+    </table>
+    {% else %}<p class="empty">No filings stored.</p>{% endif %}
+  </section>
+</div>
+<p class="note">Red = high severity, amber = medium (event catalog, D-SEC-11). Links open the filing index on SEC.</p>

@@ -1,0 +1,178 @@
+"""FastAPI app for the local UI (M00_UI.md, D29).
+
+Pages are rendered on the server from Jinja2 templates; every page resolves
+its viewer through `current_viewer` (U1) and reads data only through
+`services` (U4). Step 1 of the build: layout, side panel and the tabs whose
+data is already stored. Prices/chart, Guidance + Analyze and the review queue
+follow in later steps.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from collections.abc import Iterator
+from decimal import Decimal
+from pathlib import Path
+from typing import Annotated
+
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+from engine.store.db import connect, migrate
+from engine.ui import services
+from engine.ui.settings import UiSettings
+from engine.ui.viewer import Viewer, current_viewer
+
+HERE = Path(__file__).parent
+
+TABS = (
+    ("overview", "Overview", True),
+    ("guidance", "Guidance", False),  # build step 3
+    ("financials", "Financials", True),
+    ("insiders", "Insiders", True),
+    ("events", "Events and filings", True),
+    ("search", "Search", True),
+    ("themes", "Themes", False),  # M02
+    ("ask", "Ask", False),  # reserved (D-SRCH-18)
+)
+NOT_BUILT = {
+    "guidance": "The Guidance tab arrives in build step 3 (ledger, changes, Analyze).",
+    "themes": "Themes arrive with M02.",
+    "ask": "Reserved for grounded Q&A, to be decided after the fixed analyses prove themselves.",
+}
+
+
+def fmt_number(value: object, unit: str = "currency") -> str:
+    """Display a stored value; None stays '—' (missing is never zero)."""
+    if value is None:
+        return "—"
+    d = Decimal(str(value))
+    if unit == "per_share":
+        return f"{d:,.2f}"
+    if unit == "shares_exact":
+        return f"{d:,.0f}"
+    if unit == "shares":
+        return f"{d / 10**6:,.1f}M"
+    a = abs(d)
+    if a >= 10**9:
+        return f"{d / 10**9:,.2f}B"
+    if a >= 10**6:
+        return f"{d / 10**6:,.1f}M"
+    return f"{d:,.0f}"
+
+
+def _db(request: Request, name: str) -> Iterator[sqlite3.Connection]:
+    conn = connect(request.app.state.settings.data_dir / f"{name}.db", check_same_thread=False)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def engine_db(request: Request) -> Iterator[sqlite3.Connection]:
+    yield from _db(request, "engine")
+
+
+def corpus_db(request: Request) -> Iterator[sqlite3.Connection]:
+    yield from _db(request, "corpus")
+
+
+Engine = Annotated[sqlite3.Connection, Depends(engine_db)]
+Corpus = Annotated[sqlite3.Connection, Depends(corpus_db)]
+ViewerDep = Annotated[Viewer, Depends(current_viewer)]
+
+
+def create_app(settings: UiSettings) -> FastAPI:
+    app = FastAPI(title="Investment engine", docs_url=None, redoc_url=None)
+    app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
+    templates = Jinja2Templates(directory=HERE / "templates")
+    templates.env.filters["num"] = fmt_number
+
+    for db in ("engine", "corpus"):  # bring schemas up to date once, at start
+        conn = connect(settings.data_dir / f"{db}.db")
+        migrate(conn, db)
+        conn.close()
+
+    app.state.settings = settings
+
+    def frame(engine: sqlite3.Connection) -> dict:
+        tickers = services.watchlist_tickers(settings.watchlist)
+        return {
+            "status": services.status(engine),
+            "watchlist": services.watchlist(engine, tickers),
+        }
+
+    @app.get("/healthz")
+    def healthz() -> dict:
+        return {"ok": True}
+
+    @app.get("/")
+    def home(engine: Engine, viewer: ViewerDep) -> RedirectResponse:
+        listed = services.watchlist(engine, services.watchlist_tickers(settings.watchlist))
+        first = next((c.ticker for c in listed if c.cik), None)
+        if first is None:
+            raise HTTPException(404, "No watchlist company is resolved yet.")
+        return RedirectResponse(f"/c/{first}", status_code=307)
+
+    @app.get("/c/{ticker}", response_class=HTMLResponse)
+    def company_page(
+        request: Request,
+        ticker: str,
+        engine: Engine,
+        corpus: Corpus,
+        viewer: ViewerDep,
+        tab: str = "overview",
+        q: Annotated[str, Query(max_length=300)] = "",
+    ):
+        ticker = ticker.upper()
+        cik = services.resolve_ticker(engine, ticker)
+        if cik is None:
+            raise HTTPException(404, f"Unknown ticker {ticker}.")
+        if tab not in {t for t, _, _ in TABS}:
+            tab = "overview"
+        ctx = frame(engine) | {
+            "viewer": viewer,
+            "ticker": ticker,
+            "cik": cik,
+            "company": services.company(engine, cik),
+            "tabs": TABS,
+            "tab": tab,
+            "not_built": NOT_BUILT.get(tab),
+            "earnings_dates": services.earnings_dates(engine, cik),
+            "q": q,
+        }
+        if tab == "overview":
+            ctx["filings"] = services.filings(engine, cik, limit=10)
+            ctx["events"] = services.events(engine, cik, limit=8)
+        elif tab == "financials":
+            ctx["tables"] = services.financials(engine, cik)
+        elif tab == "insiders":
+            ctx["txns"] = services.insider_txns(engine, cik)
+        elif tab == "events":
+            ctx["events"] = services.events(engine, cik)
+            ctx["filings"] = services.filings(engine, cik)
+        elif tab == "search" and q.strip():
+            ctx["result"] = services.company_search(corpus, cik, q.strip())
+        return templates.TemplateResponse(request, "company.html", ctx)
+
+    @app.get("/source/{accession}/{filename}", response_class=HTMLResponse)
+    def source_page(
+        request: Request,
+        accession: str,
+        filename: str,
+        engine: Engine,
+        corpus: Corpus,
+        viewer: ViewerDep,
+        start: int = 0,
+        end: int = 0,
+        sha: str | None = None,
+    ):
+        view = services.source(corpus, accession, filename, start, end, sha)
+        if view is None:
+            raise HTTPException(404, "That document is not stored.")
+        ctx = frame(engine) | {"viewer": viewer, "view": view}
+        return templates.TemplateResponse(request, "source.html", ctx)
+
+    return app

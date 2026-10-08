@@ -1,0 +1,35 @@
+<div class="grid2">
+  <section>
+    <h2>Company</h2>
+    {% if company %}
+    <table class="data">
+      <tr><th>Name</th><td>{{ company.name }}</td></tr>
+      <tr><th>CIK</th><td>{{ cik }}</td></tr>
+      <tr><th>Industry (SIC)</th><td>{{ company.sic or '—' }} {{ company.sic_description or '' }}</td></tr>
+      <tr><th>Fiscal year end</th><td>{{ company.fiscal_year_end or '—' }}</td></tr>
+      <tr><th>Entity type</th><td>{{ company.entity_type or '—' }}</td></tr>
+    </table>
+    {% else %}<p class="empty">No company record stored yet.</p>{% endif %}
+    <h2 style="margin-top:16px">Signals</h2>
+    <p class="empty">No module emits signals yet (D13). They appear here as modules are built.</p>
+  </section>
+  <section>
+    <h2>Latest filings</h2>
+    {% if filings %}
+    <table class="data">
+      <tr><th>Filed</th><th>Form</th><th>Items / document</th></tr>
+      {% for f in filings %}
+      <tr><td>{{ f.filed }}</td><td><a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.form }}</a></td><td class="muted">{{ f.items or f.primary_doc_desc or '' }}</td></tr>
+      {% endfor %}
+    </table>
+    {% else %}<p class="empty">No filings stored.</p>{% endif %}
+    <h2 style="margin-top:16px">Recent events</h2>
+    {% if events %}
+    <table class="data">
+      {% for e in events %}
+      <tr><td>{{ e.filed }}</td><td class="sev-{{ e.severity }}">{{ e.item }}</td><td>{{ e.title }}</td></tr>
+      {% endfor %}
+    </table>
+    {% else %}<p class="empty">No 8-K events stored.</p>{% endif %}
+  </section>
+</div>

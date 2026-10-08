@@ -1,0 +1,22 @@
+<h2>Form 4 transactions</h2>
+{% if txns %}
+<div style="overflow-x:auto">
+<table class="data">
+  <tr><th>Date</th><th>Owner</th><th>Role</th><th>Code</th><th class="num">Shares</th><th class="num">Price</th><th class="num">Owned after</th><th>10b5-1</th><th>Form</th></tr>
+  {% for t in txns %}
+  <tr>
+    <td>{{ t.txn_date or '—' }}</td>
+    <td>{{ t.owner_name or '—' }}</td>
+    <td class="muted">{{ t.role or '' }}</td>
+    <td class="{% if t.code == 'P' %}buy{% elif t.code == 'S' %}sell{% endif %}" title="{{ t.table_kind }} {{ t.security_title or '' }}">{{ t.code or '—' }}{% if t.acquired_disposed %} ({{ t.acquired_disposed }}){% endif %}</td>
+    <td class="num">{{ t.shares | num('shares_exact') if t.shares is not none else '—' }}</td>
+    <td class="num">{{ '%.2f' | format(t.price) if t.price is not none else '—' }}</td>
+    <td class="num">{{ t.shares_after | num('shares_exact') if t.shares_after is not none else '—' }}</td>
+    <td>{% if t.is_10b5_1 is none %}<span class="muted">n/d</span>{% elif t.is_10b5_1 %}yes{% else %}no{% endif %}</td>
+    <td><a href="{{ t.url }}" target="_blank" rel="noopener">filing</a></td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+{% else %}<p class="empty">No Form 4 transactions stored.</p>{% endif %}
+<p class="note">Codes: P open-market buy, S sale, A grant, M option exercise, F tax withholding, G gift. Classification (routine vs opportunistic) arrives with M07. "n/d" = 10b5-1 not disclosed.</p>
