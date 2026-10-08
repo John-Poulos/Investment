@@ -129,6 +129,7 @@ def test_first_run_backfills_and_processes_new_filings(make_client, dbs, clock):
     assert c.documents == 2  # 8-K + EX-99.1
     text = format_report(report)
     assert "first run: backfilled" in text and "unresolved tickers" in text
+    assert "watchlist: XSEM = name not loaded yet (0000000042)" in text  # first run
     row = engine.execute("SELECT status, companies FROM refresh_run").fetchone()
     assert tuple(row) == ("ok", 1) and last_success(engine) is not None
 

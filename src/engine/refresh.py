@@ -199,6 +199,7 @@ class RunReport:
     status: str = "running"
     days: dict[str, str] = field(default_factory=dict)  # day → processed/no_index/pending
     unresolved: dict[str, str] = field(default_factory=dict)  # ticker → what was checked
+    watchlist: dict[str, str] = field(default_factory=dict)  # ticker → "name (CIK)"
     companies: list[CompanyReport] = field(default_factory=list)
     error: str | None = None
 
@@ -337,6 +338,11 @@ def run_refresh(
             res = resolve(client, engine, ticker, now)
             if isinstance(res, Ok):
                 watch.setdefault(res.data, ticker)
+                row = engine.execute(
+                    "SELECT name FROM entity WHERE cik = ?", (res.data,)
+                ).fetchone()
+                name = row[0] if row else "name not loaded yet"
+                report.watchlist[ticker] = f"{name} ({res.data})"
             elif isinstance(res, Failed) and res.throttled:
                 raise Throttled(f"resolve {ticker}: {res.reason}")
             else:
@@ -434,6 +440,8 @@ def format_report(report: RunReport) -> str:
     if report.error:
         lines.append(f"ERROR: {report.error}")
     lines.append("index days: " + (", ".join(f"{d} {s}" for d, s in report.days.items()) or "none"))
+    if report.watchlist:
+        lines.append("watchlist: " + "; ".join(f"{t} = {n}" for t, n in report.watchlist.items()))
     if report.unresolved:
         lines.append("unresolved tickers (kept on the watchlist):")
         lines += [f"  {t}: {why}" for t, why in report.unresolved.items()]
