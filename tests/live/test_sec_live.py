@@ -132,7 +132,9 @@ def test_submissions_all_pages(live):
     assert len(rows) == result.data.filings_seen  # no accession lost or duplicated
     if result.data.pages_total:
         assert rows[-1].filed < "2010-01-01", "older pages did not extend history"
-    assert releases and all(f.has_item("2.02") for f in releases)
+    assert releases and all(
+        f.has_item("2.02") or (f.filed < "2004-08-23" and f.has_item("12")) for f in releases
+    )  # pre-2004 earnings releases used Item 12 (D-SEC-13)
 
 
 REQUIRED_SECTIONS = {
