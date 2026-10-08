@@ -4,18 +4,41 @@
   <span class="name">{{ ticker }}</span>
   <span class="muted">{{ company.name if company else '—' }}</span>
 {% endblock %}
+{% block barswitch %}<span class="seg" title="Bar size"><a href="/c/{{ ticker }}?tab={{ tab }}&bar=D" class="{% if bar == 'D' %}on{% endif %}">D</a><a href="/c/{{ ticker }}?tab={{ tab }}&bar=W" class="{% if bar == 'W' %}on{% endif %}">W</a></span>{% endblock %}
 {% block body %}
 <div class="upper">
   <div class="chart">
-    <div class="area">Daily candles and volume — waits for Tiingo prices (build step 2)
+    {% set ps = price_state %}
+    {% if ps and ps.bars %}
+    <div class="chartinfo">
+      <span>{{ 'Daily' if bar == 'D' else 'Weekly' }} bars, split- and dividend-adjusted · Tiingo · last bar {{ ps.last_date }}</span>
+      <span id="stale" class="badge" hidden>stale</span>
+      {% if msg %}<span class="muted">fetch: {{ msg }}</span>{% endif %}
+    </div>
+    <div id="chart" class="plot" data-ticker="{{ ticker }}" data-bar="{{ bar }}"></div>
+    {% else %}
+    <div class="area">
+      <div style="text-align:center">
+        {% if ps and ps.last_outcome == 'not_found' %}Tiingo has no prices for {{ ticker }}.
+        {% elif ps %}No bars stored yet (last attempt: {{ ps.last_outcome }} — {{ ps.detail }}).
+        {% else %}No prices stored for {{ ticker }} yet.{% endif %}
+        {% if msg == 'no-key' %}<br>TIINGO_API_KEY is not set in .env.{% elif msg %}<br>Last fetch: {{ msg }}.{% endif %}
+        {% if viewer.is_owner and not (ps and ps.last_outcome == 'not_found') %}
+        <form method="post" action="/c/{{ ticker }}/prices" style="margin-top:8px">
+          <button type="submit" class="btn">Fetch prices from Tiingo (1 request)</button>
+        </form>
+        <div class="muted" style="margin-top:4px">Watchlist prices also update in the nightly run.</div>
+        {% endif %}
+      </div>
       <div class="marks">{% for d in earnings_dates[-6:] %}<span title="Earnings release (8-K Item 2.02)">▲ ER {{ d }}</span>{% endfor %}</div>
     </div>
+    {% endif %}
   </div>
   {% include "_side.html" %}
 </div>
 <nav class="tabs">
   {% for key, label, built in tabs %}
-  <a href="/c/{{ ticker }}?tab={{ key }}" class="{% if key == tab %}on{% elif not built %}later{% endif %}">{{ label }}</a>
+  <a href="/c/{{ ticker }}?tab={{ key }}&bar={{ bar }}" class="{% if key == tab %}on{% elif not built %}later{% endif %}">{{ label }}</a>
   {% endfor %}
 </nav>
 <main class="detail">
@@ -25,4 +48,10 @@
   {% include "tabs/" ~ tab ~ ".html" %}
 {% endif %}
 </main>
+{% endblock %}
+{% block scripts %}
+{% if price_state and price_state.bars %}
+<script src="/static/vendor/lightweight-charts-5.2.1/lightweight-charts.standalone.production.js"></script>
+<script src="/static/chart.js"></script>
+{% endif %}
 {% endblock %}

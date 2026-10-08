@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -15,6 +17,7 @@ class UiSettings:
     port: int = 8765
     data_dir: Path = ROOT / "data"
     watchlist: Path = ROOT / "config" / "watchlist.toml"
+    tiingo_factory: Callable[[Any], Any] | None = None  # tests inject a fake client
 
 
 def from_env() -> UiSettings:

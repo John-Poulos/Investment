@@ -9,8 +9,9 @@ with a login; pages and services do not change. Write actions depend on
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Annotated
 
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 
 
 @dataclass(frozen=True)
@@ -30,8 +31,9 @@ def current_viewer(request: Request) -> Viewer:
     return OWNER
 
 
-def require_owner(request: Request) -> Viewer:
-    viewer = current_viewer(request)
+def require_owner(viewer: Annotated[Viewer, Depends(current_viewer)]) -> Viewer:
+    """Owner-only actions resolve the viewer through `current_viewer`, so a future
+    login (or a test override) applies here too."""
     if not viewer.is_owner:
         raise HTTPException(status_code=403, detail="Only the owner can do this.")
     return viewer

@@ -59,7 +59,15 @@ def client(tmp_path: Path, clock):
     corpus.close()
     watch = tmp_path / "watchlist.toml"
     watch.write_text('[watchlist]\ntickers = ["META", "ZZZZ"]\n', encoding="utf-8")
-    app = create_app(UiSettings(data_dir=data, watchlist=watch))
+    from tests.test_prices import NOW, Transport, bar
+
+    def fake_tiingo(engine):
+        from engine.prices.tiingo import TiingoClient
+
+        t = Transport([(200, [bar("2026-10-06", 700), bar("2026-10-07", 710)])])
+        return TiingoClient("tok", engine, transport=t, now=lambda: NOW, min_interval_s=0)
+
+    app = create_app(UiSettings(data_dir=data, watchlist=watch, tiingo_factory=fake_tiingo))
     with TestClient(app) as c:
         yield c
 
@@ -76,7 +84,7 @@ def test_company_page_layout_and_side_panel(client):
     assert "Meta Platforms, Inc." in html
     assert "ZZZZ — not resolved" in html  # unresolved tickers stay visible, never dropped
     assert "ER 2025-10-29" in html  # earnings marker from stored events
-    assert "waits for Tiingo prices" in html
+    assert "No prices stored for META yet." in html
     assert "Results of operations" in html
 
 
@@ -134,3 +142,48 @@ def test_filing_rows_show_items_or_document(client):
         html = client.get(f"/c/META?tab={tab}").text
         assert "2.02,9.01" in html  # 8-K items
         assert "wk-form4_1.xml" in html  # Form 4: no items, shows its document
+
+
+def test_chart_waits_for_prices_then_fetch_fills_it(client):
+    html = client.get("/c/META").text
+    assert (
+        "No prices stored for META yet." in html and "Fetch prices from Tiingo (1 request)" in html
+    )
+    assert "lightweight-charts" not in html  # no chart script without bars
+    r = client.post("/c/META/prices", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/c/META?msg=ok"
+    html = client.get("/c/META?bar=W").text
+    assert 'id="chart"' in html and 'data-bar="W"' in html and "last bar 2026-10-07" in html
+    assert "lightweight-charts-5.2.1/lightweight-charts.standalone.production.js" in html
+    d = client.get("/api/bars/META?bar=D").json()
+    assert [b["time"] for b in d["bars"]] == ["2026-10-06", "2026-10-07"]
+    assert d["bars"][1]["close"] == 710.0
+
+
+def test_fetch_is_owner_only(client):
+    from engine.ui.viewer import Viewer, current_viewer
+
+    client.app.dependency_overrides[current_viewer] = lambda: Viewer("guest", "viewer")
+    try:
+        assert client.post("/c/META/prices").status_code == 403
+        assert "Fetch prices from Tiingo" not in client.get("/c/META").text
+    finally:
+        client.app.dependency_overrides.clear()
+
+
+def test_vendored_chart_library_is_byte_exact():
+    import hashlib
+
+    from engine.ui.app import HERE
+
+    js = (
+        HERE
+        / "static"
+        / "vendor"
+        / "lightweight-charts-5.2.1"
+        / "lightweight-charts.standalone.production.js"
+    )
+    assert (
+        hashlib.sha256(js.read_bytes()).hexdigest()
+        == "e21cc5caa0226ef30bd8549c50b9ef926615f2a4ee6b4e486353477a55f598cf"
+    )

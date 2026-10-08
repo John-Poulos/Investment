@@ -1,5 +1,6 @@
 <form class="search" method="get" action="/c/{{ ticker }}">
   <input type="hidden" name="tab" value="search">
+  <input type="hidden" name="bar" value="{{ bar }}">
   <input name="q" value="{{ q }}" placeholder="purchase obligations" autofocus>
   <button type="submit">Search</button>
 </form>

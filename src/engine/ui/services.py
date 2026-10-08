@@ -85,6 +85,11 @@ def status(engine: sqlite3.Connection) -> Status:
     return Status(reviews, run["status"], run["finished_at"], run["started_at"])
 
 
+def price_state(engine: sqlite3.Connection, symbol: str) -> dict[str, Any] | None:
+    row = engine.execute("SELECT * FROM price_fetch WHERE symbol = ?", (symbol.upper(),)).fetchone()
+    return dict(row) if row else None
+
+
 # --- Company -----------------------------------------------------------------------
 
 

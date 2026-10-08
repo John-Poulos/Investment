@@ -11,19 +11,22 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from engine.prices import store as prices
+from engine.prices.tiingo import MissingKey, TiingoClient, token_from_env
 from engine.store.db import connect, migrate
 from engine.ui import services
 from engine.ui.settings import UiSettings
-from engine.ui.viewer import Viewer, current_viewer
+from engine.ui.viewer import Viewer, current_viewer, require_owner
 
 HERE = Path(__file__).parent
 
@@ -82,6 +85,7 @@ def corpus_db(request: Request) -> Iterator[sqlite3.Connection]:
 Engine = Annotated[sqlite3.Connection, Depends(engine_db)]
 Corpus = Annotated[sqlite3.Connection, Depends(corpus_db)]
 ViewerDep = Annotated[Viewer, Depends(current_viewer)]
+OwnerDep = Annotated[Viewer, Depends(require_owner)]
 
 
 def create_app(settings: UiSettings) -> FastAPI:
@@ -125,8 +129,11 @@ def create_app(settings: UiSettings) -> FastAPI:
         viewer: ViewerDep,
         tab: str = "overview",
         q: Annotated[str, Query(max_length=300)] = "",
+        bar: str = "D",
+        msg: str = "",
     ):
         ticker = ticker.upper()
+        bar = "W" if bar.upper() == "W" else "D"
         cik = services.resolve_ticker(engine, ticker)
         if cik is None:
             raise HTTPException(404, f"Unknown ticker {ticker}.")
@@ -142,6 +149,9 @@ def create_app(settings: UiSettings) -> FastAPI:
             "not_built": NOT_BUILT.get(tab),
             "earnings_dates": services.earnings_dates(engine, cik),
             "q": q,
+            "bar": bar,
+            "msg": msg,
+            "price_state": services.price_state(engine, ticker),
         }
         if tab == "overview":
             ctx["filings"] = services.filings(engine, cik, limit=10)
@@ -156,6 +166,39 @@ def create_app(settings: UiSettings) -> FastAPI:
         elif tab == "search" and q.strip():
             ctx["result"] = services.company_search(corpus, cik, q.strip())
         return templates.TemplateResponse(request, "company.html", ctx)
+
+    @app.get("/api/bars/{ticker}")
+    def bars_api(ticker: str, engine: Engine, viewer: ViewerDep, bar: str = "D") -> JSONResponse:
+        ticker = ticker.upper()
+        cik = services.resolve_ticker(engine, ticker)
+        events = services.earnings_dates(engine, cik) if cik else []
+        b = prices.bars(engine, ticker, "W" if bar.upper() == "W" else "D",
+                        datetime.now(UTC).date(), events)  # fmt: skip
+        return JSONResponse(
+            {
+                "symbol": b.symbol,
+                "bar": b.bar,
+                "bars": b.bars,
+                "last_date": b.last_date,
+                "stale": b.stale,
+                "markers": b.markers,
+            }  # fmt: skip
+        )
+
+    @app.post("/c/{ticker}/prices")
+    def fetch_prices(ticker: str, engine: Engine, owner: OwnerDep) -> RedirectResponse:
+        """One Tiingo request for this symbol (owner only, U2): peers on demand (D-UI-3)."""
+        ticker = ticker.upper()
+        cik = services.resolve_ticker(engine, ticker)
+        if cik is None:
+            raise HTTPException(404, f"Unknown ticker {ticker}.")
+        try:
+            client = settings.tiingo_factory(engine) if settings.tiingo_factory else TiingoClient(
+                token_from_env(), engine, min_interval_s=0)  # fmt: skip
+        except MissingKey:
+            return RedirectResponse(f"/c/{ticker}?msg=no-key", status_code=303)
+        u = prices.update_symbol(engine, client, ticker, cik, datetime.now(UTC))
+        return RedirectResponse(f"/c/{ticker}?msg={u.outcome}", status_code=303)
 
     @app.get("/source/{accession}/{filename}", response_class=HTMLResponse)
     def source_page(

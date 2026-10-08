@@ -64,3 +64,9 @@ mark { background: var(--hl); color: inherit; }
 .warnbox { background: var(--warn-bg); color: var(--warn); padding: 6px 10px; border-radius: var(--radius); margin-bottom: 8px; }
 form.search input { width: 60%; padding: 4px 8px; border: 1px solid var(--line-2); border-radius: var(--radius); background: var(--panel); color: var(--text); }
 form.search button { padding: 4px 10px; border: 1px solid var(--line-2); border-radius: var(--radius); background: var(--panel-2); color: var(--text); }
+.seg a { padding: 1px 8px; color: var(--text-3); }
+.seg a.on { background: var(--accent-bg); color: var(--accent); }
+.seg a:hover { text-decoration: none; }
+.chartinfo { display: flex; gap: 10px; align-items: center; color: var(--text-2); font-size: 12px; margin-bottom: 4px; }
+.plot { flex: 1; min-height: 0; }
+.btn { padding: 4px 10px; border: 1px solid var(--line-2); border-radius: var(--radius); background: var(--panel-2); color: var(--text); cursor: pointer; }
