@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from engine.sec.client import SecClient, iso
 from engine.sec.documents import ingest_filing
@@ -43,6 +44,9 @@ from engine.sec.xbrl_facts import sync_facts
 
 DAILY_INDEX_URL = "https://www.sec.gov/Archives/edgar/daily-index/{year}/QTR{q}/master.{ymd}.idx"
 INDEX_TTL_S = 86400
+# SEC's daily index is per US Eastern business day; dates must be Eastern, not UTC
+# (live 2026-10-07: a 21:32 ET run is already the next day in UTC).
+MARKET_TZ = ZoneInfo("America/New_York")
 FACT_FORMS = {"10-K", "10-K/A", "10-Q", "10-Q/A", "20-F", "20-F/A", "40-F"}
 
 
@@ -116,6 +120,11 @@ def parse_master_index(text: str) -> list[IndexEntry]:
         accession = filename.rsplit("/", 1)[-1].removesuffix(".txt")
         out.append(IndexEntry(cik, parts[1].strip(), parts[2].strip(), filed, accession))
     return out
+
+
+def market_date(now: datetime) -> date:
+    """Today's date in US Eastern time (SEC's business day)."""
+    return now.astimezone(MARKET_TZ).date()
 
 
 def business_days(start: date, end: date) -> list[date]:
@@ -258,7 +267,7 @@ def _process_company(
         if ev.accession in new_acc:
             rep.notable_events.append(f"{ev.filed} {ev.form} {ev.item} {ev.severity}: {ev.title}")
 
-    since = (now.date() - timedelta(days=365 * config.form4_years)).isoformat()
+    since = (market_date(now) - timedelta(days=365 * config.form4_years)).isoformat()
     ins = _check(sync_insiders(client, engine, cik, now, since=since), "form 4", fails)
     if ins is not None:
         rep.insider_rows = ins.transactions
@@ -335,14 +344,18 @@ def run_refresh(
                     f"{p.path}: {p.result}" for p in checked
                 ) or str(res)
 
-        days = days_to_read(engine, now.date(), config.recheck_days)
-        recent = {d for d in days if (now.date() - d).days <= config.recheck_days + 1}
+        today = market_date(now)
+        days = days_to_read(engine, today, config.recheck_days)
+        recent = {d for d in days if (today - d).days <= config.recheck_days + 1}
         matched: dict[str, list[IndexEntry]] = {}
         day_status: dict[date, tuple[str, int | None, int | None]] = {}
         for day in days:
             res = client.get_text(index_url(day), ttl_s=INDEX_TTL_S, fresh=day in recent)
-            if isinstance(res, NotFound):
-                old = (now.date() - day).days > config.holiday_after_days
+            missing = isinstance(res, NotFound) or (
+                isinstance(res, Failed) and res.status == 403 and not res.throttled
+            )  # Archives answer 403 for an index not published yet
+            if missing:
+                old = (today - day).days > config.holiday_after_days
                 day_status[day] = ("no_index" if old else "pending", None, None)
                 continue
             text = _check(res, f"daily index {day}", [])
@@ -390,8 +403,11 @@ def _finish(engine: sqlite3.Connection, report: RunReport, now: datetime) -> Non
 
 
 def last_success(engine: sqlite3.Connection) -> str | None:
+    """Start of the last run that completed (ok, or partial with only per-item
+    failures). Runs stopped by a throttle or an error do not count."""
     row = engine.execute(
-        "SELECT max(started_at) FROM refresh_run WHERE status IN ('ok', 'partial')"
+        "SELECT max(started_at) FROM refresh_run "
+        "WHERE status = 'ok' OR (status = 'partial' AND error IS NULL)"
     ).fetchone()
     return row[0] if row else None
 

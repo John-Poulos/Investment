@@ -4,8 +4,9 @@
 - `SEC_USER_AGENT` (name + email) required; placeholders rejected.
 - 5xx and network errors retry with exponential backoff; other 4xx fail.
 - 404 is `NotFound` (no file at that URL), never a failure and never "no data".
-- A throttle (403/429, or the rate-threshold page under any status) opens a
-  breaker that fails every SEC call fast for ≥ 10 minutes.
+- A throttle (429, or SEC's block page under any status) opens a breaker that
+  fails every SEC call fast for ≥ 10 minutes. A bare 403 is a failure, not a
+  throttle (Archives return 403 for files not published yet); 3 in a row trip it.
 - Raw responses are cached by URL + params with a caller-supplied TTL.
   Failures are never cached; 404s are cached briefly and labeled not_found.
 """
@@ -33,7 +34,10 @@ BREAKER_SECONDS = 600.0  # rule 4: pause all SEC calls ≥ 10 min after a thrott
 NOT_FOUND_TTL_S = 6 * 3600  # 404s are cached briefly so a broken link is not re-hit
 MAX_ATTEMPTS = 4
 TIMEOUT_S = 30.0
-THROTTLE_MARKER = b"Request Rate Threshold Exceeded"
+# SEC's block page; a bare 403 is not a throttle (Archives answer 403 for files that do
+# not exist yet, e.g. a daily index for a day still in progress). Live 2026-10-07.
+THROTTLE_MARKERS = (b"Request Rate Threshold Exceeded", b"Undeclared Automated Tool")
+BARE_403_LIMIT = 3  # this many 403s in a row without the block page still trip the breaker
 
 _PLACEHOLDER_AGENTS = (
     "example.com",
@@ -84,7 +88,13 @@ def cache_key(url: str, params: Mapping[str, Any] | None) -> str:
 
 
 def is_throttle(status: int, body: bytes) -> bool:
-    return status in (403, 429) or THROTTLE_MARKER in body[:50_000]
+    head = body[:50_000]
+    return status == 429 or any(marker in head for marker in THROTTLE_MARKERS)
+
+
+def body_snippet(body: bytes, limit: int = 200) -> str:
+    text = re.sub(r"<[^>]+>", " ", body[:4000].decode("utf-8", errors="replace"))
+    return " ".join(text.split())[:limit]
 
 
 # --- Collaborators (protocols so tests and storage plug in) ------------------
@@ -231,6 +241,8 @@ class SecClient:
         self._breaker = breaker or _shared_breaker()
         self._now = now
         self._sleep = sleep
+        self._bare_403 = 0
+        self._bare_403_lock = threading.Lock()
 
     def _headers(self) -> dict[str, str]:
         return {"User-Agent": self.user_agent, "Accept-Encoding": "gzip, deflate"}
@@ -340,15 +352,37 @@ class SecClient:
             if is_throttle(resp.status, resp.body):
                 retry_after = _retry_after_s(resp.headers)
                 self._breaker.trip(max(BREAKER_SECONDS, retry_after))
-                detail = f"throttled (HTTP {resp.status}); breaker open {BREAKER_SECONDS:.0f}s+"
+                detail = (f"throttled (HTTP {resp.status}); breaker open {BREAKER_SECONDS:.0f}s+; "
+                          f"body: {body_snippet(resp.body)}")  # fmt: skip
                 self._log.write(key, "throttled", detail, resp.status, False, self._now())
                 return Failed(detail, url=url, status=resp.status, throttled=True), None
+
+            if resp.status == 403:
+                with self._bare_403_lock:
+                    self._bare_403 += 1
+                    streak = self._bare_403
+                snippet = body_snippet(resp.body)
+                if streak >= BARE_403_LIMIT:
+                    self._breaker.trip(BREAKER_SECONDS)
+                    detail = (f"{streak} HTTP 403s in a row without SEC's throttle page; treated "
+                              f"as a throttle, breaker open; body: {snippet}")  # fmt: skip
+                    self._log.write(key, "throttled", detail, 403, False, self._now())
+                    return Failed(detail, url=url, status=403, throttled=True), None
+                detail = (
+                    f"HTTP 403 (access denied; often a file not published yet); body: {snippet}"
+                )
+                self._log.write(key, "failed", detail, 403, False, self._now())
+                return Failed(detail, url=url, status=403), None
 
             if resp.status >= 500:
                 last = Failed(f"HTTP {resp.status}", url=url, status=resp.status)
                 self._log.write(key, "failed", last.reason, resp.status, False, self._now())
                 self._backoff(attempt)
                 continue
+
+            if resp.status < 400 or resp.status == 404:
+                with self._bare_403_lock:
+                    self._bare_403 = 0
 
             if resp.status == 404:
                 self._log.write(

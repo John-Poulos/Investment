@@ -165,3 +165,30 @@ def test_throttle_stops_run_and_marks_nothing(make_client, dbs, clock):
     report = run_refresh(make_client(transport), engine, corpus, CONFIG, clock.now())
     assert report.status == "partial" and "throttle" in report.error
     assert engine.execute("SELECT count(*) FROM refresh_day").fetchone()[0] == 0
+    assert last_success(engine) is None  # a stopped run does not count as done
+
+
+def test_market_date_is_eastern_not_utc():
+    from datetime import UTC, datetime
+
+    from engine.refresh import market_date
+
+    # 21:32 in New York on Oct 7 is already Oct 8 in UTC (the first live run).
+    assert market_date(datetime(2026, 10, 8, 1, 32, tzinfo=UTC)) == date(2026, 10, 7)
+
+
+def test_evening_run_reads_yesterday_eastern_and_403_index_is_pending(make_client, dbs, clock):
+    engine, corpus = dbs
+    from datetime import UTC, datetime
+
+    evening = datetime(2026, 10, 8, 1, 32, tzinfo=UTC)  # Oct 7, 21:32 ET
+    r = routes()
+    report = run_refresh(make_client(FakeTransport(r)), engine, corpus,
+                         replace(CONFIG, tickers=("NOPE",)), evening)  # fmt: skip
+    assert report.days == {"2026-10-06": "processed"}  # not the unfinished Oct 7
+
+    r[index_url(date(2026, 10, 7))] = [ok(b"<Error><Code>AccessDenied</Code></Error>", 403)]
+    later = datetime(2026, 10, 8, 14, 0, tzinfo=UTC)  # Oct 8 morning ET: Oct 7 now due
+    report = run_refresh(make_client(FakeTransport(r)), engine, corpus,
+                         replace(CONFIG, tickers=("NOPE",)), later)  # fmt: skip
+    assert report.days["2026-10-07"] == "pending" and report.error is None
