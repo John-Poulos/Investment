@@ -98,3 +98,7 @@ form.entry p { flex-basis: 100%; margin: 0; }
 form.entry label.wide { flex-basis: 100%; }
 .actions form { display: flex; gap: 8px; margin: 6px 0; }
 a.badge:hover { text-decoration: none; }
+details.guide { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 10px; margin-bottom: 12px; }
+details.guide summary { cursor: pointer; color: var(--accent); }
+.guidebody ol { margin: 4px 0 8px 18px; padding: 0; }
+.guidebody li { margin: 2px 0; }

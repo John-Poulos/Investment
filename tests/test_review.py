@@ -183,3 +183,37 @@ def test_review_actions_are_owner_only(client):
 def test_top_bar_links_to_queue(client):
     html = client.get("/c/ZZZ").text
     assert 'href="/review"' in html and "Review 2" in html
+
+
+def test_reopen_removes_entered_value_and_restores_item(dbs):
+    engine, corpus = dbs
+    it = seeded(engine, corpus)["guidance_unparsed"]
+    review.enter_guidance(
+        engine,
+        corpus,
+        it.item_id,
+        review.ManualGuidance(
+            "operating_income", "unspecified", "FY2026 Q3", "USD", "5", "", "1000000000"
+        ),
+        "",
+        "owner",
+        NOW,
+    )
+    msg = review.reopen(engine, it.item_id, "owner", NOW)
+    assert msg == "reopened; 1 owner-entered row removed"
+    assert engine.execute("SELECT count(*) FROM guidance WHERE source = 'owner'").fetchone()[0] == 0
+    again = review.get(engine, it.item_id)
+    assert again.resolved_at is None and "[reopened by owner" in again.note
+    with pytest.raises(review.ReviewError, match="already open"):
+        review.reopen(engine, it.item_id, "owner", NOW)
+
+
+def test_guide_panel_and_reopen_button(client):
+    html = client.get("/review").text
+    assert "How to resolve review items" in html and "Leave open" in html
+    item_id = int(html.split('href="/review/')[1].split('"')[0])
+    client.post(f"/review/{item_id}/dismiss", data={"note": "test"})
+    page = client.get(f"/review/{item_id}").text
+    assert "Reopen" in page and "How to resolve review items" in page
+    r = client.post(f"/review/{item_id}/reopen", follow_redirects=False)
+    assert "reopened" in r.headers["location"]

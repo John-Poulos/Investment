@@ -351,3 +351,41 @@ def approve_ticker_hold(
     except Exception:
         engine.execute("ROLLBACK")
         raise
+
+
+# --- undo ----------------------------------------------------------------------------
+
+
+REOPENABLE = ("entered", "dismiss", "acknowledge", "keep_stored", "keep_map")
+
+
+def reopen(engine: sqlite3.Connection, item_id: int, by: str, now: datetime) -> str:
+    """Return a resolved item to the queue. An 'entered' item also loses the
+    owner-entered guidance row it created (matched by release and sentence)."""
+    it = get(engine, item_id)
+    if it is None:
+        raise ReviewError(f"No review item {item_id}.")
+    if not it.resolved_at:
+        raise ReviewError("This item is already open.")
+    if it.resolution not in REOPENABLE:
+        raise ReviewError(f"Items resolved with '{it.resolution}' cannot be reopened here.")
+    removed = 0
+    engine.execute("BEGIN")
+    try:
+        if it.resolution == "entered":
+            p = it.payload
+            removed = engine.execute(
+                "DELETE FROM guidance WHERE source = 'owner' AND accession = ? AND filename = ? "
+                "AND quote_start = ?",
+                (p["accession"], p["filename"], p["offsets"][0]),
+            ).rowcount
+        engine.execute(
+            "UPDATE review_queue SET resolved_at = NULL, resolution = NULL, resolved_by = NULL, "
+            "note = coalesce(note, '') || ? WHERE item_id = ?",
+            (f" [reopened by {by} {iso(now)[:16]}]", item_id),
+        )
+        engine.execute("COMMIT")
+    except Exception:
+        engine.execute("ROLLBACK")
+        raise
+    return f"reopened; {removed} owner-entered row removed" if removed else "reopened"
