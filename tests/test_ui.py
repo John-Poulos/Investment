@@ -218,3 +218,12 @@ def test_layout_turns_tab_lines_into_tables():
     assert len(table.rows) == 3 and all(len(cells) == 3 for cells, _ in table.rows)  # padded
     assert table.rows[1] == ([("Gross margin", False), ("41.0%", True), ("42.0%", True)], True)
     assert table.highlighted and not table.rows[0][1]
+
+
+def test_runs_and_costs_page(client):
+    client.post("/c/META/prices")  # one fake Tiingo request, logged in fetch_log
+    html = client.get("/runs").text
+    assert "Runs and costs" in html and "No nightly run recorded yet." in html
+    assert "Symbols this month" in html and "No Gemini calls yet." in html
+    assert ">META</a>" in html  # stored prices table
+    assert 'href="/runs"' in client.get("/c/META").text

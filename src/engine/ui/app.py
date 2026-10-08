@@ -250,6 +250,12 @@ def create_app(settings: UiSettings) -> FastAPI:
         msg = "stored-result" if res.cached else "analyzed"
         return RedirectResponse(f"/c/{ticker}?tab=guidance&msg={msg}", 303)
 
+    @app.get("/runs", response_class=HTMLResponse)
+    def runs_page(request: Request, engine: Engine, viewer: ViewerDep):
+        now = datetime.now(UTC).isoformat(timespec="seconds")
+        ctx = frame(engine) | {"viewer": viewer, "rc": services.runs_and_costs(engine, now)}
+        return templates.TemplateResponse(request, "runs.html", ctx)
+
     @app.get("/review", response_class=HTMLResponse)
     def review_page(
         request: Request,

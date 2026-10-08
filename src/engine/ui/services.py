@@ -551,3 +551,92 @@ def guidance_view(engine: sqlite3.Connection, cik: str) -> GuidanceView:
         (cik,),
     ).fetchone()[0]
     return GuidanceView(ordered, none, reviews, last_call)
+
+
+# --- Runs and costs ------------------------------------------------------------------
+
+
+def runs_and_costs(engine: sqlite3.Connection, now_iso: str) -> dict[str, Any]:
+    """Nightly runs, guidance scans, Gemini spend and Tiingo usage vs its limits (D-UI-13)."""
+    from datetime import datetime, timedelta
+
+    from engine.prices.tiingo import BASE, DAILY_BUDGET, HOURLY_BUDGET, MONTHLY_SYMBOLS, symbol_of
+
+    now = datetime.fromisoformat(now_iso)
+    month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+    def since(delta: timedelta) -> str:
+        return (now - delta).isoformat(timespec="seconds")
+
+    runs = [
+        dict(r)
+        for r in engine.execute(
+            "SELECT run_id, trigger, started_at, finished_at, status, companies, error "
+            "FROM refresh_run ORDER BY run_id DESC LIMIT 20"
+        )
+    ]
+    scans = {
+        r[0]: r[1]
+        for r in engine.execute("SELECT outcome, count(*) FROM guidance_scan GROUP BY outcome")
+    }
+    last_scan = engine.execute("SELECT max(at) FROM guidance_scan").fetchone()[0]
+    llm_month = engine.execute(
+        "SELECT count(*), coalesce(sum(cost_usd), 0), coalesce(sum(input_tokens), 0), "
+        "coalesce(sum(output_tokens), 0) FROM llm_call WHERE created_at >= ?",
+        (month,),
+    ).fetchone()
+    llm_all = engine.execute("SELECT count(*), coalesce(sum(cost_usd), 0) FROM llm_call").fetchone()
+    calls = [
+        dict(r)
+        for r in engine.execute(
+            "SELECT c.call_id, c.use_case, c.cik, t.ticker, c.model, c.input_tokens, "
+            "c.output_tokens, c.cost_usd, c.status, c.created_at FROM llm_call c "
+            "LEFT JOIN ticker t ON t.cik = c.cik AND t.valid_to IS NULL "
+            "ORDER BY c.call_id DESC LIMIT 20"
+        )
+    ]
+    tiingo = BASE + "/%"
+    hour = engine.execute(
+        "SELECT count(*) FROM fetch_log WHERE url LIKE ? AND at >= ? AND from_cache = 0",
+        (tiingo, since(timedelta(hours=1))),
+    ).fetchone()[0]
+    day = engine.execute(
+        "SELECT count(*) FROM fetch_log WHERE url LIKE ? AND at >= ? AND from_cache = 0",
+        (tiingo, since(timedelta(days=1))),
+    ).fetchone()[0]
+    symbols = {
+        s
+        for (u,) in engine.execute(
+            "SELECT DISTINCT url FROM fetch_log WHERE url LIKE ? AND at >= ?", (tiingo, month)
+        )
+        if (s := symbol_of(u))
+    }
+    prices = [
+        dict(r)
+        for r in engine.execute(
+            "SELECT symbol, first_date, last_date, bars, last_outcome, last_fetched_at "
+            "FROM price_fetch ORDER BY symbol"
+        )
+    ]
+    return {
+        "runs": runs,
+        "scans": scans,
+        "last_scan": last_scan,
+        "llm_month": {
+            "calls": llm_month[0],
+            "cost": llm_month[1],
+            "input": llm_month[2],
+            "output": llm_month[3],
+        },  # fmt: skip
+        "llm_all": {"calls": llm_all[0], "cost": llm_all[1]},
+        "calls": calls,
+        "tiingo": {
+            "hour": hour,
+            "hour_cap": HOURLY_BUDGET,
+            "day": day,
+            "day_cap": DAILY_BUDGET,
+            "symbols": len(symbols),
+            "symbols_cap": MONTHLY_SYMBOLS,
+        },  # fmt: skip
+        "prices": prices,
+    }

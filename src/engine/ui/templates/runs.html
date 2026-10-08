@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Runs and costs — Investment engine{% endblock %}
+{% block topleft %}<a href="/">← Engine</a><span class="name">Runs and costs</span>{% endblock %}
+{% block body %}
+<main class="detail" style="max-width: 1100px">
+  <div class="grid2">
+    <section>
+      <h2>Gemini (owner-initiated only)</h2>
+      <table class="data">
+        <tr><th>This month</th><td class="num">{{ rc.llm_month.calls }} calls · {{ '{:,}'.format(rc.llm_month.input) }} in / {{ '{:,}'.format(rc.llm_month.output) }} out tokens · ${{ '%.4f' | format(rc.llm_month.cost) }}</td></tr>
+        <tr><th>All time</th><td class="num">{{ rc.llm_all.calls }} calls · ${{ '%.4f' | format(rc.llm_all.cost) }}</td></tr>
+      </table>
+    </section>
+    <section>
+      <h2>Tiingo free tier (our margins)</h2>
+      {% set t = rc.tiingo %}
+      <table class="data">
+        <tr><th>Last hour</th><td class="num">{{ t.hour }} / {{ t.hour_cap }} requests</td></tr>
+        <tr><th>Last 24 hours</th><td class="num">{{ t.day }} / {{ t.day_cap }} requests</td></tr>
+        <tr><th>Symbols this month</th><td class="num">{{ t.symbols }} / {{ t.symbols_cap }}</td></tr>
+      </table>
+    </section>
+  </div>
+
+  <h2 style="margin-top:16px">Nightly refresh runs</h2>
+  {% if rc.runs %}
+  <table class="data">
+    <tr><th>Run</th><th>Trigger</th><th>Started</th><th>Finished</th><th>Status</th><th class="num">Companies</th><th>Error</th></tr>
+    {% for r in rc.runs %}
+    <tr><td>{{ r.run_id }}</td><td class="muted">{{ r.trigger }}</td><td>{{ r.started_at[:16] | replace('T', ' ') }}</td><td>{{ (r.finished_at or '—')[:16] | replace('T', ' ') }}</td>
+      <td class="{% if r.status == 'failed' %}sev-high{% elif r.status == 'partial' %}sev-medium{% endif %}">{{ r.status }}</td><td class="num">{{ r.companies if r.companies is not none else '—' }}</td><td class="muted">{{ r.error or '' }}</td></tr>
+    {% endfor %}
+  </table>
+  <p class="note">Full reports: logs\refresh_&lt;timestamp&gt;.txt (they include the Tiingo price step).</p>
+  {% else %}<p class="empty">No nightly run recorded yet.</p>{% endif %}
+
+  <h2 style="margin-top:16px">Guidance scans</h2>
+  <p>{% for k, n in rc.scans.items() %}{{ k }}: {{ n }}{{ ' · ' if not loop.last }}{% else %}No releases scanned yet.{% endfor %}{% if rc.last_scan %} <span class="muted">— last scan {{ rc.last_scan[:16] | replace('T', ' ') }}</span>{% endif %}</p>
+
+  <h2 style="margin-top:16px">Gemini calls</h2>
+  {% if rc.calls %}
+  <table class="data">
+    <tr><th>Call</th><th>When</th><th>Use case</th><th>Company</th><th>Model</th><th class="num">Tokens in / out</th><th class="num">Cost</th><th>Status</th></tr>
+    {% for c in rc.calls %}
+    <tr><td>{{ c.call_id }}</td><td>{{ c.created_at[:16] | replace('T', ' ') }}</td><td>{{ c.use_case }}</td><td>{% if c.ticker %}<a href="/c/{{ c.ticker }}?tab=guidance">{{ c.ticker }}</a>{% else %}—{% endif %}</td><td class="muted">{{ c.model }}</td>
+      <td class="num">{{ c.input_tokens if c.input_tokens is not none else '—' }} / {{ c.output_tokens if c.output_tokens is not none else '—' }}</td><td class="num">{{ '$%.4f' | format(c.cost_usd) if c.cost_usd is not none else '—' }}</td><td class="{% if c.status == 'error' %}sev-high{% endif %}">{{ c.status }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="empty">No Gemini calls yet.</p>{% endif %}
+
+  <h2 style="margin-top:16px">Stored prices</h2>
+  {% if rc.prices %}
+  <table class="data">
+    <tr><th>Symbol</th><th>From</th><th>To</th><th class="num">Bars</th><th>Last fetch</th><th>Outcome</th></tr>
+    {% for p in rc.prices %}
+    <tr><td><a href="/c/{{ p.symbol }}">{{ p.symbol }}</a></td><td>{{ p.first_date or '—' }}</td><td>{{ p.last_date or '—' }}</td><td class="num">{{ '{:,}'.format(p.bars) }}</td><td>{{ (p.last_fetched_at or '—')[:16] | replace('T', ' ') }}</td><td class="{% if p.last_outcome not in ('ok', None) %}sev-medium{% endif %}">{{ p.last_outcome or '—' }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="empty">No prices stored yet.</p>{% endif %}
+</main>
+{% endblock %}
