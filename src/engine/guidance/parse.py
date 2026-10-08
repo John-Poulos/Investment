@@ -398,7 +398,7 @@ def _spread_both(seg: str, values: list[Value]) -> list[Value]:
     """'74.8% and 75.0%, respectively, plus or minus 50 basis points' → spread on both."""
     m = _TRAILING_PM.match(seg[values[1].end :])
     if not m:
-        return values
+        return values[:2]
     out = []
     for v in values[:2]:
         if m["bp"] is not None and v.unit == "%":

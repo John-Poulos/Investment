@@ -353,3 +353,15 @@ def test_adjustment_column_with_one_value_keeps_gaap_only():
     text = "FQ2-26\tGAAP Outlook\tAdjustments\tNon-GAAP Outlook\nGross margin\t67.0% ± 1.0%\n"
     got, _ = items(text)
     assert got == {("gross_margin", "GAAP", "FY2026 Q2"): (66, 68)}
+
+
+def test_respectively_with_more_values_in_the_segment():
+    text = (
+        "Outlook for the first quarter of fiscal 2027:\n"
+        "•GAAP and non-GAAP operating expenses are expected to be approximately $7.7 billion and $7.5 billion, respectively, inclusive of $1.9 billion of stock-based compensation expense.\n"
+    )
+    got, _ = items(text)
+    assert got == {
+        ("operating_expenses", "GAAP", "FY2027 Q1"): (Decimal("7.7") * B, Decimal("7.7") * B),
+        ("operating_expenses", "non-GAAP", "FY2027 Q1"): (Decimal("7.5") * B, Decimal("7.5") * B),
+    }
