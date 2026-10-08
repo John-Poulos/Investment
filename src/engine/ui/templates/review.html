@@ -4,6 +4,7 @@
 {% block body %}
 <main class="detail" style="max-width: 1100px">
   {% if msg %}<div class="okbox">{{ msg }}</div>{% endif %}
+  {% set open_guide = false %}{% include "_review_guide.html" %}
   <form method="get" action="/review" class="filters">
     <select name="kind">
       <option value="">All kinds</option>

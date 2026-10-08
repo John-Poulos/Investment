@@ -1,0 +1,38 @@
+<details class="guide"{% if open_guide %} open{% endif %}>
+<summary>How to resolve review items — what each choice does, with worked examples</summary>
+<div class="guidebody">
+<h3 class="sub">What your choice changes</h3>
+<table class="data">
+  <tr><th>Action</th><th>Effect on the program</th></tr>
+  <tr><td>Enter guidance</td><td>Adds a real row to the guidance ledger (marked owner-entered). It appears in the Guidance tab, takes part in raised/lowered comparisons and Gemini reason analysis, and will be scored against actual results (M11, R19). Survives re-scans and overrides the parser for that metric and period.</td></tr>
+  <tr><td>Dismiss / acknowledge</td><td>Changes no data. Records your note and stops re-scans from raising the same sentence again. Notes also show which wording the parser misses.</td></tr>
+  <tr><td>Keep stored / keep other</td><td>Chooses which of two parsed values stays in the ledger.</td></tr>
+  <tr><td>Leave open</td><td>Nothing is lost. Use this for real information the program cannot store yet; a later module can pick it up from the queue.</td></tr>
+  <tr><td>Reopen (resolved items)</td><td>Undo. Returns the item to the queue; an entered value is removed from the ledger.</td></tr>
+</table>
+
+<h3 class="sub">Rules for a good entry (so the ledger stays trustworthy)</h3>
+<ol>
+  <li>Enter only <b>forward guidance</b> the sentence itself states — never a reported result ("revenue was…").</li>
+  <li>Use <b>only numbers in the sentence</b>. Do not convert a growth rate into dollars or combine sentences. The form warns when a number is not in the sentence; treat that warning as a stop sign.</li>
+  <li><b>Period</b> as the company labels it: FY2026, FY2026 Q3, or FY2026 remaining. Fiscal years can differ from calendar years (NVIDIA, Micron, Marvell).</li>
+  <li><b>Basis</b> stays "unspecified" unless the sentence says GAAP or non-GAAP.</li>
+  <li><b>Unit and scale</b>: "$5 billion" → unit USD, low 5, scale billions. "52% to 53%" → unit %, low 52, high 53. Leave High empty for a single number.</li>
+  <li>If the metric is not in the list (bookings, growth rate, deliveries, dividends), <b>do not force it into a similar metric</b> — leave the item open.</li>
+  <li>When unsure, leave it open. A missing value is safer than a wrong one.</li>
+</ol>
+
+<h3 class="sub">Worked examples from your queue</h3>
+<table class="data">
+  <tr><th>Sentence (shortened)</th><th>Choice</th><th>Why</th></tr>
+  <tr><td>Boeing: "now anticipates first delivery in 2027, resulting in a pre-tax earnings charge of $4.9 billion"</td><td>Leave open</td><td>A dated milestone (R4), not financial guidance. The milestone tracker (M06/M11) will use it. The $4.9B is a charge already taken, not guidance.</td></tr>
+  <tr><td>Marvell: "full-year revenue growth forecasted to exceed 40%"</td><td>Leave open</td><td>Real guidance, but a growth rate with a floor. There is no growth metric yet (DS3). Entering it as revenue would be wrong.</td></tr>
+  <tr><td>Meta: "raising the lower-end of our expense outlook to incorporate the $2.4 billion charges…"</td><td>Dismiss — "reason for change; range already parsed"</td><td>The new $165–169B range is already in the ledger, and Gemini's Analyze captures this sentence as the stated reason.</td></tr>
+  <tr><td>NVIDIA: "stock-based compensation… expected to have a 0.1% impact on non-GAAP gross margin and $1.9 billion…"</td><td>Dismiss — "assumption inside guidance"</td><td>Explains what the gross-margin and opex guidance include; it is not a separate guided metric.</td></tr>
+  <tr><td>Infleqtion: "We expect to remit the $27.4 million in Q3"</td><td>Dismiss — "cash payment, not guidance"</td><td>A payment schedule, not an operating forecast.</td></tr>
+  <tr><td>Strategy: "$99.00 - $100.99: No change in the dividend rate is anticipated"</td><td>Dismiss — "dividend policy table"</td><td>Part of a preferred-dividend rate table; dividends are not a guided metric here.</td></tr>
+  <tr><td>Hypothetical: "We expect 2027 capital expenditures of approximately $40 billion" (missed by the parser)</td><td>Enter: capex · unspecified · FY2027 · USD · low 40 · scale billions</td><td>Forward, stated in full in one sentence, metric in the list, numbers in the sentence.</td></tr>
+</table>
+<p class="note">Already resolved something you now doubt? Open the Resolved list, open the item and press Reopen.</p>
+</div>
+</details>

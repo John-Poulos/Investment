@@ -4,6 +4,7 @@
 {% block body %}
 <main class="detail" style="max-width: 1000px">
   {% if error %}<div class="warnbox">{{ error }}</div>{% endif %}
+  {% set open_guide = false %}{% include "_review_guide.html" %}
   <h2>{{ it.reason }}</h2>
   <p class="muted">Item {{ it.item_id }} · {{ it.module_id }} · created {{ it.created_at[:16] | replace('T', ' ') }}
     {% if it.payload.accession %} · <a href="/doc/{{ it.payload.accession }}?file={{ it.payload.filename }}{% if it.payload.offsets %}&start={{ it.payload.offsets[0] }}&end={{ it.payload.offsets[1] }}#hl{% endif %}">open in the reader</a>{% endif %}</p>
@@ -28,6 +29,11 @@
 
   {% if it.resolved_at %}
   <div class="okbox" style="margin-top:12px">Resolved: {{ it.resolution }} by {{ it.resolved_by }} on {{ it.resolved_at[:16] | replace('T', ' ') }}{% if it.note %} — {{ it.note }}{% endif %}</div>
+  {% if viewer.is_owner and it.resolution in ('entered', 'dismiss', 'acknowledge', 'keep_stored', 'keep_map') %}
+  <form method="post" action="/review/{{ it.item_id }}/reopen" style="margin-top:8px">
+    <button class="btn" type="submit">Reopen{% if it.resolution == 'entered' %} and remove the entered value{% endif %}</button>
+  </form>
+  {% endif %}
   {% elif not viewer.is_owner %}
   <p class="muted">Only the owner can resolve review items.</p>
   {% else %}

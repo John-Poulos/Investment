@@ -336,6 +336,8 @@ def create_app(settings: UiSettings) -> FastAPI:
                     done = "entered-with-warnings: " + "; ".join(warnings)
             elif action == "keep_other":
                 review.keep_other(engine, corpus, item_id, note, owner.id, now)
+            elif action == "reopen":
+                done = review.reopen(engine, item_id, owner.id, now)
             elif action == "approve":
                 review.approve_ticker_hold(engine, item_id, note, owner.id, now)
             else:
