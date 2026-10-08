@@ -1,6 +1,6 @@
 """The one SEC HTTP client (M00_SEC_DATA rules 1-5).
 
-- One rate limiter for every SEC call in the process, across threads (≤ 8 req/s).
+- One rate limiter for every SEC call in the process, across threads (5 req/s).
 - `SEC_USER_AGENT` (name + email) required; placeholders rejected.
 - 5xx and network errors retry with exponential backoff; other 4xx fail.
 - 404 is `NotFound` (no file at that URL), never a failure and never "no data".
@@ -29,7 +29,9 @@ import requests
 
 from engine.sec.results import Failed, NotFound, Ok, Result
 
-TARGET_RATE_PER_S = 8.0  # SEC allows 10/s per user; we target ≤ 8
+# SEC publishes 10/s per user. Live 2026-10-07: ~15 min sustained at 7.5–8/s (Form 4
+# backfill) drew a 429 block, so long runs pace at 5/s (CLAUDE.md: target <= 8).
+TARGET_RATE_PER_S = 5.0
 BREAKER_SECONDS = 600.0  # rule 4: pause all SEC calls ≥ 10 min after a throttle
 NOT_FOUND_TTL_S = 6 * 3600  # 404s are cached briefly so a broken link is not re-hit
 MAX_ATTEMPTS = 4

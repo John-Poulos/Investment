@@ -3,15 +3,14 @@
 Updated 2026-10-07 · Basis: investment_strategy.txt (a guideline, not a spec) · Outputs are research signals, not financial or tax advice.
 
 ## Resume here
-- **Phase:** 2 — build M00 (SEC data, storage, search). Owner's old code reviewed; data-layer plan approved with SQLite storage.
-- **Environment (2026-10-06):** repo at C:\dev\Investment with .venv inside; GitHub repo John-Poulos/Investment (branch main, to be private); FTS5 verified; tzdata installed. Tooling files provided: .gitattributes, .gitignore, .pre-commit-config.yaml, CLAUDE.md, .claude/settings.json.
-- **Built (2026-10-07):** `sec/client.py`, `sec/identity.py`, schema 0001–0002, 48 fixture tests; live run 1 passed identity checks. 404 = `NotFound` (D-SEC-4); ticker refresh held for review on large changes (D-SEC-5). PR John-Poulos/Investment#1.
-- **Built (branch m00-submissions, 2026-10-07):** `submissions.py` and `documents.py`, live-verified on AAPL (2,264 filings; 10-K 207k chars and 8-K + EX-99.1 stored whole, clean UTF-8); 71 fixture tests. PR #1 merged.
-- **Building (branch m00-refresh):** nightly `refresh.py` with owner watchlist, catch-up, run report, Task Scheduler script with ask-before-catch-up (D-SEC-15); 181 fixture tests. PRs #1–#8 merged — the M00 data layer is complete once this merges.
-- **Next action:** owner runs the first refresh (backfill) and registers the tasks → PR + merge → M00 search/LLM layer or M02 (owner to choose).
-- **Awaiting owner:** nothing blocking.
-- **Parked:** Q2 (at M09), Q3 (at M07), Q5 (at M12); M02 design questions (M02_THEMES.md); M04 red flags still to design (M04 open questions).
-
+- **Phase (2026-10-07):** 2 — M00 data layer built. PRs #1–#8 merged to main; **branch `m00-refresh` open** (nightly job + fixes D-SEC-15…18), PR to open/merge once the first backfill succeeds.
+- **Next action:** owner reruns `uv run python scripts/run_refresh.py` (first full backfill of the 16-company watchlist, ~15 min at 5 req/s) and sends `logs\refresh_<time>.txt`. Check: no company failures; SPCX resolves to SpaceX, not the SPAC ETF; ETV shows "no XBRL company facts" (fund). Then PR + merge, then owner chooses next: **M00 search + grounded LLM** (M00_SEARCH) or **M02 themes** (ask M02_THEMES open questions first, D7).
+- **Status of the real DB:** `data\engine.db` / `corpus.db` hold a partial backfill (companies before AMZN by CIK); 3 refresh runs recorded (403 bug, duplicate-period crash, SEC 429 block). Everything is idempotent; the next run continues. Windows tasks are registered (02:00 nightly, wakes PC; logon check asks before a missed catch-up).
+- **Environment:** repo C:\dev\Investment (.venv, uv, Python 3.14, SQLite 3.50 with FTS5); GitHub John-Poulos/Investment; `.env` holds a valid `SEC_USER_AGENT` (Claude may not read `.env` or `data\`).
+- **Code map:** `src/engine/sec/` client (pacing 5/s, throttle = 429 or SEC block page, `fresh=`), results (Ok/Empty/NotFound/Failed), identity, submissions, documents, sections, xbrl_facts, frames, insiders, events, fulltext · `src/engine/store/` db (migrations engine 0001–0008, corpus 0001–0004), http · `src/engine/refresh.py` · `scripts/` run_live.py, run_refresh.py, register_tasks.ps1, fetch_stats.py · `config/watchlist.toml` · `tests/` (188 fixture) + `tests/live/` (12, opt-in).
+- **Workflow:** one branch per piece → fixture tests → owner runs `uv run python scripts/run_live.py <label>` and sends the log (Claude cannot call SEC) → PR via `gh` → owner merges with "Create a merge commit" → `git switch main`, `git pull`, `git branch -d <branch>`. Check `git branch --show-current` and `git status` before starting work. Decision IDs: D-SEC-n (M00_SEC_DATA), D-STO-n (M00_STORAGE), D-SRCH-n (M00_SEARCH).
+- **Open items carried forward:** BM25 favours short sections (search build) · capex fallback tag must be shown to the user; separate shares concepts (M04/M07) · peer period-end offset tolerance (M04) · SIC peer discovery (D19) · Form 4 bulk data sets deferred · rate limiter is per process · EdgarTools evaluation · LLM provider and cost (R19 build) · M07 must exclude G/A/M/F from $ sale totals (R22) · M02 design questions · M04 red flags · Q2 (M09), Q3 (M07), Q5 (M12).
+- **Awaiting owner:** first successful backfill; then choice of next module.
 ## Working agreements
 - Strategy changes are proposed with sources and applied only after owner approval (D6); ambiguous sections get questions before designs (D7).
 - Each doc carries its own decisions, open items and source IDs (SOURCES.md) so a new conversation can resume without loss. Docs stay concise.
