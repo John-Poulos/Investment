@@ -28,7 +28,7 @@ Settings: WAL mode, `busy_timeout` 5 s, foreign keys on, `synchronous=NORMAL`. W
 | form4_doc | accession | one row per parsed Form 4: issuer, doc type, period, all reporting owners (JSON), 10b5-1 checkbox, parser version |
 | signal | ticker, module_id, signal, timeframe, as_of | D13 record |
 | extraction | id | LLM item + quote + passage_id + verification result (M00_SEARCH.md) |
-| guidance | id | R19 ledger: metric, period, range, unit, stated_on, source_ref, status |
+| guidance / guidance_scan | id; accession, filename | R19 ledger parsed by code: metric, basis, period, value (low/high/point/spread), prior, stated_on, exact quote + offsets, period source, doc sha256, parser version; one scan row per release (parsed/none/review) |
 | event | accession, item, cik | one row per 8-K item: category, severity, title, consuming modules, amended flag, catalog version |
 | fulltext_query / fulltext_hit | query_id; query_id, accession, filename | each EFTS query run (phrase, variant, forms, window, total, capped) and the filings it matched |
 | review_queue | id | D8 items awaiting owner |
@@ -97,6 +97,7 @@ Freshness is event-driven (SEC data changes only when a company files); backstop
 - D-STO-11 (2026-10-07): engine migration 0007 adds `fulltext_query` and `fulltext_hit` (D-SEC-14).
 - D-STO-12 (2026-10-07): engine migration 0008 adds `refresh_run` and `refresh_day` (D-SEC-15).
 - D-STO-13 (2026-10-08): corpus migration 0005 adds `passage` (section, seq, offsets, chunker version) and self-contained `passage_fts` (D-SRCH-10).
+- D-STO-14 (2026-10-08): engine migration 0009 rebuilds `guidance` (never written before) with provenance columns and adds `guidance_scan` (D-SRCH-11).
 
 ## Open questions
 - Backfill universe: watchlist size and peers per group.
