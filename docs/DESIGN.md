@@ -9,7 +9,7 @@ Updated 2026-10-07 · Basis: investment_strategy.txt (a guideline, not a spec) �
 - **Built (branch m00-submissions, 2026-10-07):** `submissions.py` and `documents.py`, live-verified on AAPL (2,264 filings; 10-K 207k chars and 8-K + EX-99.1 stored whole, clean UTF-8); 71 fixture tests. PR #1 merged.
 - **Built (branch m00-events, 2026-10-07):** `events.py` (D-SEC-11), live-verified on AAPL (413 events; earnings = Item 2.02 filings; 5.02 section stored); severity defaults approved (D-SEC-12); 147 fixture tests. PRs #1–#6 merged.
 - **Next action:** owner merges the m00-events PR and decides on the pre-2004 8-K item map → `fulltext.py`, `refresh.py`.
-- **Awaiting owner:** pre-2004 8-K item map (M00_SEC_DATA open questions); nothing blocking.
+- **Awaiting owner:** nothing blocking.
 - **Parked:** Q2 (at M09), Q3 (at M07), Q5 (at M12); M02 design questions (M02_THEMES.md); M04 red flags still to design (M04 open questions).
 
 ## Working agreements
