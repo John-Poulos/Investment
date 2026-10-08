@@ -6,8 +6,8 @@ versioned catalog of every Form 8-K item; item codes outside the catalog (e.g.
 pre-2004 numbering) are kept as category "unknown", never dropped.
 
 Severity is a default for alerting (M01 rule 6: events surface immediately);
-the defaults are proposed and pending owner review (see M00_SEC_DATA). The
-engine signals; the owner decides (D8, D16).
+defaults approved by the owner 2026-10-07 and adjustable later (M00_SEC_DATA,
+D-SEC-12). The engine signals; the owner decides (D8, D16).
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ class ItemSpec:
     modules: tuple[str, ...]
 
 
-# Form 8-K items. Severity defaults are proposed (owner review pending).
+# Form 8-K items. Severity defaults approved 2026-10-07 (D-SEC-12).
 CATALOG: dict[str, ItemSpec] = {
     "1.01": ItemSpec(
         "Entry into a Material Definitive Agreement", "agreement", "medium", ("M02", "M05", "M06")
