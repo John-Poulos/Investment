@@ -260,3 +260,22 @@ def test_no_companyfacts_file_is_not_found(make_client, dbs, clock):
     engine, _ = dbs
     transport = FakeTransport({URL: [ok(b"", 404)]})
     assert isinstance(sync_facts(make_client(transport), engine, CIK, clock.now()), NotFound)
+
+
+def test_same_period_with_two_start_dates_keeps_one_point(make_client, dbs, clock):
+    """Live 2026-10-07: a company reported one fiscal year with starts a day apart, which
+    produced duplicate series keys and crashed the refresh."""
+    engine, _ = dbs
+    data = json.loads(json.dumps(FACTS))
+    usd = data["facts"]["us-gaap"]["RevenueFromContractWithCustomerExcludingAssessedTax"]["units"]
+    usd["USD"] += [
+        f(("2023-09-30", "2024-09-28"), 401, A_Q1_25, "2025-01-31", "10-K"),  # FY, start -1 day
+        f(("2023-09-30", "2023-12-30"), 101, A_Q1_25, "2025-01-31"),  # Q1, start -1 day
+    ]
+    res = sync_facts(make_client(FakeTransport(facts_route(data))), engine, CIK, clock.now())
+    assert isinstance(res, Ok)
+    fy = [r for r in get_series(engine, CIK, "revenue", "FY") if r.end == FY24[1]]
+    assert len(fy) == 1 and fy[0].latest.value == 401  # newest filing wins
+    assert "also reported as 2023-10-01..2024-09-28 = 400" in fy[0].method
+    q1 = [r for r in get_series(engine, CIK, "revenue", "Q") if r.end == Q1[1]]
+    assert len(q1) == 1 and "also reported as" in q1[0].method

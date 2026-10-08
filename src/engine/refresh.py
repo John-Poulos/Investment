@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import tomllib
+import traceback
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -373,7 +374,20 @@ def run_refresh(
             rep = CompanyReport(watch[cik], cik, backfilled=not _backfilled(engine, cik))
             report.companies.append(rep)
             entries = list({e.accession: e for e in matched.get(cik, [])}.values())
-            _process_company(client, engine, corpus, config, rep, entries, now)
+            try:
+                _process_company(client, engine, corpus, config, rep, entries, now)
+            except Throttled:
+                raise
+            except Exception as exc:  # one company's error must not stop the others
+                if engine.in_transaction:
+                    engine.execute("ROLLBACK")
+                if corpus.in_transaction:
+                    corpus.execute("ROLLBACK")
+                where = traceback.extract_tb(exc.__traceback__)[-1]
+                rep.failures.append(
+                    f"internal error: {type(exc).__name__}: {exc} "
+                    f"({Path(where.filename).name}:{where.lineno})"
+                )
 
         for day, (status, n, m) in day_status.items():
             _mark_day(engine, day, status, n, m, run_id, now)

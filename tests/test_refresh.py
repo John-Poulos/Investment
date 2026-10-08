@@ -192,3 +192,22 @@ def test_evening_run_reads_yesterday_eastern_and_403_index_is_pending(make_clien
     report = run_refresh(make_client(FakeTransport(r)), engine, corpus,
                          replace(CONFIG, tickers=("NOPE",)), later)  # fmt: skip
     assert report.days["2026-10-07"] == "pending" and report.error is None
+
+
+def test_one_company_error_does_not_stop_the_run(make_client, dbs, clock, monkeypatch):
+    engine, corpus = dbs
+    import engine.refresh as refresh_mod
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("simulated bug")
+
+    monkeypatch.setattr(refresh_mod, "sync_facts", boom)
+    report = run_refresh(make_client(FakeTransport(routes())), engine, corpus, CONFIG,
+                         clock.now())  # fmt: skip
+    [c] = report.companies
+    assert any("internal error: RuntimeError: simulated bug" in f for f in c.failures)
+    assert report.status == "partial" and report.error is None
+    assert report.days == {"2026-10-06": "processed"}  # the run still finished its days
+    assert not engine.execute(
+        "SELECT 1 FROM refresh_state WHERE name = 'backfill:0000000042'"
+    ).fetchone()  # backfill retried next run
