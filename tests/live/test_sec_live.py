@@ -14,6 +14,7 @@ import pytest
 
 from engine.sec.client import SecClient, user_agent_from_env, utc_now
 from engine.sec.documents import document_text, ingest_filing
+from engine.sec.events import build_events, events, ingest_event_documents
 from engine.sec.frames import (
     concept_frame,
     peer_stats,
@@ -372,3 +373,39 @@ def test_insiders_form4(live):
             f"10b5-1={r['is_10b5_1']} ({r['plan_basis'] or 'not disclosed'})"
         )
     assert all(r["issuer_cik"] == APPLE for r in rows)
+
+
+def test_events_from_8k_items(live):
+    """AAPL 8-K items → typed events; earnings count matches the Item 2.02 filings."""
+    client, engine = live
+    corpus = _CORPUS[0]
+    assert isinstance(sync_filings(client, engine, APPLE, utc_now()), Ok)
+    built = build_events(engine, APPLE)
+    assert isinstance(built, Ok)
+    b = built.data
+    print(f"\nevents: {b.events} from {b.filings} current reports")
+    print(f"by category: {dict(sorted(b.by_category.items()))}")
+    print(f"items outside the catalog (kept as unknown): {b.unknown_items}")
+
+    earnings = events(engine, APPLE, categories=["earnings"])
+    assert len(earnings) == len(earnings_releases(engine, APPLE))
+    print("latest 12 events at medium or above:")
+    for e in events(engine, APPLE, min_severity="medium")[:12]:
+        print(
+            f"  {e.filed} {e.form:<6} {e.item:<5} {e.severity:<6} {e.category:<10} {e.title[:60]}"
+        )
+
+    [latest_502] = events(engine, APPLE, categories=["people"])[:1] or [None]
+    assert latest_502 is not None, "no 5.02 events found"
+    docs = ingest_event_documents(client, engine, corpus, [latest_502], utc_now())
+    assert isinstance(docs, Ok) and docs.data.complete, docs
+    rows = corpus.execute(
+        "SELECT s.label, s.start_offset, s.end_offset, d.text FROM section s "
+        "JOIN document d ON d.doc_id = s.doc_id WHERE d.accession = ? ORDER BY s.start_offset",
+        (latest_502.accession,),
+    ).fetchall()
+    print(f"\n5.02 filing {latest_502.accession} ({latest_502.filed}) sections:")
+    for r in rows:
+        snippet = r["text"][r["start_offset"] : r["start_offset"] + 90].replace("\n", " | ")
+        print(f"  {r['label']:<16} {r['end_offset'] - r['start_offset']:>7,}  {snippet}")
+    assert "8-K Item 5.02" in [r["label"] for r in rows]
