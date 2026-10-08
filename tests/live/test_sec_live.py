@@ -23,6 +23,7 @@ from engine.sec.frames import (
     series_yoy,
     ttm_frame,
 )
+from engine.sec.fulltext import count_by_window, search, yearly_windows
 from engine.sec.identity import SUBMISSIONS_URL, load_entity, resolve
 from engine.sec.insiders import sync_insiders, transactions
 from engine.sec.results import NotFound, Ok
@@ -409,3 +410,31 @@ def test_events_from_8k_items(live):
         snippet = r["text"][r["start_offset"] : r["start_offset"] + 90].replace("\n", " | ")
         print(f"  {r['label']:<16} {r['end_offset'] - r['start_offset']:>7,}  {snippet}")
     assert "8-K Item 5.02" in [r["label"] for r in rows]
+
+
+def test_fulltext_search_and_trend(live):
+    """EFTS: one phrase, forms/dates as params, SIC post-filter; yearly counts (M02 trend)."""
+    client, engine = live
+    phrase = "high bandwidth memory"
+    res = search(client, engine, phrase, forms=("10-K", "10-Q"), start="2025-01-01",
+                 end="2025-12-31", now=utc_now(), max_hits=100,
+                 sics=["3674", "3672", "3577", "3571"])  # fmt: skip
+    assert isinstance(res, Ok), res
+    r = res.data
+    print(f"\n{r.phrase} 2025 10-K/10-Q: total {r.total:,} (capped={r.capped}), variant "
+          f"{r.variant!r}, kept {len(r.hits)}, dropped by SIC {r.sic_dropped}, "
+          f"incomplete {r.incomplete}")  # fmt: skip
+    for h in r.hits[:15]:
+        print(f"  {h.file_date} {h.form:<5} {h.entity_name!s:<38.38} sic {','.join(h.sics):<6} "
+              f"{h.accession} {h.filename}")  # fmt: skip
+    assert r.total > 0 and any("3674" in h.sics for h in r.hits)
+    assert all(h.url and h.url.startswith("https://www.sec.gov/Archives/") for h in r.hits)
+
+    counts = count_by_window(client, engine, phrase, forms=("10-K",),
+                             windows=yearly_windows(2019, 2025), now=utc_now())  # fmt: skip
+    print("yearly 10-K filings mentioning the phrase:")
+    for c in counts:
+        total = "failed" if c.total is None else f"{c.total:,}"
+        print(f"  {c.start[:4]}  {total:>8}  capped={c.capped}  {c.error or ''}")
+    assert all(c.total is not None for c in counts), "a window failed"
+    assert counts[-1].total > counts[0].total

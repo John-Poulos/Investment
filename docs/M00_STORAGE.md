@@ -30,6 +30,7 @@ Settings: WAL mode, `busy_timeout` 5 s, foreign keys on, `synchronous=NORMAL`. W
 | extraction | id | LLM item + quote + passage_id + verification result (M00_SEARCH.md) |
 | guidance | id | R19 ledger: metric, period, range, unit, stated_on, source_ref, status |
 | event | accession, item, cik | one row per 8-K item: category, severity, title, consuming modules, amended flag, catalog version |
+| fulltext_query / fulltext_hit | query_id; query_id, accession, filename | each EFTS query run (phrase, variant, forms, window, total, capped) and the filings it matched |
 | review_queue | id | D8 items awaiting owner |
 | position / lot / decision | ids | owner portfolio, tax lots, profile of record (D12) |
 | fetch_log | id | every call: url, outcome (ok/not_found/failed/throttled), detail, at |
@@ -85,6 +86,7 @@ Freshness is event-driven (SEC data changes only when a company files); backstop
 - D-STO-8 (2026-10-07): engine migration 0004 adds `frame_value.period_start` (D-SEC-9).
 - D-STO-9 (2026-10-07): engine migration 0005 adds `form4_doc` and Form 4 detail columns on `insider_txn` (D-SEC-10).
 - D-STO-10 (2026-10-07): engine migration 0006 adds `event` (D-SEC-11).
+- D-STO-11 (2026-10-07): engine migration 0007 adds `fulltext_query` and `fulltext_hit` (D-SEC-14).
 
 ## Open questions
 - Backfill universe: watchlist size and peers per group.
