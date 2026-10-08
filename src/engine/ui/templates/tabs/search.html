@@ -1,0 +1,22 @@
+<form class="search" method="get" action="/c/{{ ticker }}">
+  <input type="hidden" name="tab" value="search">
+  <input type="hidden" name="bar" value="{{ bar }}">
+  <input name="q" value="{{ q }}" placeholder="purchase obligations" autofocus>
+  <button type="submit">Search</button>
+</form>
+<p class="note">Searches this company's stored filings and releases. Quote exact phrases ("risk factors"); prefix with * (hbm*); AND / OR / NOT; label:"Item 1A" limits to a section.</p>
+{% if result %}
+  {% if result.note %}<p class="note">{{ result.note }} Query: {{ result.query_used }}</p>{% endif %}
+  {% if result.hits %}
+  <table class="data">
+    <tr><th>Document</th><th>Section</th><th>Passage</th></tr>
+    {% for h in result.hits %}
+    <tr>
+      <td style="white-space:nowrap">{{ h.doc_type or h.filename }}<br><span class="muted">{{ h.accession }}</span></td>
+      <td class="muted">{{ h.section }}</td>
+      <td class="snippet"><a href="/doc/{{ h.accession }}?file={{ h.filename }}&start={{ h.start }}&end={{ h.end }}#hl">{{ h.snippet | replace('[', '«') | replace(']', '»') }}</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="empty">No passages match.</p>{% endif %}
+{% endif %}

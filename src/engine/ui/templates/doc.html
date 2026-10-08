@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}{{ form or 'Filing' }} {{ view.accession }} — Investment engine{% endblock %}
+{% block topleft %}
+  {% if ticker %}<a href="/c/{{ ticker }}?tab=events">← {{ ticker }}</a>{% else %}<a href="javascript:history.back()">← Back</a>{% endif %}
+  <span class="name">{{ form or '' }} · filed {{ filed or '—' }}</span>
+  <span class="muted">{{ view.accession }}</span>
+{% endblock %}
+{% block body %}
+<div class="reader">
+  <nav class="toc">
+    <h3>Documents</h3>
+    {% for d in view.docs %}
+    <a class="row{% if d.filename == view.filename %} on{% endif %}" href="/doc/{{ view.accession }}?file={{ d.filename }}">
+      <span>{{ d.doc_type or d.filename }}</span><span class="name">{% if d.chars < 1000 %}{{ d.chars }}{% else %}{{ (d.chars / 1000) | round | int }}k{% endif %} chars</span>
+    </a>
+    {% endfor %}
+    <h3>Sections</h3>
+    {% for s in view.sections %}
+    <a class="row{% if view.section and s.section_id == view.section.section_id %} on{% endif %}" href="/doc/{{ view.accession }}?file={{ view.filename }}&section={{ s.section_id }}" title="{{ s.title or '' }}">
+      <span>{{ s.label }}{% if s.title %} <span class="muted">{{ s.title }}</span>{% endif %}</span>
+    </a>
+    {% else %}<div class="muted" style="padding:3px 6px">Not split into sections</div>{% endfor %}
+    <h3>Elsewhere</h3>
+    <a class="row" href="{{ sec_url }}" target="_blank" rel="noopener">View this filing on SEC</a>
+  </nav>
+  <main class="detail">
+    {% if view.section %}
+    <h2>{{ view.section.label }}{% if view.section.title %} — {{ view.section.title }}{% endif %}</h2>
+    <p class="muted">{{ view.doc_type or view.filename }} · {{ '{:,}'.format(view.section.chars) }} characters, shown in full{% if view.highlight %} · <a href="#hl">jump to the highlighted passage</a>{% endif %}</p>
+    {% set ns = namespace(hl_done=false) %}
+    <div class="doctext">
+    {% for b in view.blocks %}
+      {% if b.kind == 'table' %}
+      <div class="tablewrap"{% if b.highlighted and not ns.hl_done %} id="hl"{% set ns.hl_done = true %}{% endif %}>
+      <table class="doc">
+        {% for cells, hit in b.rows %}
+        <tr{% if hit %} class="hit"{% endif %}>{% for c, numeric in cells %}<td{% if numeric %} class="num"{% endif %}>{{ c }}</td>{% endfor %}</tr>
+        {% endfor %}
+      </table>
+      </div>
+      {% else %}
+      <p>{% for text, hit in b.parts %}{% if hit %}<mark{% if not ns.hl_done %} id="hl"{% set ns.hl_done = true %}{% endif %}>{{ text }}</mark>{% else %}{{ text }}{% endif %}{% endfor %}</p>
+      {% endif %}
+    {% endfor %}
+    </div>
+    {% else %}<p class="empty">This document has no stored sections.</p>{% endif %}
+  </main>
+</div>
+{% endblock %}

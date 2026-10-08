@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Review item {{ it.item_id }} — Investment engine{% endblock %}
+{% block topleft %}<a href="/review">← Review queue</a><span class="name">{{ it.label }}</span>{% if it.ticker %}<a href="/c/{{ it.ticker }}?tab=guidance">{{ it.ticker }}</a>{% endif %}{% endblock %}
+{% block body %}
+<main class="detail" style="max-width: 1000px">
+  {% if error %}<div class="warnbox">{{ error }}</div>{% endif %}
+  <h2>{{ it.reason }}</h2>
+  <p class="muted">Item {{ it.item_id }} · {{ it.module_id }} · created {{ it.created_at[:16] | replace('T', ' ') }}
+    {% if it.payload.accession %} · <a href="/doc/{{ it.payload.accession }}?file={{ it.payload.filename }}{% if it.payload.offsets %}&start={{ it.payload.offsets[0] }}&end={{ it.payload.offsets[1] }}#hl{% endif %}">open in the reader</a>{% endif %}</p>
+
+  {% if it.kind == 'guidance_conflict' %}
+  <div class="grid2">
+    <div><h3 class="sub">Stored value (kept)</h3><div class="quote">“{{ it.payload.kept }}”</div></div>
+    <div><h3 class="sub">Other value</h3><div class="quote">“{{ it.payload.other }}”</div></div>
+  </div>
+  {% elif it.kind == 'llm_rejected' %}
+  <p><b>Rejected claim:</b> {{ it.payload.claim or '—' }}</p>
+  <p class="muted">{{ it.payload.subject.change if it.payload.subject else '' }} · Gemini call {{ it.payload.call_id }}</p>
+  {% elif it.kind == 'ticker_map_hold' %}
+  <p>{{ it.payload.added | length }} added · {{ it.payload.dropped | length }} dropped · {{ it.payload.changed | length }} changed tickers.</p>
+  {% if it.payload.dropped %}<p class="muted">Dropped: {{ it.payload.dropped[:60] | join(', ') }}{% if it.payload.dropped | length > 60 %} …{% endif %}</p>{% endif %}
+  {% endif %}
+
+  {% if context %}
+  <h3 class="sub">In context</h3>
+  <div class="source">{{ context.before[-1200:] }}<mark>{{ context.highlight }}</mark>{{ context.after[:1200] }}</div>
+  {% endif %}
+
+  {% if it.resolved_at %}
+  <div class="okbox" style="margin-top:12px">Resolved: {{ it.resolution }} by {{ it.resolved_by }} on {{ it.resolved_at[:16] | replace('T', ' ') }}{% if it.note %} — {{ it.note }}{% endif %}</div>
+  {% elif not viewer.is_owner %}
+  <p class="muted">Only the owner can resolve review items.</p>
+  {% else %}
+  <h3 class="sub">Resolve</h3>
+  {% if 'enter' in it.actions %}
+  <form method="post" action="/review/{{ it.item_id }}/enter" class="entry">
+    <p class="muted">Enter the guidance this sentence states. It is stored as owner-entered, with this sentence as its quote, and survives re-scans.</p>
+    <label>Metric <select name="metric">{% for m in metrics %}<option value="{{ m }}">{{ m | replace('_', ' ') }}</option>{% endfor %}</select></label>
+    <label>Basis <select name="basis"><option>unspecified</option><option>GAAP</option><option>non-GAAP</option></select></label>
+    <label>Period <input name="period" placeholder="FY2026 Q3" size="16" required></label>
+    <label>Unit <select name="unit"><option value="USD">USD</option><option value="%">%</option><option value="count">count</option></select></label>
+    <label>Low <input name="low" size="10" required></label>
+    <label>High <input name="high" size="10" placeholder="= low"></label>
+    <label>Scale <select name="scale"><option value="1">as entered</option><option value="1000000">millions</option><option value="1000000000">billions</option></select></label>
+    <label class="wide">Note <input name="note" size="60" placeholder="optional"></label>
+    <button class="btn" type="submit">Store guidance</button>
+  </form>
+  {% endif %}
+  <div class="actions">
+  {% for a in it.actions if a != 'enter' %}
+  <form method="post" action="/review/{{ it.item_id }}/{{ a }}">
+    <input name="note" size="40" placeholder="Note (optional)">
+    <button class="btn" type="submit">{{ {'dismiss': 'Dismiss', 'keep_stored': 'Keep stored value', 'keep_other': 'Keep other value', 'acknowledge': 'Acknowledge', 'approve': 'Apply at next nightly run', 'keep_map': 'Keep stored map'}[a] }}</button>
+  </form>
+  {% endfor %}
+  </div>
+  {% endif %}
+</main>
+{% endblock %}

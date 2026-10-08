@@ -23,6 +23,26 @@ SCHEDULED_AT = time(2, 0)  # local time of the nightly task
 LOCK_STALE = timedelta(hours=6)
 
 
+def prices_step(engine, report) -> str:
+    """Daily prices for the resolved watchlist after the SEC step (D-UI-2). Never fails the run."""
+    from engine.prices.store import refresh_prices
+    from engine.prices.tiingo import MissingKey, TiingoClient, token_from_env
+
+    try:
+        client = TiingoClient(token_from_env(), engine)
+    except MissingKey as e:
+        return f"\nPrices (Tiingo): skipped — {e}\n"
+    symbols: dict[str, str | None] = {}
+    for ticker, label in report.watchlist.items():
+        cik = label.rsplit("(", 1)[-1].rstrip(")") if label.endswith(")") else None
+        symbols[ticker] = cik if cik and len(cik) == 10 else None
+    try:
+        res = refresh_prices(engine, client, symbols, datetime.now(UTC))
+    except Exception as e:  # prices must not break the SEC run report
+        return f"\nPrices (Tiingo): error — {type(e).__name__}: {e}\n"
+    return "\n".join(res.lines()) + "\n"
+
+
 def last_scheduled_slot(now_local: datetime) -> datetime:
     slot = now_local.replace(hour=SCHEDULED_AT.hour, minute=SCHEDULED_AT.minute, second=0,
                              microsecond=0)  # fmt: skip
@@ -118,7 +138,7 @@ def main() -> int:
             "scheduled" if args.scheduled else "manual")  # fmt: skip
         report = run_refresh(client, engine, corpus, load_config(Path(args.config)),
                              datetime.now(UTC), trigger=trigger)  # fmt: skip
-        text = format_report(report)
+        text = format_report(report) + prices_step(engine, report)
         logs = ROOT / "logs"
         logs.mkdir(exist_ok=True)
         out = logs / f"refresh_{datetime.now():%Y%m%d-%H%M%S}.txt"

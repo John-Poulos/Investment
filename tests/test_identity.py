@@ -261,3 +261,30 @@ def test_load_entity_missing_submissions_file_is_not_found(make_client, dbs, clo
         make_client(FakeTransport({url: [ok(b"", 404)]})), engine, "1", clock.now()
     )
     assert isinstance(result, NotFound) and result.url == url  # no file, not "no company"
+
+
+def test_owner_approval_applies_held_map_at_next_resolve(make_client, dbs, clock):
+    from engine import review
+
+    engine, _ = dbs
+    refresh(make_client, engine, clock, big_map())
+    next_day(clock)
+    transport = FakeTransport(ticker_routes(exchange=big_map(drop=set(range(10))), tickers=b"{}"))
+    client = make_client(transport)
+    assert resolve(client, engine, "T050", clock.now()).stale  # held
+    (hold,) = open_holds(engine)
+    review.approve_ticker_hold(engine, hold["item_id"], "checked the list", "owner", clock.now())
+    res = resolve(client, engine, "T050", clock.now())
+    assert isinstance(res, Ok) and not res.stale  # applied with force on this run
+    assert current(engine, "T005") is None  # a dropped ticker now has an end date
+    assert (
+        engine.execute(
+            "SELECT count(*) FROM refresh_state WHERE name = ?", (identity.APPROVAL_STATE,)
+        ).fetchone()[0]
+        == 0
+    )
+    row = engine.execute(
+        "SELECT resolution, resolved_by, note FROM review_queue WHERE item_id = ?",
+        (hold["item_id"],),
+    ).fetchone()
+    assert tuple(row) == ("approved; applies at the next nightly run", "owner", "checked the list")

@@ -1,0 +1,19 @@
+{% for t in tables %}
+<h2>{{ t.title }}</h2>
+{% if t.rows %}
+<div style="overflow-x:auto">
+<table class="data">
+  <tr><th>Concept</th>{% for p in t.periods %}<th class="num">{{ p }}</th>{% endfor %}</tr>
+  {% for concept, unit, cells in t.rows %}
+  <tr><td>{{ concept }}</td>
+    {% for c in cells %}
+    <td class="num">{% if c %}<a href="{{ c.url }}" target="_blank" rel="noopener" title="Filed {{ c.filed }} · {{ c.accession }} · {{ c.method }}">{{ c.value | num(unit) }}</a>{% else %}<span class="muted" title="Not reported for this period">—</span>{% endif %}</td>
+    {% endfor %}
+  </tr>
+  {% endfor %}
+</table>
+</div>
+{% else %}<p class="empty">No {{ t.title | lower }} values stored.</p>{% endif %}
+{% endfor %}
+{% if not tables | selectattr('rows') | list %}<p class="note">No XBRL values stored for this company (e.g. funds filing N-CSR have none).</p>{% endif %}
+<p class="note">Values from SEC XBRL company facts, latest filed version. Hover a value for its filing and method; click to open the filing on SEC. Red flags arrive with M04.</p>

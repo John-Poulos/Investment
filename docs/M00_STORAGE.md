@@ -33,10 +33,11 @@ Settings: WAL mode, `busy_timeout` 5 s, foreign keys on, `synchronous=NORMAL`. W
 | fulltext_query / fulltext_hit | query_id; query_id, accession, filename | each EFTS query run (phrase, variant, forms, window, total, capped) and the filings it matched |
 | review_queue | id | D8 items awaiting owner |
 | position / lot / decision | ids | owner portfolio, tax lots, profile of record (D12) |
-| fetch_log | id | every call: url, outcome (ok/not_found/failed/throttled), detail, at |
+| fetch_log | id | every call (SEC and Tiingo; never a key): url, outcome (ok/not_found/failed/throttled), detail, at — also the shared Tiingo request budget |
 | refresh_run / refresh_day | run_id; day | each nightly run (trigger, status, report) and each daily-index day (processed / no_index / pending) |
 | ticker_refresh_log | id | each ticker-map refresh: counts (stored, listed, added, changed, dropped), applied/held/forced |
 | refresh_state | name | last refresh of reference files (e.g. ticker map) for read-path freshness |
+| price_bar / price_fetch | symbol, date; symbol | daily bars from Tiingo (raw + adjusted OHLCV, dividend, split) and per-symbol fetch state (D-UI-8) |
 | schema_version | version | ordered migrations |
 
 ## Read path (every lookup)
@@ -100,6 +101,8 @@ Freshness is event-driven (SEC data changes only when a company files); backstop
 - D-STO-14 (2026-10-08): engine migration 0009 rebuilds `guidance` (never written before) with provenance columns and adds `guidance_scan` (D-SRCH-11).
 - D-STO-15 (2026-10-08): engine migration 0010 adds guidance `flag` / `flag_reason` (D-SRCH-15).
 - D-STO-16 (2026-10-08): engine migration 0011 adds `llm_call`, `llm_observation`, `llm_citation` (D-SRCH-19).
+- D-STO-17 (2026-10-08): engine migration 0012 adds `price_bar` and `price_fetch` (M00_UI D-UI-8).
+- D-STO-18 (2026-10-08): engine migration 0013 adds review_queue `resolved_by`, `note` and rebuilds `guidance` to allow source 'owner' (owner-entered rows, D-UI-12).
 
 ## Open questions
 - Backfill universe: watchlist size and peers per group.

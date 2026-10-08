@@ -1,0 +1,25 @@
+<div class="grid2">
+  <section>
+    <h2>8-K events</h2>
+    {% if events %}
+    <table class="data">
+      <tr><th>Filed</th><th>Item</th><th>Category</th><th>Title</th></tr>
+      {% for e in events %}
+      <tr><td>{{ e.filed }}</td><td class="sev-{{ e.severity }}">{{ e.item }}</td><td class="muted">{{ e.category }}{% if e.amended %} (amended){% endif %}</td><td>{% if e.accession in readable %}<a href="/doc/{{ e.accession }}">{{ e.title }}</a>{% else %}<a href="{{ e.url }}" target="_blank" rel="noopener">{{ e.title }}</a>{% endif %}</td></tr>
+      {% endfor %}
+    </table>
+    {% else %}<p class="empty">No 8-K events stored.</p>{% endif %}
+  </section>
+  <section>
+    <h2>Filings</h2>
+    {% if filings %}
+    <table class="data">
+      <tr><th>Filed</th><th>Form</th><th>Report date</th><th>Description</th></tr>
+      {% for f in filings %}
+      <tr><td>{{ f.filed }}</td><td><a href="{{ f.url }}" target="_blank" rel="noopener" title="Open on SEC">{{ f.form }}</a>{% if f.accession in readable %} · <a href="/doc/{{ f.accession }}">read</a>{% endif %}</td><td>{{ f.report_date or '—' }}</td><td class="muted">{{ f['items'] or f.primary_doc_desc or f.primary_doc or '' }}</td></tr>
+      {% endfor %}
+    </table>
+    {% else %}<p class="empty">No filings stored.</p>{% endif %}
+  </section>
+</div>
+<p class="note">Red = high severity, amber = medium (event catalog, D-SEC-11). Form links open the filing on SEC; "read" and event titles open stored filings in the reader.</p>

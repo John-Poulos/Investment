@@ -33,6 +33,8 @@ DROP_HOLD_RATIO = 0.01  # more than 1% of stored tickers would drop
 SIZE_HOLD_RATIO = 0.10  # ticker count changes by more than 10% either way
 HOLD_KIND = "ticker_map_hold"
 HOLD_STATE = "ticker_map_hold"
+APPROVAL_STATE = "ticker_map_hold_approved"  # owner approved in the review queue (D-UI-12)
+APPROVAL_VALID = timedelta(days=7)
 
 TICKER_MAP_PATH = "ticker map (company_tickers_exchange.json, company_tickers.json)"
 
@@ -355,7 +357,15 @@ def resolve(
     held_recently = held is not None and now - held < TICKER_BACKSTOP
     stale = False
     if due:
-        if held_recently:
+        approved = _refreshed_at(conn, APPROVAL_STATE)
+        if held_recently and approved is not None and now - approved < APPROVAL_VALID:
+            refreshed = refresh_ticker_map(client, conn, now.date(), now, force=True)
+            if not isinstance(refreshed, Failed):
+                conn.execute("DELETE FROM refresh_state WHERE name = ?", (APPROVAL_STATE,))
+            else:
+                stale = True
+            applied = _refreshed_at(conn, "ticker_map")
+        elif held_recently:
             stale = True  # awaiting owner review; don't re-diff on every lookup
         else:
             refreshed = refresh_ticker_map(client, conn, now.date(), now)

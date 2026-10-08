@@ -3,14 +3,14 @@
 Updated 2026-10-08 · Basis: investment_strategy.txt (a guideline, not a spec) · Outputs are research signals, not financial or tax advice.
 
 ## Resume here
-- **Phase (2026-10-08):** 2 — M00 data layer merged (PRs #1–#10); search, guidance ledger and grounded Gemini layer built on `m00-search` (D28, D-SRCH-10…20).
-- **Next action:** build **M00 search + grounded pipeline** at Medium effort on branch `m00-search`: passages + search API (done, D-SRCH-10) → R19 guidance parser + ledger (done, D-SRCH-11…15; final live scan clean 2026-10-08) → on-request Gemini analysis with verifier, first use case guidance change reasons (done D-SRCH-19/20; first live call $0.0019, 6/6 verified) → PR for `m00-search`. After this branch merges: **UI design session** (High effort) → new `docs/M00_UI.md` (framework, review-queue screen, Analyze buttons, source display, grounded Q&A yes/no), then M02. M02 design questions answered 2026-10-07 (D-M02-1…4 in M02_THEMES); M02 builds after the search layer. Backfill complete; SPCX confirmed = SpaceX.
-- **Status of the real DB:** `data\engine.db` / `corpus.db` hold the full backfill of the 16-company watchlist (Form 4s 3 years, latest 10-K/10-Q, last 4 earnings 8-Ks, XBRL facts, events). Runs 1–3 hit bugs since fixed (D-SEC-16…18); run 4 ok. Windows tasks registered: 02:00 nightly (wakes PC), logon check asks before a missed catch-up.
-- **Environment:** repo C:\dev\Investment (.venv, uv, Python 3.14, SQLite 3.50 with FTS5); GitHub John-Poulos/Investment; `.env` holds a valid `SEC_USER_AGENT` (Claude may not read `.env` or `data\`).
-- **Code map:** `src/engine/sec/` client (pacing 5/s, throttle = 429 or SEC block page, `fresh=`), results (Ok/Empty/NotFound/Failed), identity, submissions, documents, sections, xbrl_facts, frames, insiders, events, fulltext · `src/engine/search/` passages, query · `src/engine/guidance/` parse, ledger, changes · `src/engine/llm/` provider, verify, runs, guidance_reasons, prompts/ · `config/llm.toml` · `src/engine/store/` db (migrations engine 0001–0011, corpus 0001–0005), http · `src/engine/refresh.py` · `scripts/` run_live.py, run_refresh.py, register_tasks.ps1, fetch_stats.py, check_tickers.py, search_check.py, guidance_samples.py, run_guidance.py, run_llm.py · `config/watchlist.toml` · `tests/` (253 fixture) + `tests/live/` (12, opt-in).
+- **Phase (2026-10-08):** 2 — M00 complete: data layer, search, guidance ledger, grounded Gemini layer (PR #11 merged) and local UI (branch `m00-ui`, D29, D-UI-1…14: layout, stored-data tabs, Tiingo prices + chart, document reader, Guidance + Analyze, review queue, runs/costs). PR for `m00-ui` to open/merge.
+- **Next action:** owner merges the `m00-ui` PR ("Create a merge commit"), then `git switch main`, `git pull`, `git branch -d m00-ui`. Then **M02 design check + build** in a new conversation (design answered D-M02-1…4; set effort High for any open design questions, Medium for the build). Start by reading M02_THEMES.md, DATA_SOURCES.md (DS4 news; Tiingo News free-tier check) and M00_UI.md (Themes tab, Tracked tier in the side panel).
+- **Status of the real DB:** `data\engine.db` / `corpus.db`: full backfill of the 16-company watchlist (Form 4s 3 yrs, latest 10-K/10-Q, last 4 earnings 8-Ks, XBRL facts, events); 53 earnings releases scanned into the guidance ledger (guidance-4: 31 parsed, 20 none, 2 review); Meta guidance reasons from Gemini (6/6 verified, $0.0019); daily prices for all 16 tickers from Tiingo (backfill 2026-10-08, e.g. BA from 1962, SPCX from 2026-06-12). Nightly 02:00 task runs SEC refresh then Tiingo prices; logon task asks before a missed catch-up.
+- **Environment:** repo C:\dev\Investment (.venv, uv, Python 3.14, SQLite 3.50 with FTS5); GitHub John-Poulos/Investment; `.env` holds `SEC_USER_AGENT`, `GEMINI_API_KEY`, `TIINGO_API_KEY` (Claude may not read `.env` or `data\`; test UI changes on scratch data in the Browser pane, port 8799; stop servers only via their own background task). UI: `uv run python scripts/run_ui.py` → http://127.0.0.1:8765 (`.claude/launch.json` entry `ui`).
+- **Code map:** `src/engine/sec/` client (pacing 5/s, throttle = 429 or SEC block page, `fresh=`), results (Ok/Empty/NotFound/Failed), identity, submissions, documents, sections, xbrl_facts, frames, insiders, events, fulltext · `src/engine/search/` passages, query · `src/engine/guidance/` parse, ledger, changes · `src/engine/llm/` provider, verify, runs, guidance_reasons, prompts/ · `config/llm.toml` · `src/engine/ui/` app, services, viewer, settings, templates, static (vendor/ byte-exact) · `src/engine/prices/` tiingo, store · `src/engine/review.py` (review actions) · `src/engine/store/` db (migrations engine 0001–0013, corpus 0001–0005), http · `src/engine/refresh.py` · `scripts/` run_live.py, run_refresh.py, register_tasks.ps1, fetch_stats.py, check_tickers.py, search_check.py, guidance_samples.py, run_guidance.py, run_llm.py, run_ui.py, run_prices.py · `config/watchlist.toml` · `tests/` (298 fixture) + `tests/live/` (12, opt-in).
 - **Workflow:** one branch per piece → fixture tests → owner runs `uv run python scripts/run_live.py <label>` and sends the log (Claude cannot call SEC) → PR via `gh` → owner merges with "Create a merge commit" → `git switch main`, `git pull`, `git branch -d <branch>`. Check `git branch --show-current` and `git status` before starting work. Decision IDs: D-SEC-n (M00_SEC_DATA), D-STO-n (M00_STORAGE), D-SRCH-n (M00_SEARCH).
-- **Open items carried forward:** capex fallback tag must be shown to the user; separate shares concepts (M04/M07) · peer period-end offset tolerance (M04) · SIC peer discovery (D19) · data gaps (earnings-call guidance, Tesla delivery KPIs, news, options, Form 4 bulk) → DATA_SOURCES.md · rate limiter is per process · EdgarTools evaluation · M07 must exclude G/A/M/F from $ sale totals (R22) · M02 seed themes / digest format · M04 red flags · Q2 (M09), Q3 (M07), Q5 (M12).
-- **Awaiting owner:** merge the `m00-search` PR. Model `gemini-3.1-flash-lite`, paid tier (D-SRCH-16).
+- **Open items carried forward:** milestone dismissals → R4 tracker (M06/M11, D-UI-14) · prior-year 10-Ks for risk-factor diffs (DS7) · earnings-call guidance (DS1) · Tesla delivery KPIs (DS2) · GOOG prices start 2014 (add GOOGL for longer history if wanted) · theme pass for colours (D-UI-5) · capex fallback tag must be shown to the user; separate shares concepts (M04/M07) · peer period-end offset tolerance (M04) · SIC peer discovery (D19) · rate limiter is per process · EdgarTools evaluation · M07 must exclude G/A/M/F from $ sale totals (R22) · M02 seed themes / digest format · M04 red flags · Q2 (M09), Q3 (M07), Q5 (M12).
+- **Awaiting owner:** merge the `m00-ui` PR. Gemini model `gemini-3.1-flash-lite`, paid tier (D-SRCH-16); Tiingo free tier, internal use only (D-UI-2).
 ## Working agreements
 - Strategy changes are proposed with sources and applied only after owner approval (D6); ambiguous sections get questions before designs (D7).
 - Each doc carries its own decisions, open items and source IDs (SOURCES.md) so a new conversation can resume without loss. Docs stay concise.
@@ -18,7 +18,7 @@ Updated 2026-10-08 · Basis: investment_strategy.txt (a guideline, not a spec) �
 - The engine produces signals and warnings; the owner makes final calls (D8, D16).
 
 ## Docs
-In docs/: DESIGN.md · SOURCES.md · DATA_SOURCES.md (data needs & gaps register) · MODULE_TEMPLATE.md · M00_SEC_DATA.md · M00_STORAGE.md · M00_SEARCH.md · M01_TIMEFRAMES.md · M02_THEMES.md · M04_FINANCIALS.md · Repo root: CLAUDE.md (Claude Code memory; loads DESIGN.md)
+In docs/: DESIGN.md · SOURCES.md · DATA_SOURCES.md (data needs & gaps register) · MODULE_TEMPLATE.md · M00_SEC_DATA.md · M00_STORAGE.md · M00_SEARCH.md · M00_UI.md · M01_TIMEFRAMES.md · M02_THEMES.md · M04_FINANCIALS.md · Repo root: CLAUDE.md (Claude Code memory; loads DESIGN.md)
 
 ## Scope and data
 - **S1** v1 covers US-listed equities and options. Crypto is out of scope.
@@ -44,7 +44,7 @@ In docs/: DESIGN.md · SOURCES.md · DATA_SOURCES.md (data needs & gaps register
 
 | ID | Module | Doc |
 |---|---|---|
-| M00 | Core engine + UI; SEC data, storage, search | M00_SEC_DATA.md, M00_STORAGE.md, M00_SEARCH.md |
+| M00 | Core engine + UI; SEC data, storage, search | M00_SEC_DATA.md, M00_STORAGE.md, M00_SEARCH.md, M00_UI.md |
 | M01 | Timeframe profiles | M01_TIMEFRAMES.md |
 | M02 | Investment area & money flow | M02_THEMES.md |
 | M03 | Leaders & S-curve | — |
@@ -71,6 +71,7 @@ In docs/: DESIGN.md · SOURCES.md · DATA_SOURCES.md (data needs & gaps register
 - **D26** Search & grounded LLM per M00_SEARCH.md (owner approved 2026-10-07). (P9)
 - **D27** M01 σ bands: 1–2σ triggers; depth is reported uncapped. Beyond 2σ grades stronger only when CvD = CYCLICAL_TROUGH and the survival gate passes; otherwise shown as a warning with no added strength (owner, M01 review 2026-10-07; M01 rule 7).
 - **D28** Grounded pipeline revised (owner 2026-10-07): Python searches and extracts; Gemini runs only on request, on the refined data set, to find trends; every output carries verifiable sources to the user (M00_SEARCH D-SRCH-6…9).
+- **D29** UI per M00_UI.md (owner approved 2026-10-08, was P10): local Python-rendered web app (FastAPI, Jinja2, htmx, Lightweight Charts), this PC only, shareability rules U1–U7; Tiingo free tier for daily prices. (P10)
 
 ## Approved revisions for modules without docs yet
 - **M03** Two S-curve types: (A) young company on its first curve; (B) established company with a new curve, tracked via segment data. (R6) Bessembinder stated as wealth creation. (R14)
@@ -89,8 +90,9 @@ In docs/: DESIGN.md · SOURCES.md · DATA_SOURCES.md (data needs & gaps register
 ## Phases
 0. Research/review — done 2026-10-06
 1. M01 multi-year profile — reviewed 2026-10-07 (D27)
-2. M00 SEC data + storage + search ← current; then UI design (M00_UI.md); then M02
-3. Remaining modules; M04 CvD approved early
+2. M00 SEC data + storage + search + UI — complete on merge of `m00-ui`
+3. M02 themes ← next
+4. Remaining modules; M04 CvD approved early
 
 ## Open questions
 - **Q2** "Augmented trading range" — ask at M09.

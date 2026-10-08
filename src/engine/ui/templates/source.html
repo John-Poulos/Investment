@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Source {{ view.accession }} — Investment engine{% endblock %}
+{% block topleft %}<a href="javascript:history.back()">← Back</a><span class="name">Source</span>{% endblock %}
+{% block body %}
+<main class="detail">
+  <h2>{{ view.doc_type or view.filename }} · {{ view.accession }}</h2>
+  <p class="muted">{{ view.section or '' }} · <a href="/doc/{{ view.accession }}?file={{ view.filename }}">open in the reader</a> · <a href="{{ view.url }}" target="_blank" rel="noopener">open the document on SEC</a></p>
+  {% if view.changed %}<div class="warnbox">The stored text changed since this was cited (document hash differs). Check the highlighted passage against the citation.</div>{% endif %}
+  <div class="source">{{ view.before }}<mark>{{ view.highlight }}</mark>{{ view.after }}</div>
+</main>
+{% endblock %}

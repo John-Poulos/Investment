@@ -7,6 +7,8 @@ table) is stored once; different values keep the first and open a
 `guidance_conflict` review item. Sentences that look like guidance but do not
 parse open a `guidance_unparsed` review item with the exact sentence; so does a
 full-year period that ended before the release (a reported actual, not guidance).
+Rows the owner entered by hand (source 'owner', review queue) survive re-scans and
+take precedence; items the owner already resolved are not re-opened.
 """
 
 from __future__ import annotations
@@ -115,7 +117,7 @@ def _consistent(a: Value, b: Value) -> bool:
 
 def _clear(engine: sqlite3.Connection, release: Release) -> None:
     engine.execute(
-        "DELETE FROM guidance WHERE accession = ? AND filename = ?",
+        "DELETE FROM guidance WHERE accession = ? AND filename = ? AND source != 'owner'",
         (release.accession, release.filename),
     )
     marks = ", ".join("?" * len(REVIEW_KINDS))
@@ -130,6 +132,15 @@ def _review(
     engine: sqlite3.Connection, release: Release, kind: str, reason: str, payload: dict, now: str
 ) -> None:
     payload = {"accession": release.accession, "filename": release.filename, **payload}
+    same = payload.get("text") or payload.get("other")
+    for r in engine.execute(
+        "SELECT payload FROM review_queue WHERE resolved_at IS NOT NULL AND kind = ? "
+        "AND json_extract(payload, '$.accession') = ? AND json_extract(payload, '$.filename') = ?",
+        (kind, release.accession, release.filename),
+    ):
+        old = json.loads(r[0])
+        if (old.get("text") or old.get("other")) == same:
+            return  # the owner already resolved this exact item; a re-scan does not re-open it
     engine.execute(
         "INSERT INTO review_queue (module_id, kind, cik, reason, payload, created_at) "
         "VALUES ('M11', ?, ?, ?, ?, ?)",
@@ -212,6 +223,12 @@ def scan_release(
                 )
                 continue
             key = (item.metric, item.basis, item.period)
+            if engine.execute(
+                "SELECT 1 FROM guidance WHERE accession = ? AND filename = ? AND metric = ? "
+                "AND basis = ? AND period = ? AND source = 'owner'",
+                (release.accession, release.filename, *key),
+            ).fetchone():
+                continue  # the owner entered this one by hand; it takes precedence
             first = kept.get(key)
             if first is None:
                 kept[key] = item
@@ -224,6 +241,7 @@ def scan_release(
                     "guidance_conflict",
                     f"{item.metric} {item.basis} {item.period}: two different values stated",
                     {
+                        "key": list(key),
                         "kept": text[first.quote_start : first.quote_end],
                         "kept_offsets": [first.quote_start, first.quote_end],
                         "other": text[item.quote_start : item.quote_end],

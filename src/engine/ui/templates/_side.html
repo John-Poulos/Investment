@@ -1,0 +1,15 @@
+<div class="side">
+  <h3>Watchlist</h3>
+  {% for c in watchlist %}
+    {% if c.cik %}
+    <a class="row{% if c.ticker == ticker %} on{% endif %}" href="/c/{{ c.ticker }}" title="{{ c.name or '' }}">
+      <span>{{ c.ticker }}{% if c.open_reviews %} <span class="badge" title="Open review items for {{ c.ticker }}">{{ c.open_reviews }}</span>{% endif %}</span>
+      <span class="name">{{ c.name or '—' }}</span>
+    </a>
+    {% else %}
+    <div class="row muted" title="Not found in SEC's ticker files">{{ c.ticker }} — not resolved</div>
+    {% endif %}
+  {% endfor %}
+  <h3>Tracked</h3>
+  <div class="muted" style="padding: 3px 6px">None yet (M02)</div>
+</div>
