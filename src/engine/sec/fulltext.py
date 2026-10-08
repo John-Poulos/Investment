@@ -279,11 +279,17 @@ def _store(
 
 @dataclass(frozen=True)
 class WindowCount:
+    """Hits in one date window. EFTS counts documents (a filing whose exhibits also
+    match counts more than once), so distinct filings and companies are given when
+    every hit was fetched; otherwise they stay missing (None), never estimated."""
+
     start: str
     end: str
-    total: int | None  # None when the window failed (missing, not zero)
+    total: int | None  # documents; None when the window failed (missing, not zero)
     capped: bool
     variant: str | None
+    filings: int | None = None  # distinct accessions, when all hits were fetched
+    companies: int | None = None  # distinct filer CIKs, when all hits were fetched
     error: str | None = None
 
 
@@ -295,20 +301,34 @@ def count_by_window(
     forms: Sequence[str],
     windows: Iterable[tuple[str, str]],
     now: datetime,
+    max_hits: int = 300,
 ) -> list[WindowCount]:
     """Hit counts per date window (M02 trend signal); each window stored with its date.
 
     Uses the phrase only (no fallback), so every window counts the same thing.
+    Fetches up to `max_hits` hits per window to count distinct filings and companies.
     """
     out = []
     for start, end in windows:
         res = search(client, engine, phrase, forms=forms, start=start, end=end, now=now,
-                     max_hits=0, allow_fallback=False)  # fmt: skip
-        if isinstance(res, Ok):
-            out.append(WindowCount(start, end, res.data.total, res.data.capped, res.data.variant))
-        else:
+                     max_hits=max_hits, allow_fallback=False)  # fmt: skip
+        if not isinstance(res, Ok):
             reason = res.reason if isinstance(res, Failed) else str(res)
-            out.append(WindowCount(start, end, None, False, None, reason))
+            out.append(WindowCount(start, end, None, False, None, error=reason))
+            continue
+        r = res.data
+        complete = not r.capped and not r.incomplete and len(r.hits) >= r.total
+        out.append(
+            WindowCount(
+                start,
+                end,
+                r.total,
+                r.capped,
+                r.variant,
+                filings=len({h.accession for h in r.hits}) if complete else None,
+                companies=len({h.cik for h in r.hits if h.cik}) if complete else None,
+            )  # fmt: skip
+        )
     return out
 
 

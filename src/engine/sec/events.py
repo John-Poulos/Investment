@@ -24,7 +24,12 @@ from engine.sec.client import SecClient
 from engine.sec.documents import FilingDocs, ingest_filing
 from engine.sec.identity import normalize_cik
 from engine.sec.results import Empty, Failed, Ok, Probe, Result
-from engine.sec.submissions import Filing, filing_by_accession, stored_filings
+from engine.sec.submissions import (
+    NEW_8K_ITEMS_FROM,
+    Filing,
+    filing_by_accession,
+    stored_filings,
+)
 
 CATALOG_VERSION = "items-2026-10.1"
 EVENT_FORMS = ("8-K", "8-K/A", "6-K", "6-K/A")
@@ -145,7 +150,7 @@ UNKNOWN_SEVERITY = "low"
 # Form 8-K items before the 2004 overhaul (effective 2004-08-23) used plain numbers.
 # Mapped onto the current item they correspond to, so older events count in
 # backtests (owner 2026-10-07). The event keeps the original code.
-NEW_ITEMS_FROM = "2004-08-23"
+NEW_ITEMS_FROM = NEW_8K_ITEMS_FROM
 LEGACY_ITEMS: dict[str, tuple[str, str]] = {
     "1": ("Changes in Control of Registrant", "5.01"),
     "2": ("Acquisition or Disposition of Assets", "2.01"),

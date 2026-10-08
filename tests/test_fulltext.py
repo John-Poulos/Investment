@@ -188,3 +188,19 @@ def test_cache_key_distinguishes_queries():
     one = cache_key(EFTS_URL, {"q": Q, "startdt": "2025-01-01"})
     two = cache_key(EFTS_URL, {"q": '"HBM3E"', "startdt": "2025-01-01"})
     assert one != two and urlencode({"q": Q}) in one
+
+
+def test_window_counts_distinct_filings_and_companies(make_client, dbs, clock):
+    engine, _ = dbs
+    mu_exhibit = (HIT_MU[0], "ex107.htm", *HIT_MU[2:])  # same filing, second document
+    transport = EftsTransport({
+        (Q, "2025-01-01", 0): [efts(3, [HIT_MU, mu_exhibit, HIT_NV])],
+        (Q, "2024-01-01", 0): [efts(250, [HIT_MU, HIT_NV])],  # more hits than fetched
+        (Q, "2024-01-01", 2): [efts(250, [])],
+    })  # fmt: skip
+    counts = count_by_window(make_client(transport), engine, Q, forms=FORMS,
+                             windows=[("2025-01-01", "2025-12-31"), ("2024-01-01", "2024-12-31")],
+                             now=clock.now())  # fmt: skip
+    full, partial = counts
+    assert (full.total, full.filings, full.companies) == (3, 2, 2)  # documents ≠ filings
+    assert (partial.total, partial.filings, partial.companies) == (250, None, None)

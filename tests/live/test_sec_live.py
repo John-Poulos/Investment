@@ -432,9 +432,12 @@ def test_fulltext_search_and_trend(live):
 
     counts = count_by_window(client, engine, phrase, forms=("10-K",),
                              windows=yearly_windows(2019, 2025), now=utc_now())  # fmt: skip
-    print("yearly 10-K filings mentioning the phrase:")
+    print("yearly 10-K mentions (documents / distinct filings / distinct companies):")
     for c in counts:
         total = "failed" if c.total is None else f"{c.total:,}"
-        print(f"  {c.start[:4]}  {total:>8}  capped={c.capped}  {c.error or ''}")
+        print(f"  {c.start[:4]}  {total:>6} / {c.filings!s:>4} / {c.companies!s:>4}  "
+              f"capped={c.capped}  {c.error or ''}")  # fmt: skip
     assert all(c.total is not None for c in counts), "a window failed"
-    assert counts[-1].total > counts[0].total
+    assert all(c.filings is not None for c in counts), "a window was not fully fetched"
+    assert all(c.filings <= c.total for c in counts)
+    assert counts[-1].filings > counts[0].filings
