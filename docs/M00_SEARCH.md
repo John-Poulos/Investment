@@ -33,7 +33,7 @@ Python searches and extracts; the LLM runs only when the owner asks, and only on
 Provenance survives a corpus rebuild: stored citations carry accession, filename, offsets, document sha256 and the quote, not only `passage_id`. Every LLM call logs model, prompt version, tokens and raw response. Prompts are versioned files. Fixture tests use recorded responses; live LLM calls are opt-in.
 
 ## LLM provider (D-SRCH-6)
-Google Gemini via the `google-genai` SDK; key `GEMINI_API_KEY` in `.env` (owner enters it; Claude never reads it). Default model Gemini 3.1 Flash, configurable; larger Gemini models when more reasoning is needed. Code stays provider-agnostic behind one small interface.
+Google Gemini via the `google-genai` SDK; key `GEMINI_API_KEY` in `.env` (owner enters it; Claude never reads it). Default model `gemini-3.1-flash-lite` (stable; $0.25 in / $1.50 out per 1M tokens, paid tier — content not used by Google; checked ai.google.dev 2026-10-08), configurable; switch (e.g. `gemini-3.8-flash`) only if results are insufficient. Every call is owner-initiated; nothing in the nightly job calls the LLM. Code stays provider-agnostic behind one small interface.
 
 ## Failure modes
 | Risk | Guard |
@@ -64,6 +64,7 @@ Google Gemini via the `google-genai` SDK; key `GEMINI_API_KEY` in `.env` (owner 
 - D-SRCH-13 (2026-10-08): Parser guidance-3 after the second live scan (29 parsed, 21 none, 3 review). Negatives read ("$(0.14)", "($0.14)", "-$0.14", "(4.5)%"); a table row with an unread digit cell goes to review instead of guessing columns (Intel GAAP EPS losses had been replaced by the non-GAAP value); a bare point equal to a ± value's centre is consistent, not a conflict (NVIDIA tables); "guidance for/of" is a forward cue and net income a metric (Strategy); a sentence repeated in one release is queued once.
 - D-SRCH-14 (2026-10-08): Third live scan (31 parsed, 20 none, 2 review). Owner challenged Intel's Q4 2025 GAAP tax-rate guidance of 476%: checked against intc.com (Q3 2025 release: outlook "Tax Rate 476% | 12%", reconciliation 476% − 464% = 12%) — transcribed correctly; Q1 2026 outlook (−79%, 11%, EPS $(0.21) / $0.00) and Q4 2025 EPS $(0.14) also match intc.com. Actual Q4 2025 GAAP tax rate was 198.5%: near-zero pretax income makes the ratio meaningless (failure mode below). Parser guidance-4: scale words read case-insensitively ("$40 Million").
 - D-SRCH-15 (2026-10-08): Ratio guidance on a near-zero base is kept as stated but flagged `not_meaningful` with its reason (first rule: guided tax rate below 0% or above 50%). Flagged rows are shown with the reason and excluded from guidance-vs-actual scoring and LLM trend input; nothing is deleted (owner).
+- D-SRCH-16 (2026-10-08): Model `gemini-3.1-flash-lite` to start ("Gemini 3.1 Flash" does not exist); billing enabled on the owner's key; LLM use minimized and gated behind an explicit owner request (owner).
 
 ## Open questions
 - Exact Gemini model ID and SDK usage — check Google's docs at build.
