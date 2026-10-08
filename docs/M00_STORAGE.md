@@ -9,7 +9,7 @@ Hold everything the engine knows in SQLite so lookups read locally first and SEC
 | File | Contents | Backup |
 |---|---|---|
 | data/engine.db | Entities, tickers, peer groups, filing index, XBRL facts, normalized series, insider trades, signals, guidance ledger, review queue, positions/lots, decisions | Nightly online backup; the one to protect |
-| data/corpus.db | Documents, sections, FTS5 index, raw HTTP cache | Rebuildable from SEC |
+| data/corpus.db | Documents, sections, passages, FTS5 indexes, raw HTTP cache | Rebuildable from SEC |
 
 Settings: WAL mode, `busy_timeout` 5 s, foreign keys on, `synchronous=NORMAL`. WAL needs every process on the same machine (no network drives); readers and one writer run concurrently.
 
@@ -27,8 +27,8 @@ Settings: WAL mode, `busy_timeout` 5 s, foreign keys on, `synchronous=NORMAL`. W
 | insider_txn | accession, line | issuer, owner, role, code, shares, price, shares_after, 10b5-1 flag, ownership nature, derivative terms, referenced footnotes |
 | form4_doc | accession | one row per parsed Form 4: issuer, doc type, period, all reporting owners (JSON), 10b5-1 checkbox, parser version |
 | signal | ticker, module_id, signal, timeframe, as_of | D13 record |
-| extraction | id | LLM item + quote + passage_id + verification result (M00_SEARCH.md) |
-| guidance | id | R19 ledger: metric, period, range, unit, stated_on, source_ref, status |
+| llm_call / llm_observation / llm_citation | ids | every owner-initiated LLM call (model, prompt version, tokens, cost, raw reply); its observations (verified or rejected with reason); citations by accession, file, offsets, quote, doc sha256 (M00_SEARCH D-SRCH-19). The 0001 `extraction` table is unused. |
+| guidance / guidance_scan | id; accession, filename | R19 ledger parsed by code: metric, basis, period, value (low/high/point/spread), prior, stated_on, exact quote + offsets, period source, doc sha256, parser version; one scan row per release (parsed/none/review) |
 | event | accession, item, cik | one row per 8-K item: category, severity, title, consuming modules, amended flag, catalog version |
 | fulltext_query / fulltext_hit | query_id; query_id, accession, filename | each EFTS query run (phrase, variant, forms, window, total, capped) and the filings it matched |
 | review_queue | id | D8 items awaiting owner |
@@ -96,6 +96,10 @@ Freshness is event-driven (SEC data changes only when a company files); backstop
 - D-STO-10 (2026-10-07): engine migration 0006 adds `event` (D-SEC-11).
 - D-STO-11 (2026-10-07): engine migration 0007 adds `fulltext_query` and `fulltext_hit` (D-SEC-14).
 - D-STO-12 (2026-10-07): engine migration 0008 adds `refresh_run` and `refresh_day` (D-SEC-15).
+- D-STO-13 (2026-10-08): corpus migration 0005 adds `passage` (section, seq, offsets, chunker version) and self-contained `passage_fts` (D-SRCH-10).
+- D-STO-14 (2026-10-08): engine migration 0009 rebuilds `guidance` (never written before) with provenance columns and adds `guidance_scan` (D-SRCH-11).
+- D-STO-15 (2026-10-08): engine migration 0010 adds guidance `flag` / `flag_reason` (D-SRCH-15).
+- D-STO-16 (2026-10-08): engine migration 0011 adds `llm_call`, `llm_observation`, `llm_citation` (D-SRCH-19).
 
 ## Open questions
 - Backfill universe: watchlist size and peers per group.

@@ -1,7 +1,8 @@
 """Split stored document text into sections (M00_SEARCH Tier 2, D-SRCH-4).
 
 Sections are character offsets into `document.text`; the text itself is never
-changed. Each section's slice is indexed in FTS5 under its label.
+changed. Each section's slice is indexed in FTS5 under its label and split
+into passages (engine.search.passages, D-SRCH-7).
 
 - 10-K / 10-Q / 8-K (and /A): split at "Item N" headings (line start). 10-Q
   item numbers repeat in Parts I and II, so 10-Q labels carry the part.
@@ -23,6 +24,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from engine.search.passages import delete_passages, fts_label, write_passages
 from engine.sec.client import iso
 
 SPLITTER_VERSION = "items-1"
@@ -183,7 +185,8 @@ def write_sections(
     filename: str,
     now: datetime,
 ) -> Split:
-    """Replace the document's sections and FTS rows. Caller owns the transaction."""
+    """Replace the document's sections, passages and FTS rows. Caller owns the transaction."""
+    delete_passages(corpus, doc_id)
     old = [
         r[0] for r in corpus.execute("SELECT section_id FROM section WHERE doc_id = ?", (doc_id,))
     ]
@@ -198,13 +201,11 @@ def write_sections(
             "splitter_version) VALUES (?, ?, ?, ?, ?, ?)",
             (doc_id, s.label, s.start, s.end, s.title, SPLITTER_VERSION),
         ).lastrowid
-        fts_label = f"{s.label} {s.title}" if s.title else s.label
-        if s.label == "whole":
-            fts_label = f"{doc_type or filename} whole"
         corpus.execute(
             "INSERT INTO section_fts (rowid, label, body) VALUES (?, ?, ?)",
-            (section_id, fts_label, text[s.start : s.end]),
+            (section_id, fts_label(s.label, s.title, doc_type, filename), text[s.start : s.end]),
         )
+    write_passages(corpus, doc_id)
     corpus.execute(
         "INSERT INTO split_log (doc_id, form, splitter_version, outcome, found, missing, at) "
         "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (doc_id) DO UPDATE SET form = excluded.form, "
