@@ -34,6 +34,7 @@ Settings: WAL mode, `busy_timeout` 5 s, foreign keys on, `synchronous=NORMAL`. W
 | review_queue | id | D8 items awaiting owner |
 | position / lot / decision | ids | owner portfolio, tax lots, profile of record (D12) |
 | fetch_log | id | every call: url, outcome (ok/not_found/failed/throttled), detail, at |
+| refresh_run / refresh_day | run_id; day | each nightly run (trigger, status, report) and each daily-index day (processed / no_index / pending) |
 | ticker_refresh_log | id | each ticker-map refresh: counts (stored, listed, added, changed, dropped), applied/held/forced |
 | refresh_state | name | last refresh of reference files (e.g. ticker map) for read-path freshness |
 | schema_version | version | ordered migrations |
@@ -58,6 +59,13 @@ Freshness is event-driven (SEC data changes only when a company files); backstop
 - **Backfill (once, or when companies are added):** per-company API calls for watchlist + peers. Bulk ZIPs only if the universe grows into the thousands (submissions.zip alone ≈ 2 GB).
 - **Nightly (e.g. 02:00 ET):** daily index for prior business days → diff against stored accessions → fetch new filings for the universe → re-parse affected facts/series → index new documents → recompute signals → run report (counts, failures, throttles). Late-filed ownership forms land in the next day's index, so each run rechecks the prior day.
 - Documents stored for watchlist + owner-chosen peers; other peers get facts only.
+
+## Nightly refresh as built (D-SEC-15)
+- `scripts/run_refresh.py` → `engine.refresh.run_refresh`; watchlist in `config/watchlist.toml` (owner list 2026-10-07; unresolved tickers reported every run and kept).
+- Reads `daily-index/{year}/QTR{q}/master.{YYYYMMDD}.idx` for every business day after the last finished one, plus the previous day again; days are `processed`, `no_index` (missing and older than 3 days = holiday) or `pending` (retried next run). A missed night is caught up by the next run.
+- For each watchlist company that filed, and each company seen the first time (backfill: Form 4s for 3 years, latest 10-K and 10-Q, last 4 earnings 8-Ks): filing index (fresh fetch), events, Form 4s, facts (forced when a 10-K/10-Q/20-F/40-F filed), documents of new 10-K/10-Q/8-K/20-F/6-K filings.
+- Run report in `logs/refresh_<timestamp>.txt` and `refresh_run`; a throttle stops the run with days left pending. One run at a time (`data/refresh.lock`).
+- Scheduling (`scripts/register_tasks.ps1`, owner runs it): task 1 daily 02:00 local, wakes from sleep, runs only while logged on (locked is fine). Task 2 at logon: if the 02:00 run was missed, a Windows prompt asks before catching up (owner choice 2026-10-07); "No" is remembered for that night.
 
 ## Windows notes
 - Repo and data under a local path such as `C:\dev\...`, not OneDrive-synced Documents/Desktop.
@@ -87,6 +95,7 @@ Freshness is event-driven (SEC data changes only when a company files); backstop
 - D-STO-9 (2026-10-07): engine migration 0005 adds `form4_doc` and Form 4 detail columns on `insider_txn` (D-SEC-10).
 - D-STO-10 (2026-10-07): engine migration 0006 adds `event` (D-SEC-11).
 - D-STO-11 (2026-10-07): engine migration 0007 adds `fulltext_query` and `fulltext_hit` (D-SEC-14).
+- D-STO-12 (2026-10-07): engine migration 0008 adds `refresh_run` and `refresh_day` (D-SEC-15).
 
 ## Open questions
 - Backfill universe: watchlist size and peers per group.

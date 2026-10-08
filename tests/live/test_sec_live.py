@@ -46,9 +46,16 @@ def live(tmp_path_factory):
     client = SecClient(user_agent_from_env(), cache=SqliteCache(corpus), log=SqliteFetchLog(engine))
     _CORPUS.append(corpus)
     yield client, engine
-    print("\nfetch_log:")
-    for row in engine.execute("SELECT outcome, status, from_cache, url, detail FROM fetch_log"):
+    print("\nfetch_log summary (host, outcome, from_cache, count):")
+    for row in engine.execute(
+        "SELECT substr(url, 1, instr(substr(url, 9), '/') + 8) AS host, outcome, from_cache, "
+        "count(*) FROM fetch_log GROUP BY host, outcome, from_cache ORDER BY host, outcome"
+    ):
         print("  ", tuple(row))
+    for row in engine.execute(
+        "SELECT url, status, detail FROM fetch_log WHERE outcome IN ('failed', 'throttled')"
+    ):
+        print("   problem:", tuple(row))
     engine.close()
     corpus.close()
 
@@ -100,13 +107,13 @@ def test_filing_index_pages(live):
     listing = client.get_json(f"{base}/index.json", ttl_s=3600)
     assert isinstance(listing, Ok)
     names = [item["name"] for item in listing.data["directory"]["item"]]
-    print(f"index.json lists {len(names)} files: {names}")
+    print(f"index.json lists {len(names)} files")
 
     page = client.get_text(f"{base}/{acc}-index.htm", ttl_s=3600)
     assert isinstance(page, Ok)
     html = page.data
     start = html.find("tableFile")
-    print(f"-index.htm document table (first 3000 chars):\n{html[start : start + 3000]}")
+    print(f"-index.htm has a document table: {start >= 0}")
     assert re.search(r">\s*Type\s*<", html), "no Type column in -index.htm"
     assert re.search(r">\s*10-K\s*<", html), "10-K document type not found in -index.htm"
 

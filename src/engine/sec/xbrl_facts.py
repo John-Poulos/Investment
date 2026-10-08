@@ -21,7 +21,7 @@ import json
 import re
 import sqlite3
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -218,6 +218,25 @@ def _pick_currency(units: Counter[str]) -> str | None:
     return "USD" if "USD" in currencies else currencies.most_common(1)[0][0]
 
 
+def pick_period(cands: list[Point]) -> Point:
+    """Choose among points for the same period type and end date that differ only in start.
+
+    Newest latest filing wins (ties: the longer period); the others are named in the
+    method so the alternative is visible, not silently dropped.
+    """
+    if len(cands) == 1:
+        return cands[0]
+    ordered = sorted(cands, key=lambda p: (p.latest.filed, p.latest.accession, -_start_ord(p)),
+                     reverse=True)  # fmt: skip
+    best, others = ordered[0], ordered[1:]
+    alt = ", ".join(f"{o.start}..{o.end} = {o.latest.value}" for o in others)
+    return replace(best, method=f"{best.method}; also reported as {alt}")
+
+
+def _start_ord(p: Point) -> int:
+    return date.fromisoformat(p.start).toordinal() if p.start else 0
+
+
 def build_concept(engine: sqlite3.Connection, cik: str, concept: Concept) -> ConceptResult | None:
     """Normalized points for one concept, or None if no candidate tag has facts."""
     rank = {tag: i for i, tag in enumerate(concept.tags)}
@@ -267,12 +286,21 @@ def build_concept(engine: sqlite3.Connection, cik: str, concept: Concept) -> Con
         return ConceptResult(concept.name, tuple(points), tags_used, tuple(skipped))
 
     typed = {p: (classify(p[0], p[1]), v) for p, v in reported.items() if p[0] is not None}
-    quarters: dict[str, Point] = {}  # by end date
+    # One point per (type, end). Companies sometimes report the same period with start
+    # dates a day or so apart; keep the version from the newest filing and note the other.
+    candidates: dict[tuple[str, str], list[Point]] = defaultdict(list)
     for (start, end), (ptype, (tag, first, latest)) in typed.items():
+        if ptype in ("Q", "FY"):
+            candidates[(ptype, end)].append(
+                Point(start, end, ptype, unit, first, latest, f"reported {tag}")
+            )
+    quarters: dict[str, Point] = {}  # by end date
+    for (ptype, end), cands in candidates.items():
+        chosen = pick_period(cands)
         if ptype == "Q":
-            quarters.setdefault(end, Point(start, end, "Q", unit, first, latest, f"reported {tag}"))
-        elif ptype == "FY":
-            points.append(Point(start, end, "FY", unit, first, latest, f"reported {tag}"))
+            quarters[end] = chosen
+        else:
+            points.append(chosen)
 
     if concept.additive:
         # Year-to-date chains sharing a start: consecutive lengths differ by one quarter.
@@ -402,7 +430,7 @@ def sync_facts(
     seen = new = 0
     refreshed = force or _due(engine, norm, now)
     if refreshed:
-        res = client.get_json(url, ttl_s=CACHE_TTL_S)
+        res = client.get_json(url, ttl_s=CACHE_TTL_S, fresh=force)
         if not isinstance(res, Ok):
             return res  # NotFound: no companyfacts file (e.g. no XBRL filer); Failed: retry
         if not isinstance(res.data, dict) or "facts" not in res.data:

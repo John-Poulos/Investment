@@ -117,10 +117,12 @@ def test_invalid_json_is_failure(make_client):
     assert isinstance(make_client(transport).get_json(URL, ttl_s=DAY), Failed)
 
 
-@pytest.mark.parametrize("status", [403, 429])
-def test_throttle_status_trips_breaker(make_client, clock, status):
+@pytest.mark.parametrize(
+    "response", [ok(b"", 429), ok(fixture_bytes("sec/throttle_page.html"), 403)]
+)
+def test_throttle_status_trips_breaker(make_client, clock, response):
     other = "https://www.sec.gov/files/company_tickers.json"
-    transport = FakeTransport({URL: [ok(b"", status)], other: [ok(b"{}")]})
+    transport = FakeTransport({URL: [response], other: [ok(b"{}")]})
     client = make_client(transport)
 
     first = client.get_json(URL, ttl_s=DAY)
@@ -170,3 +172,34 @@ def test_breaker_remaining(clock):
     breaker.trip(600)
     clock.advance(100)
     assert breaker.remaining() == pytest.approx(500)
+
+
+def test_bare_403_is_a_failure_not_a_throttle(make_client):
+    """SEC Archives answer 403 for files that do not exist yet (live 2026-10-07)."""
+    other = "https://www.sec.gov/files/company_tickers.json"
+    denied = ok(b"<Error><Code>AccessDenied</Code></Error>", 403)
+    transport = FakeTransport({URL: [denied], other: [ok(b"{}")]})
+    client = make_client(transport)
+    res = client.get_bytes(URL, ttl_s=DAY)
+    assert isinstance(res, Failed) and res.status == 403 and not res.throttled
+    assert "AccessDenied" in res.reason  # body logged for diagnosis
+    assert isinstance(client.get_json(other, ttl_s=DAY), Ok)  # no breaker
+
+
+def test_three_bare_403s_in_a_row_trip_the_breaker(make_client):
+    urls = [f"https://www.sec.gov/Archives/x{i}" for i in range(4)]
+    transport = FakeTransport({u: [ok(b"", 403)] for u in urls})
+    client = make_client(transport)
+    results = [client.get_bytes(u, ttl_s=0) for u in urls[:3]]
+    assert [r.throttled for r in results] == [False, False, True]
+    assert client.get_bytes(urls[3], ttl_s=0).throttled  # breaker open: fails fast
+    assert len(transport.calls) == 3
+
+
+def test_success_resets_the_bare_403_streak(make_client):
+    a, b = "https://www.sec.gov/Archives/a", "https://www.sec.gov/Archives/b"
+    transport = FakeTransport({a: [ok(b"", 403)], b: [ok(b"ok")]})
+    client = make_client(transport)
+    for _ in range(5):  # 403, ok, 403, ok, ... never three in a row
+        assert not client.get_bytes(a, ttl_s=0).throttled
+        assert isinstance(client.get_bytes(b, ttl_s=0), Ok)

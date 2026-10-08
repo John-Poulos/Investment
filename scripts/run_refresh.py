@@ -1,0 +1,134 @@
+"""Nightly SEC refresh entry point (D-SEC-15).
+
+    uv run python scripts/run_refresh.py                 # run now (manual)
+    uv run python scripts/run_refresh.py --scheduled     # the 02:00 task
+    uv run python scripts/run_refresh.py --if-missed --ask
+        # at logon: if the last 02:00 run was missed, ask before catching up (owner choice)
+
+Writes logs/refresh_<YYYYMMDD-HHMMSS>.txt and stores the run in data/engine.db.
+Only one run at a time (data/refresh.lock; a lock older than 6 hours is stale).
+Exit code: 0 ok, 1 partial or failed, 2 another run is in progress, 3 declined/not missed.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+from datetime import UTC, datetime, time, timedelta
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+SCHEDULED_AT = time(2, 0)  # local time of the nightly task
+LOCK_STALE = timedelta(hours=6)
+
+
+def last_scheduled_slot(now_local: datetime) -> datetime:
+    slot = now_local.replace(hour=SCHEDULED_AT.hour, minute=SCHEDULED_AT.minute, second=0,
+                             microsecond=0)  # fmt: skip
+    return slot if now_local >= slot else slot - timedelta(days=1)
+
+
+def ask_yes_no(title: str, text: str) -> bool:
+    """Windows Yes/No box (stdlib ctypes). Elsewhere, or if it cannot be shown: no."""
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+
+        mb_yesno, mb_icon_question, mb_topmost, idyes = 0x04, 0x20, 0x40000, 6
+        flags = mb_yesno | mb_icon_question | mb_topmost
+        return ctypes.windll.user32.MessageBoxW(None, text, title, flags) == idyes
+    except Exception:
+        return False
+
+
+def acquire_lock(path: Path) -> bool:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        age = datetime.now() - datetime.fromtimestamp(path.stat().st_mtime)
+        if age < LOCK_STALE:
+            return False
+        path.unlink(missing_ok=True)
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return False
+    os.write(fd, str(os.getpid()).encode())
+    os.close(fd)
+    return True
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--scheduled", action="store_true", help="run as the nightly task")
+    parser.add_argument("--if-missed", action="store_true",
+                        help="only run if the last scheduled run was missed")  # fmt: skip
+    parser.add_argument("--ask", action="store_true", help="ask before running (with --if-missed)")
+    parser.add_argument("--config", default=str(ROOT / "config" / "watchlist.toml"))
+    args = parser.parse_args()
+
+    os.chdir(ROOT)  # data/ and logs/ are relative to the repo
+    sys.path.insert(0, str(ROOT / "src"))
+    from engine.refresh import format_report, last_success, load_config, run_refresh
+    from engine.sec.client import SecClient, user_agent_from_env
+    from engine.store.db import data_dir, open_db
+    from engine.store.http import SqliteCache, SqliteFetchLog
+
+    folder = data_dir()
+    engine = open_db("engine", folder)
+    if args.if_missed:
+        slot = last_scheduled_slot(datetime.now())
+        last = last_success(engine)
+        last_local = (
+            datetime.fromisoformat(last).astimezone().replace(tzinfo=None) if last else None
+        )
+        if last_local is not None and last_local >= slot - timedelta(minutes=5):
+            return 3  # not missed: the scheduled run happened
+        when = last_local.strftime("%Y-%m-%d %H:%M") if last_local else "never"
+        slot_key = slot.isoformat(timespec="minutes")
+        declined = engine.execute(
+            "SELECT detail FROM refresh_state WHERE name = 'missed_declined'"
+        ).fetchone()
+        if args.ask and declined and declined[0] == slot_key:
+            return 3  # owner said no for this slot; ask again after the next scheduled night
+        if args.ask and not ask_yes_no(
+            "Investment engine",
+            f"The nightly SEC refresh scheduled for {slot:%Y-%m-%d %H:%M} did not run "
+            f"(last successful run: {when}).\n\nRun the catch-up now? It reads SEC's daily "
+            "index for the missed days and updates the watchlist companies.",
+        ):
+            engine.execute(
+                "INSERT INTO refresh_state (name, source_ref, fetched_at, detail) "
+                "VALUES ('missed_declined', 'owner', ?, ?) ON CONFLICT (name) DO UPDATE SET "
+                "fetched_at = excluded.fetched_at, detail = excluded.detail",
+                (datetime.now(UTC).isoformat(timespec="seconds"), slot_key),
+            )
+            return 3
+
+    lock = folder / "refresh.lock"
+    if not acquire_lock(lock):
+        print("Another refresh is running (data/refresh.lock); not starting a second one.")
+        return 2
+    try:
+        corpus = open_db("corpus", folder, check_same_thread=False)
+        client = SecClient(user_agent_from_env(), cache=SqliteCache(corpus),
+                           log=SqliteFetchLog(engine))  # fmt: skip
+        trigger = "missed-run prompt" if args.if_missed else (
+            "scheduled" if args.scheduled else "manual")  # fmt: skip
+        report = run_refresh(client, engine, corpus, load_config(Path(args.config)),
+                             datetime.now(UTC), trigger=trigger)  # fmt: skip
+        text = format_report(report)
+        logs = ROOT / "logs"
+        logs.mkdir(exist_ok=True)
+        out = logs / f"refresh_{datetime.now():%Y%m%d-%H%M%S}.txt"
+        out.write_text(text, encoding="utf-8")
+        print(text)
+        print(f"Report written to: {out}")
+        return 0 if report.status == "ok" else 1
+    finally:
+        lock.unlink(missing_ok=True)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
