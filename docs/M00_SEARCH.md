@@ -42,6 +42,7 @@ Google Gemini via the `google-genai` SDK; key `GEMINI_API_KEY` in `.env` (owner 
 | Correct quote, wrong reading | Labeled as interpretation; owner review before it drives a signal |
 | Section splitter misses a heading | Fall back to whole-document passages; log failures per form |
 | Tokenizer splits domain terms ("HBM3E", "10b5-1") | Test queries for domain terms; add trigram index if needed |
+| Porter stemming merges words (`customer*` also hits "custom") | Use quoted phrases for exact wording; unstemmed index only if this misleads in practice |
 
 ## Decisions
 - D-SRCH-1 (2026-10-06): No character limits on analysis text (owner).
@@ -53,7 +54,7 @@ Google Gemini via the `google-genai` SDK; key `GEMINI_API_KEY` in `.env` (owner 
 - D-SRCH-7 (2026-10-07): Passages = paragraph-aligned chunks within sections; ranking and citations use passages. Resolves the BM25 short-section bias (owner).
 - D-SRCH-8 (2026-10-07): Python does search and extraction; the LLM runs only on owner request, on the refined data set, to find trends; every output carries its sources to the user. Unparsed guidance sentences go to the review queue only (owner; D28).
 - D-SRCH-9 (2026-10-07): LLM observations are stored with model, prompt version, citations and verification result (owner). First end-to-end consumer: R19 guidance (owner).
-- D-SRCH-10 (2026-10-08): Passages built (`search/passages.py`, chunker para-1): lines packed greedily to ≤ 3,000 chars, tiling each section; over-long lines cut at the last sentence end after 1,500 chars, else whitespace, else hard. Built with the sections on ingest; `ensure_passages()` backfills stored documents. `search/query.py`: FTS5 query over `passage_fts` with cik / doc type / section / accession filters, BM25 with the label column (section label + title) weighted 10:1, `[` `]` snippets; `phrase()` quotes free text (needed for 10b5-1, HBM3E, $ amounts); bad syntax raises `QueryError`. `get_passage()` returns text plus accession, filename, offsets, document sha256 and parser version for citations. Live check: `scripts/search_check.py`.
+- D-SRCH-10 (2026-10-08): Passages built (`search/passages.py`, chunker para-1): lines packed greedily to ≤ 3,000 chars (trailing blank lines may add 1), tiling each section; over-long lines cut at the last sentence end after 1,500 chars, else whitespace, else hard. Built with the sections on ingest; `ensure_passages()` backfills stored documents. `search/query.py`: FTS5 query over `passage_fts` with cik / doc type / section / accession filters, BM25 with the label column (section label + title) weighted 10:1, `[` `]` snippets; `phrase()` quotes free text (needed for 10b5-1, HBM3E, $ amounts); bad syntax raises `QueryError`. `get_passage()` returns text plus accession, filename, offsets, document sha256 and parser version for citations. Live check: `scripts/search_check.py` (2026-10-08: 134 docs → 4,433 passages in 0.9 s; queries < 10 ms; Item 1A now first for "risk factors"; 10b5-1/HBM3E match as phrases). Guidance samples for the R19 parser: `scripts/guidance_samples.py`.
 
 ## Open questions
 - Exact Gemini model ID and SDK usage — check Google's docs at build.
