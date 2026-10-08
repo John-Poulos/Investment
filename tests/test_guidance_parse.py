@@ -412,3 +412,10 @@ def test_guidance_for_is_a_cue_and_net_income_a_metric():
         ("net_income", "unspecified", "FY2025"): (24 * B, 24 * B),
         ("eps_diluted", "unspecified", "FY2025"): (80, 80),
     }
+
+
+def test_capitalised_scale_word_in_headline():
+    text = "Infleqtion Announces 2026 Revenue Guidance of $40 Million\n"
+    got, r = items(text)
+    assert got == {("revenue", "unspecified", "FY2026"): (40 * M, 40 * M)}
+    assert r.unparsed == []

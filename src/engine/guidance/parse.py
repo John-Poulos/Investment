@@ -46,7 +46,7 @@ import re
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 
-PARSER_VERSION = "guidance-3"
+PARSER_VERSION = "guidance-4"
 
 # --- Metrics -----------------------------------------------------------------
 
@@ -88,7 +88,7 @@ def _metric_name(m: re.Match[str]) -> str:
 # --- Values ------------------------------------------------------------------
 
 _NUM = r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?"
-_SCALE = r"(?:\s*(?:billion|million|thousand|bn)\b|(?:B|M|K)\b)"
+_SCALE = r"(?:\s*(?i:billion|million|thousand|bn)\b|(?:B|M|K)\b)"  # "Million" in headlines
 _SCALES = {
     "billion": Decimal(10) ** 9,
     "bn": Decimal(10) ** 9,
