@@ -3,7 +3,7 @@
   {% for c in watchlist %}
     {% if c.cik %}
     <a class="row{% if c.ticker == ticker %} on{% endif %}" href="/c/{{ c.ticker }}" title="{{ c.name or '' }}">
-      <span>{{ c.ticker }}{% if c.open_reviews %} <span class="badge" title="Open review items">{{ c.open_reviews }}</span>{% endif %}</span>
+      <span>{{ c.ticker }}{% if c.open_reviews %} <span class="badge" title="Open review items for {{ c.ticker }}">{{ c.open_reviews }}</span>{% endif %}</span>
       <span class="name">{{ c.name or '—' }}</span>
     </a>
     {% else %}

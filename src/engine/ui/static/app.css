@@ -90,3 +90,11 @@ table.doc tr.hit td { background: var(--hl); }
 tr.flagged td { color: var(--flag); }
 .okbox { background: var(--accent-bg); color: var(--accent); padding: 6px 10px; border-radius: var(--radius); margin-bottom: 8px; }
 a.btn:hover { text-decoration: none; }
+.filters { display: flex; gap: 8px; margin-bottom: 10px; }
+.filters select, .filters input, form.entry input, form.entry select, .actions input { padding: 3px 6px; border: 1px solid var(--line-2); border-radius: var(--radius); background: var(--panel); color: var(--text); }
+h3.sub { font-size: 13px; font-weight: 600; margin: 14px 0 6px; }
+form.entry { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; margin-bottom: 10px; }
+form.entry p { flex-basis: 100%; margin: 0; }
+form.entry label.wide { flex-basis: 100%; }
+.actions form { display: flex; gap: 8px; margin: 6px 0; }
+a.badge:hover { text-decoration: none; }

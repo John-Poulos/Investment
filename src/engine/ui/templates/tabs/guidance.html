@@ -50,5 +50,5 @@
 {% if g.no_guidance %}
 <p class="note">Releases scanned with no numeric guidance: {{ g.no_guidance | join(', ') }}. Guidance given only on the earnings call is not collected yet (DATA_SOURCES DS1).</p>
 {% endif %}
-{% if g.open_reviews %}<p class="note">{{ g.open_reviews }} open review item{{ 's' if g.open_reviews != 1 }} for this company (unparsed sentences, conflicts or rejected Gemini output) — review queue screen in build step 4.</p>{% endif %}
+{% if g.open_reviews %}<p class="note">{{ g.open_reviews }} open review item{{ 's' if g.open_reviews != 1 }} for this company (unparsed sentences, conflicts or rejected Gemini output) — <a href="/review?ticker={{ ticker }}">open the review queue</a>.</p>{% endif %}
 <p class="note">Values are parsed by code from the company's earnings releases (R19); click a value to see its exact sentence or table row. Changes are computed by code. Reasons are Gemini's reading of the release, shown only when every quote and number was verified against the stored text; they are interpretations.</p>

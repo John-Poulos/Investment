@@ -12,7 +12,7 @@
   <span class="push"></span>
   <span class="seg" title="Timeframe (profiles arrive with M01 wiring)"><span class="on">MY</span><span>PT</span><span>ST</span></span>
   {% block barswitch %}<span class="seg" title="Bar size"><span class="on">D</span><span>W</span></span>{% endblock %}
-  {% if status.open_reviews %}<span class="badge" title="Open review items (queue screen: build step 4)">Review {{ status.open_reviews }}</span>{% endif %}
+  <a href="/review" class="{% if status.open_reviews %}badge{% else %}muted{% endif %}" title="Open review items">Review {{ status.open_reviews }}</a>
   <span class="muted" title="Last nightly refresh">
     {% if status.last_run_status %}Nightly {{ status.last_run_status }} {{ (status.last_run_finished or status.last_run_started or '')[:16] | replace('T', ' ') }}{% else %}No nightly run yet{% endif %}
   </span>

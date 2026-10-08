@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Review queue — Investment engine{% endblock %}
+{% block topleft %}<a href="/">← Engine</a><span class="name">Review queue</span>{% endblock %}
+{% block body %}
+<main class="detail" style="max-width: 1100px">
+  {% if msg %}<div class="okbox">{{ msg }}</div>{% endif %}
+  <form method="get" action="/review" class="filters">
+    <select name="kind">
+      <option value="">All kinds</option>
+      {% for k, label in labels.items() %}<option value="{{ k }}"{% if k == kind %} selected{% endif %}>{{ label }} ({{ counts.get(k, 0) }} open)</option>{% endfor %}
+    </select>
+    <input name="ticker" value="{{ ticker }}" placeholder="Ticker" size="8">
+    <select name="show"><option value="open"{% if show == 'open' %} selected{% endif %}>Open</option><option value="resolved"{% if show == 'resolved' %} selected{% endif %}>Resolved</option></select>
+    <button class="btn" type="submit">Filter</button>
+  </form>
+  {% if items %}
+  <table class="data">
+    <tr><th>Created</th><th>Company</th><th>Kind</th><th>Reason</th>{% if show == 'resolved' %}<th>Resolution</th>{% endif %}</tr>
+    {% for it in items %}
+    <tr>
+      <td style="white-space:nowrap">{{ it.created_at[:10] }}</td>
+      <td>{% if it.ticker %}<a href="/c/{{ it.ticker }}?tab=guidance">{{ it.ticker }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td class="muted">{{ it.label }}</td>
+      <td><a href="/review/{{ it.item_id }}">{{ it.reason }}</a>
+        {% if it.payload.text %}<div class="quote">“{{ it.payload.text[:220] }}{% if it.payload.text | length > 220 %}…{% endif %}”</div>{% endif %}</td>
+      {% if show == 'resolved' %}<td>{{ it.resolution }}{% if it.note %} <span class="muted">— {{ it.note }}</span>{% endif %}<div class="muted">{{ it.resolved_by }}, {{ (it.resolved_at or '')[:16] | replace('T', ' ') }}</div></td>{% endif %}
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="empty">{% if show == 'resolved' %}No resolved items match.{% else %}Nothing to review{% if kind or ticker %} for this filter{% endif %}.{% endif %}</p>{% endif %}
+  <p class="note">Items come from the guidance parser (unparsed sentences, conflicting values), the Gemini verifier (rejected output) and the ticker-map refresh (large changes held). Every action records who, when and your note.</p>
+</main>
+{% endblock %}

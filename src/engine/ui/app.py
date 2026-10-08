@@ -17,11 +17,12 @@ from pathlib import Path
 from typing import Annotated
 from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from engine import review
 from engine.llm import guidance_reasons
 from engine.llm.provider import GeminiProvider, estimate_tokens, load_settings
 from engine.llm.runs import cached_call
@@ -248,6 +249,94 @@ def create_app(settings: UiSettings) -> FastAPI:
             return RedirectResponse(f"/c/{ticker}?tab=guidance&msg=llm-error&detail={detail}", 303)
         msg = "stored-result" if res.cached else "analyzed"
         return RedirectResponse(f"/c/{ticker}?tab=guidance&msg={msg}", 303)
+
+    @app.get("/review", response_class=HTMLResponse)
+    def review_page(
+        request: Request,
+        engine: Engine,
+        viewer: ViewerDep,
+        kind: str | None = None,
+        ticker: str | None = None,
+        show: str = "open",
+        msg: str = "",
+    ):
+        cik = services.resolve_ticker(engine, ticker) if ticker else None
+        listed = review.items(engine, open_only=show != "resolved", kind=kind or None, cik=cik)
+        ctx = frame(engine) | {
+            "viewer": viewer,
+            "items": listed,
+            "counts": review.counts(engine),
+            "labels": review.KIND_LABELS,
+            "kind": kind or "",
+            "ticker": (ticker or "").upper(),
+            "show": show,
+            "msg": msg,
+        }
+        return templates.TemplateResponse(request, "review.html", ctx)
+
+    @app.get("/review/{item_id}", response_class=HTMLResponse)
+    def review_item_page(
+        request: Request,
+        item_id: int,
+        engine: Engine,
+        corpus: Corpus,
+        viewer: ViewerDep,
+        error: str = "",
+    ):
+        it = review.get(engine, item_id)
+        if it is None:
+            raise HTTPException(404, "No such review item.")
+        p = it.payload
+        context = None
+        offsets = p.get("offsets") or p.get("other_offsets")
+        if "accession" in p and offsets:
+            context = services.source(corpus, p["accession"], p["filename"], *offsets)
+        ctx = frame(engine) | {
+            "viewer": viewer,
+            "it": it,
+            "context": context,
+            "metrics": services.METRIC_ORDER,
+            "error": error,
+        }
+        return templates.TemplateResponse(request, "review_item.html", ctx)
+
+    @app.post("/review/{item_id}/{action}")
+    def review_action(
+        item_id: int,
+        action: str,
+        engine: Engine,
+        corpus: Corpus,
+        owner: OwnerDep,
+        note: Annotated[str, Form()] = "",
+        metric: Annotated[str, Form()] = "",
+        basis: Annotated[str, Form()] = "unspecified",
+        period: Annotated[str, Form()] = "",
+        unit: Annotated[str, Form()] = "USD",
+        low: Annotated[str, Form()] = "",
+        high: Annotated[str, Form()] = "",
+        scale: Annotated[str, Form()] = "1",
+    ) -> RedirectResponse:
+        """Owner-only review actions (U2); each closes the item with who, when and note (U3)."""
+        now = datetime.now(UTC)
+        done = action
+        try:
+            if action == "enter":
+                warnings = review.enter_guidance(
+                    engine, corpus, item_id,
+                    review.ManualGuidance(metric, basis, period, unit, low, high, scale),
+                    note, owner.id, now,
+                )  # fmt: skip
+                if warnings:
+                    done = "entered-with-warnings: " + "; ".join(warnings)
+            elif action == "keep_other":
+                review.keep_other(engine, corpus, item_id, note, owner.id, now)
+            elif action == "approve":
+                review.approve_ticker_hold(engine, item_id, note, owner.id, now)
+            else:
+                review.resolve(engine, item_id, action, note, owner.id, now)
+        except review.ReviewError as e:
+            return RedirectResponse(f"/review/{item_id}?error={quote(str(e))}", 303)
+        return RedirectResponse(f"/review?msg={quote(f'Item {item_id}: {done}')}", 303)
 
     @app.get("/api/bars/{ticker}")
     def bars_api(ticker: str, engine: Engine, viewer: ViewerDep, bar: str = "D") -> JSONResponse:
