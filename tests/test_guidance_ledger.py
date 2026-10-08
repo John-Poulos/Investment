@@ -113,3 +113,31 @@ def test_past_full_year_goes_to_review_not_ledger(dbs, clock):
     assert (res.outcome, res.items, res.unparsed) == ("review", 0, 1)
     (reason,) = [r[0] for r in engine.execute("SELECT reason FROM review_queue")]
     assert "ended before the release" in reason
+
+
+def test_point_equal_to_centre_is_not_a_conflict(dbs, clock):
+    engine, corpus = dbs
+    text = (
+        "Outlook for the third quarter of fiscal 2027:\n"
+        "•GAAP and non-GAAP gross margins are expected to be 74.0%, "
+        "plus or minus 50 basis points.\n"
+        "Q3 FY2027 Outlook\n"
+        "GAAP gross margin\t74.0\t%\n"
+        "Non-GAAP gross margin\t74.0\t%\n"
+    )
+    _filing(engine, "g1", "2.02")
+    _doc(corpus, "g1", text)
+    (res,) = scan_all(engine, corpus, clock.now())
+    assert (res.items, res.conflicts) == (2, 0)
+    rows = engine.execute("SELECT kind, low, high FROM guidance ORDER BY basis").fetchall()
+    assert [tuple(r) for r in rows] == [("plusminus", 73.5, 74.5)] * 2
+
+
+def test_repeated_unparsed_sentence_queued_once(dbs, clock):
+    engine, corpus = dbs
+    text = "We expect to remit the $27.4 million in Q3 2026.\n" * 2
+    _filing(engine, "d1", "2.02")
+    _doc(corpus, "d1", text)
+    (res,) = scan_all(engine, corpus, clock.now())
+    assert res.unparsed == 1
+    assert engine.execute("SELECT count(*) FROM review_queue").fetchone()[0] == 1

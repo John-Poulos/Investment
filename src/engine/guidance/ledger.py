@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
-from engine.guidance.parse import PARSER_VERSION, Item, parse_release
+from engine.guidance.parse import PARSER_VERSION, Item, Value, parse_release
 from engine.sec.client import iso
 
 RELEASE_TYPES = ("EX-99.1", "EX-99.01", "EX-99")
@@ -81,6 +81,16 @@ def _past_full_year(period: str, filed: str) -> bool:
     if len(parts) > 1 and parts[1] != "remaining":
         return False
     return int(parts[0][2:]) < int(filed[:4])
+
+
+def _consistent(a: Value, b: Value) -> bool:
+    """Same value, or a bare point equal to the other's centre ('74.8%' vs '74.8% ± 50 bps')."""
+    if (a.low, a.high) == (b.low, b.high):
+        return True
+    for x, y in ((a, b), (b, a)):
+        if x.kind in ("point", "approx") and y.point is not None and x.low == y.point:
+            return True
+    return False
 
 
 def _clear(engine: sqlite3.Connection, release: Release) -> None:
@@ -185,7 +195,7 @@ def scan_release(
             if first is None:
                 kept[key] = item
                 _insert(engine, release, text, sha, item, at)
-            elif (first.value.low, first.value.high) != (item.value.low, item.value.high):
+            elif not _consistent(first.value, item.value):
                 conflicts += 1
                 _review(
                     engine,
@@ -200,7 +210,11 @@ def scan_release(
                     },
                     at,
                 )
+        seen: set[str] = set()
         for u in parsed.unparsed:
+            if text[u.start : u.end] in seen:
+                continue  # same sentence repeated in the release
+            seen.add(text[u.start : u.end])
             _review(
                 engine,
                 release,
@@ -211,7 +225,7 @@ def scan_release(
             )
         if kept:
             outcome = "parsed"
-        elif parsed.unparsed or past:
+        elif seen or past:
             outcome = "review"
         else:
             outcome = "none"
@@ -231,7 +245,7 @@ def scan_release(
                 outcome,
                 parsed.candidates,
                 len(kept),
-                len(parsed.unparsed) + past,
+                len(seen) + past,
                 conflicts,
                 PARSER_VERSION,
                 at,
@@ -241,9 +255,7 @@ def scan_release(
     except Exception:
         engine.execute("ROLLBACK")
         raise
-    return ScanResult(
-        release, outcome, parsed.candidates, len(kept), len(parsed.unparsed) + past, conflicts
-    )
+    return ScanResult(release, outcome, parsed.candidates, len(kept), len(seen) + past, conflicts)
 
 
 def scan_all(

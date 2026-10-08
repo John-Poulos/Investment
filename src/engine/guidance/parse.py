@@ -5,7 +5,7 @@ offsets of the sentence or table row it came from (its quote) and of the text
 that gave its period, so provenance is exact by construction.
 
 Sentences: scanned when they contain a forward-looking verb (expect, anticipate,
-forecast, project, "outlook to/of/is/for") and a $ or % value. Metric mentions
+forecast, "outlook/guidance to/of/is/for") and a value. Metric mentions
 split a clause into segments; each segment's first value belongs to its metric.
 "GAAP and non-GAAP ... X and Y, respectively" gives two items; a value stated
 shortly after "from" ("narrowed from our prior outlook of $125-145 billion",
@@ -25,6 +25,8 @@ start with a known metric label; values sit on the label line or, if that line
 has no digits, on a short next line. Header with "GAAP" and "Non-GAAP" → first
 value GAAP, last value non-GAAP (adjustment columns between are ignored); one
 value → both bases, or GAAP only when the header has an adjustments column.
+A row with a digit cell that no value pattern reads goes to review (columns are
+never guessed). Negatives are read: "$(0.14)", "($0.14)", "-$0.14", "(4.5)%".
 Money without a scale word is used only for per-share metrics or when the lines
 above the table state "(in millions/billions)".
 
@@ -44,7 +46,7 @@ import re
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 
-PARSER_VERSION = "guidance-2"
+PARSER_VERSION = "guidance-3"
 
 # --- Metrics -----------------------------------------------------------------
 
@@ -55,6 +57,7 @@ METRICS: tuple[tuple[str, str], ...] = (  # (alias regex, canonical), longest fi
     (r"earnings \(loss\) per share", "eps_diluted"),
     (r"(?:net income|earnings) per (?:diluted )?share", "eps_diluted"),
     (r"eps", "eps_diluted"),
+    (r"net income", "net_income"),
     (r"gross margins? percentage", "gross_margin"),
     (r"gross margins?", "gross_margin"),
     (r"operating expenses", "operating_expenses"),
@@ -118,6 +121,12 @@ _PCT_PM = re.compile(
 )
 _MONEY = re.compile(rf"\$\s?(?P<a>{_NUM})(?P<sa>{_SCALE})?")
 _PCT = re.compile(rf"(?<![\d.$])(?P<a>{_NUM})\s?%")
+# negatives: "$(0.14)", "($0.14)", "-$0.14", "(4.5)%"
+_MONEY_NEG = re.compile(
+    rf"(?:-\s?\$\s?(?P<a>{_NUM})|\$\s?\(\s?(?P<b>{_NUM})\s?\)|\(\s?\$\s?(?P<c>{_NUM})\s?\))"
+    rf"(?P<sa>{_SCALE})?"
+)
+_PCT_NEG = re.compile(rf"\(\s?(?P<a>{_NUM})\s?\)\s?%")
 _COUNT = re.compile(
     rf"(?<![\d.,$])(?P<a>{_NUM})\s*(?P<sa>billion|million|thousand)\b", re.IGNORECASE
 )
@@ -187,6 +196,13 @@ def find_values(text: str) -> list[Value]:
         found.append(Value("point", "USD", a, a, a, None, None, sa is not None, m.start(), m.end()))
     for m in _PCT.finditer(text):
         a = _num(m["a"])
+        found.append(Value("point", "%", a, a, a, None, None, True, m.start(), m.end()))
+    for m in _MONEY_NEG.finditer(text):
+        sa = _scale(m["sa"])
+        a = -_num(m["a"] or m["b"] or m["c"]) * (sa or 1)
+        found.append(Value("point", "USD", a, a, a, None, None, sa is not None, m.start(), m.end()))
+    for m in _PCT_NEG.finditer(text):
+        a = -_num(m["a"])
         found.append(Value("point", "%", a, a, a, None, None, True, m.start(), m.end()))
     for m in _COUNT.finditer(text):
         a = _num(m["a"]) * (_scale(m["sa"]) or 1)
@@ -302,7 +318,7 @@ class ParseResult:
 
 _CUE = re.compile(
     r"\b(?:expect(?:s|ed|ing)?|anticipat(?:e|es|ed|ing)|forecast(?:s|ed|ing)?)\b"
-    r"|\boutlook\s+(?:to|of|is|for)\b",
+    r"|\b(?:outlook|guidance)\s+(?:to|of|is|for)\b",
     re.IGNORECASE,
 )
 _NOT_CUE = re.compile(
@@ -607,7 +623,12 @@ def _parse_tables(text: str, lines: list[tuple[int, int]], out: ParseResult) -> 
                         and find_values(_norm_cells(nxt))
                     ):
                         cells, end, j = _norm_cells(nxt), lines[k][1], k
-            values = [f for v in find_values(cells) if (f := _fits(metric, v, scale)) is not None]
+            raw = find_values(cells)
+            values = [f for v in raw if (f := _fits(metric, v, scale)) is not None]
+            if sum(bool(re.search(r"\d", c)) for c in _cells(cells)) > len(raw):
+                # a cell with digits was not read (new format): never guess the columns
+                out.unparsed.append(Unparsed(x, end, "table row not fully read"))
+                values = []
             if values:
                 h = header.lower()
                 two_cols = bool(re.search(r"(?<!non-)\bgaap", h)) and "non-gaap" in h

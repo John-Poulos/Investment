@@ -365,3 +365,50 @@ def test_respectively_with_more_values_in_the_segment():
         ("operating_expenses", "GAAP", "FY2027 Q1"): (Decimal("7.7") * B, Decimal("7.7") * B),
         ("operating_expenses", "non-GAAP", "FY2027 Q1"): (Decimal("7.5") * B, Decimal("7.5") * B),
     }
+
+
+# --- second live scan (2026-10-08) ---------------------------------------------
+
+
+def test_negative_values():
+    (v,) = find_values("$(0.14)")
+    assert v.low == Decimal("-0.14")
+    (v,) = find_values("($0.14)")
+    assert v.low == Decimal("-0.14")
+    (v,) = find_values("-$1.2 billion")
+    assert v.low == Decimal("-1.2") * B
+    (v,) = find_values("(4.5)%")
+    assert (v.unit, v.low) == ("%", Decimal("-4.5"))
+
+
+def test_negative_gaap_eps_in_sentence_and_table():
+    text = (
+        "▪Forecasting fourth-quarter 2025 revenue of $12.8 billion to $13.8 billion; expecting fourth-quarter EPS attributable to Intel of $(0.14) and non-GAAP EPS attributable to Intel of $0.08.\n"
+        "Intel's guidance for the fourth quarter of 2025 includes both GAAP and non-GAAP estimates as follows:\n"
+        "Q4 2025\tGAAP\tNon-GAAP\n"
+        "Earnings (Loss) Per Share Attributable to Intel—Diluted\t$(0.14)\t$0.08\n"
+    )
+    got, r = items(text)
+    assert got[("eps_diluted", "unspecified", "FY2025 Q4")] == (Decimal("-0.14"),) * 2
+    assert got[("eps_diluted", "GAAP", "FY2025 Q4")] == (Decimal("-0.14"),) * 2
+    assert got[("eps_diluted", "non-GAAP", "FY2025 Q4")] == (Decimal("0.08"),) * 2
+
+
+def test_table_row_with_unread_cell_goes_to_review():
+    text = "Business Outlook\nQ4 2025\tGAAP\tNon-GAAP\nTax Rate\t47.6 pct\t12%\n"
+    got, r = items(text)
+    assert got == {}
+    assert [u.reason for u in r.unparsed] == ["table row not fully read"]
+
+
+def test_guidance_for_is_a_cue_and_net_income_a_metric():
+    text = (
+        "Fiscal Year 2025 Guidance\n"
+        "We are reaffirming our full-year guidance for operating income of $34 billion, net income of $24 billion, and diluted EPS of $80 per share, based on a BTC price outlook of $150,000 at the end of the year.\n"
+    )
+    got, r = items(text)
+    assert got == {
+        ("operating_income", "unspecified", "FY2025"): (34 * B, 34 * B),
+        ("net_income", "unspecified", "FY2025"): (24 * B, 24 * B),
+        ("eps_diluted", "unspecified", "FY2025"): (80, 80),
+    }
