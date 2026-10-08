@@ -78,3 +78,10 @@ IDs are cited from the design docs. Round-1 links weren't retained; those entrie
 - S63 gitleaks pre-commit hook — https://github.com/zricethezav/gitleaks/wiki (D24)
 - S64 gh repo create (--private --source --remote --push) — https://cli.github.com/manual/gh_repo_create (D24)
 - S65 gitattributes (eol attribute, later lines override) — https://www.kernel.org/pub/software/scm/git/docs/gitattributes.html (D24)
+
+## Round — UI and price data (2026-10-08)
+- S66 FastAPI / Jinja2 / htmx server-rendered pattern — https://fastapi.tiangolo.com/advanced/templates/ (M00_UI)
+- S67 TradingView Lightweight Charts, Apache-2.0, attribution required (attributionLogo option) — https://github.com/tradingview/lightweight-charts (M00_UI)
+- S68 Tiingo pricing: Starter free 50 req/h, 1,000/day, 500 symbols/month, 30+ yr EOD, internal use only ("may not display or share the data with another person") — https://www.tiingo.com/about/pricing (DS8)
+- S69 Tiingo EOD fields (adjOHLCV, divCash, splitFactor), startDate/endDate — https://www.tiingo.com/documentation/end-of-day (DS8)
+- S70 Free EOD source comparison, research note 2026-10-08 (Tiingo, Alpha Vantage, Massive ex-Polygon, FMP, EODHD, Twelve Data, Alpaca, Nasdaq Data Link, Stooq, yfinance; terms pages cited in M00_UI) — key URLs: https://www.alphavantage.co/documentation/ · https://massive.com/pricing · https://eodhd.com/pricing · https://twelvedata.com/pricing · https://docs.alpaca.markets/docs/about-market-data-api · https://github.com/ranaroussi/yfinance · https://github.com/pydata/pandas-datareader/issues/1012 (DS8)
