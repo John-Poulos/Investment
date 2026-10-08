@@ -83,6 +83,26 @@ def _past_full_year(period: str, filed: str) -> bool:
     return int(parts[0][2:]) < int(filed[:4])
 
 
+TAX_RATE_SANE = (Decimal(0), Decimal(50))  # percent; outside → near-zero pretax base
+
+
+def quality_flag(item: Item) -> tuple[str | None, str | None]:
+    """('not_meaningful', reason) for ratio guidance on a near-zero base (D-SRCH-15).
+
+    Flagged rows are stored as stated, shown with the reason, and excluded from
+    guidance-vs-actual scoring and LLM trend input.
+    """
+    v = item.value
+    lo, hi = TAX_RATE_SANE
+    if item.metric == "tax_rate" and (v.low < lo or v.high > hi):
+        return (
+            "not_meaningful",
+            f"tax rate outside {lo}-{hi}%: pretax income near zero makes the ratio swing "
+            "(e.g. Intel guided 476% for Q4 2025; actual 198.5%)",
+        )
+    return None, None
+
+
 def _consistent(a: Value, b: Value) -> bool:
     """Same value, or a bare point equal to the other's centre ('74.8%' vs '74.8% ± 50 bps')."""
     if (a.low, a.high) == (b.low, b.high):
@@ -125,8 +145,8 @@ def _insert(
         "INSERT INTO guidance (cik, accession, filename, metric, basis, period, unit, kind, low, "
         "high, point, spread, spread_kind, prior_low, prior_high, stated_on, source, quote, "
         "quote_start, quote_end, period_quote, period_start, period_end, doc_sha256, "
-        "parser_version, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "parser_version, created_at, flag, flag_reason) "
+        f"VALUES ({', '.join('?' * 28)})",
         (
             release.cik,
             release.accession,
@@ -154,6 +174,7 @@ def _insert(
             sha,
             PARSER_VERSION,
             now,
+            *quality_flag(item),
         ),
     )
 

@@ -141,3 +141,22 @@ def test_repeated_unparsed_sentence_queued_once(dbs, clock):
     (res,) = scan_all(engine, corpus, clock.now())
     assert res.unparsed == 1
     assert engine.execute("SELECT count(*) FROM review_queue").fetchone()[0] == 1
+
+
+def test_extreme_tax_rate_flagged_not_dropped(dbs, clock):
+    engine, corpus = dbs
+    text = (
+        "Intel's guidance for the fourth quarter of 2025 includes both GAAP and "
+        "non-GAAP estimates as follows:\n"
+        "Q4 2025\tGAAP\tNon-GAAP\n"
+        "Tax Rate\t476%\t12%\n"
+    )
+    _filing(engine, "t1", "2.02", filed="2025-10-23")
+    _doc(corpus, "t1", text)
+    scan_all(engine, corpus, clock.now())
+    rows = {
+        r["basis"]: (r["low"], r["flag"], r["flag_reason"])
+        for r in engine.execute("SELECT basis, low, flag, flag_reason FROM guidance")
+    }
+    assert rows["GAAP"][:2] == (476, "not_meaningful") and "near zero" in rows["GAAP"][2]
+    assert rows["non-GAAP"] == (12, None, None)

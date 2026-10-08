@@ -79,6 +79,8 @@ def main() -> int:
                 if g["prior_low"] is not None
                 else ""
             )
+            if g["flag"]:
+                prior += f"  FLAG {g['flag']}"
             lines.append(
                 f"  {g['period']:<17}{g['metric']:<20}{g['basis']:<12}{g['kind']:<10}"
                 f"{value}{prior}  [{g['source']} @{g['quote_start']}, "

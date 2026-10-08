@@ -98,6 +98,7 @@ Freshness is event-driven (SEC data changes only when a company files); backstop
 - D-STO-12 (2026-10-07): engine migration 0008 adds `refresh_run` and `refresh_day` (D-SEC-15).
 - D-STO-13 (2026-10-08): corpus migration 0005 adds `passage` (section, seq, offsets, chunker version) and self-contained `passage_fts` (D-SRCH-10).
 - D-STO-14 (2026-10-08): engine migration 0009 rebuilds `guidance` (never written before) with provenance columns and adds `guidance_scan` (D-SRCH-11).
+- D-STO-15 (2026-10-08): engine migration 0010 adds guidance `flag` / `flag_reason` (D-SRCH-15).
 
 ## Open questions
 - Backfill universe: watchlist size and peers per group.
