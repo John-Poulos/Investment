@@ -21,6 +21,9 @@
 *.pdf     binary
 *.xlsx    binary
 
+# Vendored third-party files stay byte-exact (hashes in their SOURCE.md).
+src/engine/ui/static/vendor/** -text
+
 # Recorded SEC responses stay byte-exact: tests check character offsets and
 # verbatim quotes. Keep this line last; later lines override earlier ones.
 tests/fixtures/** -text
