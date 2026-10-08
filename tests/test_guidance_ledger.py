@@ -102,3 +102,14 @@ def test_release_without_guidance_is_recorded(dbs, clock):
     assert res.outcome == "none"
     row = engine.execute("SELECT outcome, items FROM guidance_scan").fetchone()
     assert (row["outcome"], row["items"]) == ("none", 0)
+
+
+def test_past_full_year_goes_to_review_not_ledger(dbs, clock):
+    engine, corpus = dbs
+    text = "Outlook\nWe expect full year 2025 revenue to be $44.7 billion.\n"
+    _filing(engine, "p1", "2.02", filed="2026-04-22")
+    _doc(corpus, "p1", text)
+    (res,) = scan_all(engine, corpus, clock.now())
+    assert (res.outcome, res.items, res.unparsed) == ("review", 0, 1)
+    (reason,) = [r[0] for r in engine.execute("SELECT reason FROM review_queue")]
+    assert "ended before the release" in reason

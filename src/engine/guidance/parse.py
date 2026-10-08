@@ -9,15 +9,22 @@ forecast, project, "outlook to/of/is/for") and a $ or % value. Metric mentions
 split a clause into segments; each segment's first value belongs to its metric.
 "GAAP and non-GAAP ... X and Y, respectively" gives two items; a value stated
 shortly after "from" ("narrowed from our prior outlook of $125-145 billion",
-"up from $43 million") is the prior guidance. Candidates that yield no item are
-returned as unparsed (→ review queue), except assumption sentences (FX
-headwind/tailwind/impact without a metric), which are skipped.
+"up from $43 million") is the prior guidance. A forward verb must precede each
+value, so reported results earlier in the same sentence are not taken; the
+period is the one stated nearest before the value. A value before its metric is
+taken only in spend phrasing ("invest about $200 billion in capital
+expenditures"). Sentences over 600 chars, forward-looking-statement and risk
+boilerplate, and noun uses ("projects", "than anticipated") are not candidates.
+Candidates that yield no item are returned as unparsed (→ review queue), except
+assumption sentences (FX headwind/tailwind/impact without a metric).
 
-Tables: read only inside an outlook context (header or the lines just above it
-mention outlook/guidance/forecast) with exactly one period in the header. Rows
-start with a known metric label; values sit on the label line after "|" or on
-the next line. Header with "GAAP" and "Non-GAAP" → first value GAAP, last value
-non-GAAP (adjustment columns between are ignored); one value → both bases.
+Tables (cells separated by tabs in stored text): read only under a header with
+exactly one period that says outlook/guidance, or whose lead-in line just above
+does (short, or ending with ":"); headers saying "results" are excluded. Rows
+start with a known metric label; values sit on the label line or, if that line
+has no digits, on a short next line. Header with "GAAP" and "Non-GAAP" → first
+value GAAP, last value non-GAAP (adjustment columns between are ignored); one
+value → both bases, or GAAP only when the header has an adjustments column.
 Money without a scale word is used only for per-share metrics or when the lines
 above the table state "(in millions/billions)".
 
@@ -37,7 +44,7 @@ import re
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 
-PARSER_VERSION = "guidance-1"
+PARSER_VERSION = "guidance-2"
 
 # --- Metrics -----------------------------------------------------------------
 
@@ -54,7 +61,7 @@ METRICS: tuple[tuple[str, str], ...] = (  # (alias regex, canonical), longest fi
     (r"total expenses|costs and expenses", "total_expenses"),
     (r"operating income", "operating_income"),
     (r"operating margin", "operating_margin"),
-    (r"capital expenditures", "capex"),
+    (r"capital expenditures|capex(?: investments)?|capital investments?", "capex"),
     (r"(?:effective )?tax rates?", "tax_rate"),
     (r"other income(?:,? net)?", "other_income"),
     (r"(?:total |net )?revenues?|net sales", "revenue"),
@@ -294,18 +301,35 @@ class ParseResult:
 
 
 _CUE = re.compile(
-    r"\b(?:expect(?:s|ed|ing)?|anticipat\w*|forecast(?:s|ed|ing)?|project(?:s|ed|ing)?)\b"
+    r"\b(?:expect(?:s|ed|ing)?|anticipat(?:e|es|ed|ing)|forecast(?:s|ed|ing)?)\b"
     r"|\boutlook\s+(?:to|of|is|for)\b",
     re.IGNORECASE,
 )
-_NOT_CUE = re.compile(r"than[- ]expected|unexpected", re.IGNORECASE)
+_NOT_CUE = re.compile(
+    r"than[- ](?:expected|anticipated)|unexpected|anticipated (?:benefits|synergies)"
+    r"|expected timeframe",
+    re.IGNORECASE,
+)
 _CONTEXT = re.compile(r"\b(?:outlook|guidance|forecast\w*)\b", re.IGNORECASE)
 _ASSUMPTION = re.compile(r"\b(?:headwind|tailwind|impact|assum\w+)\b", re.IGNORECASE)
 _RESPECTIVELY = re.compile(r"\brespectively\b", re.IGNORECASE)
 _PRIOR = re.compile(r"\bfrom\b", re.IGNORECASE)
+_TRAILING_PM = re.compile(
+    rf"^\W*(?:respectively\W*)?(?:±|\+/-|plus or minus)\s*(?:(?P<bp>{_NUM})\s*basis points"
+    rf"|(?P<p>{_NUM})\s?%)",
+    re.IGNORECASE,
+)
 _SENT_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z•▪“\"(])")
 _BULLET = re.compile(r"^[\s•▪◦●]+")
 _TABLE_SCALE = re.compile(r"\(\s*(?:\$\s*)?in\s+(billions|millions|thousands)", re.IGNORECASE)
+_BOILERPLATE = re.compile(
+    r"forward-looking statements?|risks? (?:related to|and uncertainties)|\(\d+\).*\(\d+\)",
+    re.IGNORECASE,
+)
+_CELL = re.compile(r"\t|\s\|\s")
+# value before its metric only in spend phrasing ("invest about $200 billion in capex")
+_SPEND = re.compile(r"\b(?:invest|spend)\w*\b", re.IGNORECASE)
+MAX_SENTENCE = 600  # longer "sentences" are flattened tables or legal boilerplate
 
 
 def _bases(prefix: str) -> tuple[str, ...]:
@@ -370,55 +394,106 @@ def _sentences(text: str, a: int, b: int) -> list[tuple[int, int]]:
     return [(s, e) for s, e in out if text[s:e].strip()]
 
 
+def _spread_both(seg: str, values: list[Value]) -> list[Value]:
+    """'74.8% and 75.0%, respectively, plus or minus 50 basis points' → spread on both."""
+    m = _TRAILING_PM.match(seg[values[1].end :])
+    if not m:
+        return values
+    out = []
+    for v in values[:2]:
+        if m["bp"] is not None and v.unit == "%":
+            d, spread, kind = _num(m["bp"]) / 100, _num(m["bp"]), "bps"
+        elif m["p"] is not None and v.unit == "%":
+            d, spread, kind = _num(m["p"]), _num(m["p"]), "pct"
+        elif m["p"] is not None:
+            d, spread, kind = v.low * _num(m["p"]) / 100, _num(m["p"]), "pct"
+        else:
+            out.append(v)
+            continue
+        out.append(replace(v, kind="plusminus", low=v.low - d, high=v.high + d, point=v.low,
+                           spread=spread, spread_kind=kind))  # fmt: skip
+    return out
+
+
 def _parse_sentence(text: str, s: int, e: int, context: Period | None, out: ParseResult) -> None:
     sent = text[s:e]
-    if not _CUE.search(_NOT_CUE.sub("", sent)):
+    cue_text = _NOT_CUE.sub(lambda m: "_" * len(m.group(0)), sent)
+    if not _CUE.search(cue_text) or not find_values(sent):
         return
-    if not find_values(sent):
+    if len(sent) > MAX_SENTENCE or _BOILERPLATE.search(sent):
         return
     out.candidates += 1
-    periods = find_periods(sent)
-    period = (
-        replace(periods[0], start=periods[0].start + s, end=periods[0].end + s)
-        if periods
-        else context
-    )
-    if period is None:
-        out.unparsed.append(Unparsed(s, e, "no period"))
-        return
+    sent_periods = find_periods(sent)
 
     items: list[Item] = []
-    c0 = s
+    no_period = False
+    c0 = 0  # clause offset within the sentence
     for clause in sent.split(";"):
         mentions = list(_METRIC.finditer(clause))
+        prev_end = 0
         for i, m in enumerate(mentions):
             seg_end = mentions[i + 1].start() if i + 1 < len(mentions) else len(clause)
-            seg = clause[m.end() : seg_end]
             metric = _metric_name(m)
-            fitted = [f for v in find_values(seg) if (f := _fits(metric, v)) is not None]
+            seg_start = m.end()
+            fitted = [
+                _shift(f, seg_start)
+                for v in find_values(clause[seg_start:seg_end])
+                if (f := _fits(metric, v)) is not None
+            ]
+            if not fitted and len(mentions) == 1 and _SPEND.search(clause[: m.start()]):
+                # value stated before the metric (spend phrasing)
+                fitted = [
+                    f
+                    for v in find_values(clause[: m.start()])
+                    if (f := _fits(metric, v)) is not None
+                ][-1:]
             if not fitted:
                 continue
+            # a forward verb must precede the value: past results in the sentence are not guidance
+            if not _CUE.search(cue_text[c0 : c0 + fitted[0].start]):
+                continue
             bases = _bases(clause[: m.end()])
-            if len(bases) == 2 and len(fitted) >= 2 and _RESPECTIVELY.search(seg):
-                pairs = list(zip(bases, fitted[:2], strict=True))
+            if (
+                len(bases) == 2
+                and len(fitted) >= 2
+                and _RESPECTIVELY.search(clause[seg_start:seg_end])
+            ):
+                pairs = list(zip(bases, _spread_both(clause, fitted), strict=True))
             else:
                 pairs = [(b, fitted[0]) for b in bases]
-            seg0 = c0 + m.end()
             main_end = max(v.end for _, v in pairs)
+            main_start = min(v.start for _, v in pairs)
+            # period: nearest stated before this value, else anywhere in the sentence, else heading
+            window = find_periods(clause[prev_end:main_start])
+            if window:
+                p = window[-1]
+                period = Period(p.label, s + c0 + prev_end + p.start, s + c0 + prev_end + p.end)
+            elif sent_periods:
+                p = sent_periods[0]
+                period = Period(p.label, s + p.start, s + p.end)
+            else:
+                period = context
+            prev_end = main_end
+            if period is None:
+                no_period = True
+                continue
             prior = None
-            pm = _PRIOR.search(seg, main_end)
+            pm = _PRIOR.search(clause, main_end, seg_end if seg_end > main_end else len(clause))
             if pm and pm.start() - main_end < 60:
-                window = seg[pm.end() : pm.end() + 60]
-                after = [f for v in find_values(window) if (f := _fits(metric, v)) is not None]
+                after = [
+                    f
+                    for v in find_values(clause[pm.end() : pm.end() + 60])
+                    if (f := _fits(metric, v)) is not None
+                ]
                 if after:
-                    prior = _shift(after[0], seg0 + pm.end())
+                    prior = _shift(after[0], s + c0 + pm.end())
             for basis, v in pairs:
                 items.append(
                     Item(
                         metric,
                         basis,
                         period.label,
-                        _shift(v, seg0),
+                        _shift(v, s + c0),
                         prior,
                         "sentence",
                         s,
@@ -430,16 +505,23 @@ def _parse_sentence(text: str, s: int, e: int, context: Period | None, out: Pars
         c0 += len(clause) + 1
     if items:
         out.items.extend(items)
+    elif no_period:
+        out.unparsed.append(Unparsed(s, e, "no period"))
     elif _ASSUMPTION.search(sent) and not _METRIC.search(sent):
         out.candidates -= 1  # assumption (FX impact etc.), not guidance
     else:
         out.unparsed.append(Unparsed(s, e, "no metric/value pair"))
 
 
+def _cells(row: str) -> list[str]:
+    return _CELL.split(row)
+
+
 def _norm_cells(row: str) -> str:
-    """Join split table cells: '41.0 | %' → '41.0%', '$ | 0.31' → '$0.31'."""
-    row = re.sub(r"\s*\|\s*%", "%", row)
-    return re.sub(r"\$\s*\|\s*", "$", row)
+    """Join split table cells: '41.0<tab>%' → '41.0%', '$<tab>0.31' → '$0.31'."""
+    row = re.sub(r"\s*(?:\t|\|)\s*%", "%", row)
+    row = re.sub(r"\$\s*(?:\t|\|)\s*", "$", row)
+    return " | ".join(c.strip() for c in _cells(row))
 
 
 def _label_metric(label: str) -> tuple[str, tuple[str, ...]] | None:
@@ -461,16 +543,22 @@ def _label_metric(label: str) -> tuple[str, tuple[str, ...]] | None:
 
 
 def _is_header(text: str, lines: list[tuple[int, int]], i: int) -> Period | None:
+    """An outlook table header: one period, and 'outlook/guidance' in it or in the
+    lead-in line just above (short, or ending with ':'). Results tables are excluded."""
     a, b = lines[i]
     line = text[a:b]
-    if not 0 < len(line.strip()) <= 120:
+    if not 0 < len(line.strip()) <= 120 or re.search(r"\bresults\b", line, re.IGNORECASE):
         return None
     periods = find_periods(line, bare_years=False)
     if len({p.label for p in periods}) != 1:
         return None
-    above = " ".join(text[x:y] for x, y in lines[max(0, i - 3) : i])
-    if not (_CONTEXT.search(line) or _CONTEXT.search(above[-400:])):
-        return None
+    if not _CONTEXT.search(line):
+        k = i - 1
+        while k >= 0 and not text[lines[k][0] : lines[k][1]].strip():
+            k -= 1
+        above = text[lines[k][0] : lines[k][1]].strip() if k >= 0 else ""
+        if not (_CONTEXT.search(above) and (len(above) <= 120 or above.endswith(":"))):
+            return None
     return replace(periods[0], start=a + periods[0].start, end=a + periods[0].end)
 
 
@@ -490,12 +578,12 @@ def _parse_tables(text: str, lines: list[tuple[int, int]], out: ParseResult) -> 
         while j < len(lines) and j < i + 80:
             x, y = lines[j]
             row = text[x:y]
-            label = row.split("|")[0]
-            lm = _label_metric(label) if row.strip() else None
             if not row.strip():
                 j += 1
                 continue
-            if len(row) > 150 and "|" not in row:
+            label = _cells(row)[0]
+            lm = _label_metric(label)
+            if len(row) > 150 and not _CELL.search(row):
                 break  # prose ends the table
             if lm is None and _is_header(text, lines, j):
                 break  # next table
@@ -507,13 +595,17 @@ def _parse_tables(text: str, lines: list[tuple[int, int]], out: ParseResult) -> 
             rows += 1
             metric, label_basis = lm
             cells, end = _norm_cells(row[len(label) :]), y
-            if not find_values(cells):
+            if not re.search(r"\d", cells):  # values on the next line
                 k = j + 1
                 while k < len(lines) and not text[lines[k][0] : lines[k][1]].strip():
                     k += 1
                 if k < len(lines):
                     nxt = text[lines[k][0] : lines[k][1]]
-                    if _label_metric(nxt.split("|")[0]) is None and find_values(_norm_cells(nxt)):
+                    if (
+                        len(nxt) <= 150
+                        and _label_metric(_cells(nxt)[0]) is None
+                        and find_values(_norm_cells(nxt))
+                    ):
                         cells, end, j = _norm_cells(nxt), lines[k][1], k
             values = [f for v in find_values(cells) if (f := _fits(metric, v, scale)) is not None]
             if values:
@@ -521,6 +613,8 @@ def _parse_tables(text: str, lines: list[tuple[int, int]], out: ParseResult) -> 
                 two_cols = bool(re.search(r"(?<!non-)\bgaap", h)) and "non-gaap" in h
                 if label_basis:
                     pairs = [(label_basis[0], values[0])]
+                elif two_cols and len(values) == 1 and "adjust" in h:
+                    pairs = [("GAAP", values[0])]  # non-GAAP column not on this line
                 elif two_cols:
                     pairs = [("GAAP", values[0]), ("non-GAAP", values[-1])]
                 else:
@@ -558,7 +652,7 @@ def parse_release(text: str) -> ParseResult:
             ps = find_periods(line, bare_years=False)
             if ps:
                 context = replace(ps[0], start=a + ps[0].start, end=a + ps[0].end)
-        if "|" in line and not _CUE.search(line):
+        if _CELL.search(line) and not _CUE.search(line):
             continue  # table rows are read by _parse_tables
         for s, e in _sentences(text, a, b):
             _parse_sentence(text, s, e, context, result)

@@ -5,7 +5,8 @@ that release's ledger rows and open review items, so re-running is safe.
 Same metric/basis/period stated twice with equal values (e.g. sentence and
 table) is stored once; different values keep the first and open a
 `guidance_conflict` review item. Sentences that look like guidance but do not
-parse open a `guidance_unparsed` review item with the exact sentence.
+parse open a `guidance_unparsed` review item with the exact sentence; so does a
+full-year period that ended before the release (a reported actual, not guidance).
 """
 
 from __future__ import annotations
@@ -68,6 +69,18 @@ def _n(d: Decimal | None) -> str | None:
     if d is None:
         return None
     return format(d.normalize(), "f")
+
+
+def _past_full_year(period: str, filed: str) -> bool:
+    """FY2025 (or 'FY2025 remaining') stated in a release filed in 2026 or later.
+
+    Quarters are not checked: fiscal calendars differ, and a quarter label alone
+    cannot be placed in time without the company's fiscal year end.
+    """
+    parts = period.split()
+    if len(parts) > 1 and parts[1] != "remaining":
+        return False
+    return int(parts[0][2:]) < int(filed[:4])
 
 
 def _clear(engine: sqlite3.Connection, release: Release) -> None:
@@ -150,7 +163,23 @@ def scan_release(
         _clear(engine, release)
         kept: dict[tuple[str, str, str], Item] = {}
         conflicts = 0
+        past = 0
         for item in parsed.items:
+            if _past_full_year(item.period, release.filed):
+                past += 1
+                _review(
+                    engine,
+                    release,
+                    "guidance_unparsed",
+                    f"{item.metric} {item.period}: full-year period ended before the release "
+                    "(likely a reported actual, not guidance)",
+                    {
+                        "text": text[item.quote_start : item.quote_end],
+                        "offsets": [item.quote_start, item.quote_end],
+                    },
+                    at,
+                )
+                continue
             key = (item.metric, item.basis, item.period)
             first = kept.get(key)
             if first is None:
@@ -182,7 +211,7 @@ def scan_release(
             )
         if kept:
             outcome = "parsed"
-        elif parsed.unparsed:
+        elif parsed.unparsed or past:
             outcome = "review"
         else:
             outcome = "none"
@@ -202,7 +231,7 @@ def scan_release(
                 outcome,
                 parsed.candidates,
                 len(kept),
-                len(parsed.unparsed),
+                len(parsed.unparsed) + past,
                 conflicts,
                 PARSER_VERSION,
                 at,
@@ -213,7 +242,7 @@ def scan_release(
         engine.execute("ROLLBACK")
         raise
     return ScanResult(
-        release, outcome, parsed.candidates, len(kept), len(parsed.unparsed), conflicts
+        release, outcome, parsed.candidates, len(kept), len(parsed.unparsed) + past, conflicts
     )
 
 

@@ -207,7 +207,7 @@ Reconciliations between GAAP and non-GAAP financial measures are included below.
 Q2 2026 Financial Results
 Q2 2026 | Q2 2025 | vs. Q2 2025
 Revenue ($B) | $16.1 | $12.9 | up 25%
-"""
+""".replace(" | ", "\t")  # stored text separates cells with tabs
 
 
 def test_intel_outlook_table():
@@ -250,7 +250,7 @@ Gross margin
 Approximately 85.95% | 0.30 | % | A | Approximately 86.25%
 Operating expenses
 Approximately $2.31 billion | $253 million | B | Approximately $2.06 billion
-"""
+""".replace(" | ", "\t")
 
 
 def test_micron_tables_skip_results_and_read_adjustment_columns():
@@ -276,3 +276,80 @@ def test_unscaled_table_money_needs_scale_header():
     scaled = "(In Billions; Unaudited)\n" + text
     got, _ = items(scaled)
     assert got[("operating_expenses", "GAAP", "FY2027 Q3")] == (Decimal("9.2") * B,) * 2
+
+
+# --- regressions from the first live scan (2026-10-08) ---------------------------
+
+
+def test_results_table_after_guidance_quote_is_not_outlook():
+    text = (
+        "“We delivered a strong second quarter, exceeding our financial guidance on robust demand and improved execution, including volume upside,” said the CFO.\n"
+        "Q2 2026 Financial Results\n"
+        "Q2 2026\tQ2 2025\tvs. Q2 2025\n"
+        "Gross margin\t40.4%\t27.5%\tup 12.9 ppts\t41.8%\t29.7%\tup 12.1 ppts\n"
+        "R&D and MG&A ($B)\t$4.5\t$4.8\tdown 6%\n"
+    )
+    got, _ = items(text)
+    assert got == {}
+
+
+def test_past_results_in_same_sentence_are_not_guidance():
+    text = (
+        "Infleqtion today reported record second-quarter 2026 revenue of $12.6 million, up 116% "
+        "year over year, and raised its full-year 2026 revenue outlook to approximately $43 million.\n"
+    )
+    got, r = items(text)
+    assert got == {("revenue", "unspecified", "FY2026"): (43 * M, 43 * M)}
+    (item,) = r.items
+    assert text[item.period_start : item.period_end] == "full-year 2026"
+
+
+def test_noise_sentences_are_not_candidates():
+    text = (
+        "•Generated nearly $615 million in global box office for Project Hail Mary to date.\n"
+        "Quick Suite helps turn month-long projects into days, get 80%+ time savings.\n"
+        "Rufus saw an even stronger response than anticipated, helping deliver nearly $12 billion in sales.\n"
+        "Among these factors are risks related to: (1) general conditions in the economy; (2) our reliance on customers expected to pay $5 billion.\n"
+    )
+    _, r = items(text)
+    assert (r.items, r.unparsed, r.candidates) == ([], [], 0)
+
+
+def test_capex_alias_and_value_before_metric():
+    text = (
+        "Our 2026 CapEx investments are anticipated to be in the range of $175 to $185 billion.”\n"
+        "“We expect to invest about $200 billion in capital expenditures across Amazon in 2026, and anticipate strong returns.”\n"
+    )
+    _, r = items(text)
+    assert [(i.metric, i.period, i.value.low, i.value.high, i.value.kind) for i in r.items] == [
+        ("capex", "FY2026", 175 * B, 185 * B, "range"),
+        ("capex", "FY2026", 200 * B, 200 * B, "approx"),
+    ]
+
+
+def test_respectively_with_shared_spread():
+    text = (
+        "Outlook for the fourth quarter of fiscal 2026:\n"
+        "•GAAP and non-GAAP gross margins are expected to be 74.8% and 75.0%, respectively, plus or minus 50 basis points.\n"
+    )
+    got, _ = items(text)
+    assert got == {
+        ("gross_margin", "GAAP", "FY2026 Q4"): (Decimal("74.3"), Decimal("75.3")),
+        ("gross_margin", "non-GAAP", "FY2026 Q4"): (Decimal("74.5"), Decimal("75.5")),
+    }
+
+
+def test_footnote_below_unscaled_row_is_not_its_value():
+    text = (
+        "Q1 FY2027 Outlook\n"
+        "Non-GAAP operating expenses*\t$\t7,500\n"
+        "*Stock-based compensation expense is expected to be $1.9 billion in non-GAAP operating expenses.\n"
+    )
+    got, _ = items(text)
+    assert ("operating_expenses", "non-GAAP", "FY2027 Q1") not in got
+
+
+def test_adjustment_column_with_one_value_keeps_gaap_only():
+    text = "FQ2-26\tGAAP Outlook\tAdjustments\tNon-GAAP Outlook\nGross margin\t67.0% ± 1.0%\n"
+    got, _ = items(text)
+    assert got == {("gross_margin", "GAAP", "FY2026 Q2"): (66, 68)}
