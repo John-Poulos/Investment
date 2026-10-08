@@ -17,3 +17,4 @@ Updated: 2026-10-08 · One place for data the engine needs but does not have yet
 | DS4 | Theme news beyond filings | Company IR RSS (phase 1), curated trade-press RSS (phase 2) | A / B | gap | M02 | Per D-M02-2; feeds to pick at the M02 build. |
 | DS5 | Options chains and IV history | To find (may need own daily IV snapshots) | — | gap | M12 | Q5 in DESIGN.md. |
 | DS6 | Form 4 bulk data sets | SEC insider-transactions data sets | A | gap (deferred) | M07 | Per-filing Form 4s are parsed today (D-SEC-10); bulk sets only if the universe grows. |
+| DS7 | Prior-year 10-K (Item 1A) for year-over-year risk-factor comparison | SEC EDGAR (same fetch path as the latest 10-K) | A | gap | M04, M06, M11 (via D-SRCH-17 use case 2) | Backfill stored only the latest 10-K per company; fetch one prior 10-K when that use case is built. |
