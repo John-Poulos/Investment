@@ -7,6 +7,7 @@ Missing data stays missing (None), never zero.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import tomllib
 from dataclasses import dataclass, field
@@ -293,6 +294,7 @@ class ReaderView:
     before: str
     highlight: str
     after: str
+    blocks: list[Any] = field(default_factory=list)  # layout() of the section
 
 
 def reader(
@@ -343,6 +345,10 @@ def reader(
             before, highlight, after = text[:s], text[s:e], text[e:]
         else:
             before = text
+    hl = (start, end) if start is not None and end is not None else None
+    blocks = (
+        layout(before + highlight + after, chosen["start_offset"], hl) if chosen is not None else []
+    )
     return ReaderView(
         accession,
         doc["cik"],
@@ -355,4 +361,57 @@ def reader(
         before,
         highlight,
         after,
+        blocks,
     )
+
+
+# --- Text layout for the reader ---------------------------------------------------
+
+_NUMERIC_CELL = re.compile(r"^[\s$€£(−-]*[\d.,]+\s*[%)]*\s*$|^[—–-]$")
+
+
+@dataclass
+class Block:
+    kind: str  # p | table
+    parts: list[tuple[str, bool]] = field(default_factory=list)  # p: (text, highlighted)
+    rows: list[tuple[list[tuple[str, bool]], bool]] = field(default_factory=list)
+    # table: ([(cell, numeric)], row highlighted)
+    highlighted: bool = False
+
+
+def layout(text: str, base: int = 0, hl: tuple[int, int] | None = None) -> list[Block]:
+    """Split stored text into paragraphs and tables. Stored text has one block per
+    line and tab-separated table cells (html_to_text); consecutive tab lines (blank
+    lines between rows allowed) form one table. Offsets are absolute (base + index)
+    so a citation's highlight lands on the right paragraph or table row."""
+    blocks: list[Block] = []
+    pos = 0
+    table: Block | None = None
+    for line in text.split("\n"):
+        a, b = base + pos, base + pos + len(line)
+        pos += len(line) + 1
+        if not line.strip():
+            continue
+        hit = hl is not None and a < hl[1] and hl[0] < b
+        if "\t" in line:
+            cells = [c.strip() for c in line.split("\t")]
+            row = ([(c, bool(_NUMERIC_CELL.match(c))) for c in cells], hit)
+            if table is None:
+                table = Block("table")
+                blocks.append(table)
+            table.rows.append(row)
+            table.highlighted |= hit
+            continue
+        table = None
+        blk = Block("p", highlighted=hit)
+        if hit and hl is not None:
+            s, e = max(hl[0], a) - a, min(hl[1], b) - a
+            blk.parts = [(line[:s], False), (line[s:e], True), (line[e:], False)]
+        else:
+            blk.parts = [(line, False)]
+        blocks.append(blk)
+    for blk in blocks:
+        if blk.kind == "table":
+            width = max(len(r[0]) for r in blk.rows)
+            blk.rows = [(cells + [("", False)] * (width - len(cells)), h) for cells, h in blk.rows]
+    return blocks

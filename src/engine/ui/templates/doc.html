@@ -27,7 +27,22 @@
     {% if view.section %}
     <h2>{{ view.section.label }}{% if view.section.title %} — {{ view.section.title }}{% endif %}</h2>
     <p class="muted">{{ view.doc_type or view.filename }} · {{ '{:,}'.format(view.section.chars) }} characters, shown in full{% if view.highlight %} · <a href="#hl">jump to the highlighted passage</a>{% endif %}</p>
-    <div class="source">{{ view.before }}{% if view.highlight %}<mark id="hl">{{ view.highlight }}</mark>{% endif %}{{ view.after }}</div>
+    {% set ns = namespace(hl_done=false) %}
+    <div class="doctext">
+    {% for b in view.blocks %}
+      {% if b.kind == 'table' %}
+      <div class="tablewrap"{% if b.highlighted and not ns.hl_done %} id="hl"{% set ns.hl_done = true %}{% endif %}>
+      <table class="doc">
+        {% for cells, hit in b.rows %}
+        <tr{% if hit %} class="hit"{% endif %}>{% for c, numeric in cells %}<td{% if numeric %} class="num"{% endif %}>{{ c }}</td>{% endfor %}</tr>
+        {% endfor %}
+      </table>
+      </div>
+      {% else %}
+      <p>{% for text, hit in b.parts %}{% if hit %}<mark{% if not ns.hl_done %} id="hl"{% set ns.hl_done = true %}{% endif %}>{{ text }}</mark>{% else %}{{ text }}{% endif %}{% endfor %}</p>
+      {% endif %}
+    {% endfor %}
+    </div>
     {% else %}<p class="empty">This document has no stored sections.</p>{% endif %}
   </main>
 </div>

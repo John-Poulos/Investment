@@ -206,3 +206,15 @@ def test_search_hit_opens_reader_with_highlight(client):
     end = start + len("We expect fourth quarter 2025 total revenue")
     r = client.get(f"/doc/0001628280-25-047114?file=ex991.htm&start={start}&end={end}")
     assert '<mark id="hl">We expect fourth quarter 2025 total revenue</mark>' in r.text
+
+
+def test_layout_turns_tab_lines_into_tables():
+    from engine.ui.services import layout
+
+    text = "Business Outlook\nQ3 2026\tGAAP\tNon-GAAP\n\nGross margin\t41.0%\t42.0%\nTax Rate\t1%\nNext paragraph.\n"
+    blocks = layout(text, base=100, hl=(100 + text.index("Gross"), 100 + text.index("Tax")))
+    assert [b.kind for b in blocks] == ["p", "table", "p"]
+    table = blocks[1]
+    assert len(table.rows) == 3 and all(len(cells) == 3 for cells, _ in table.rows)  # padded
+    assert table.rows[1] == ([("Gross margin", False), ("41.0%", True), ("42.0%", True)], True)
+    assert table.highlighted and not table.rows[0][1]
