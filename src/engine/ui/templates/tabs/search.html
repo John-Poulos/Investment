@@ -14,7 +14,7 @@
     <tr>
       <td style="white-space:nowrap">{{ h.doc_type or h.filename }}<br><span class="muted">{{ h.accession }}</span></td>
       <td class="muted">{{ h.section }}</td>
-      <td class="snippet"><a href="/source/{{ h.accession }}/{{ h.filename }}?start={{ h.start }}&end={{ h.end }}">{{ h.snippet | replace('[', '«') | replace(']', '»') }}</a></td>
+      <td class="snippet"><a href="/doc/{{ h.accession }}?file={{ h.filename }}&start={{ h.start }}&end={{ h.end }}#hl">{{ h.snippet | replace('[', '«') | replace(']', '»') }}</a></td>
     </tr>
     {% endfor %}
   </table>

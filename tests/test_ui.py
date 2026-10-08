@@ -187,3 +187,22 @@ def test_vendored_chart_library_is_byte_exact():
         hashlib.sha256(js.read_bytes()).hexdigest()
         == "e21cc5caa0226ef30bd8549c50b9ef926615f2a4ee6b4e486353477a55f598cf"
     )
+
+
+def test_reader_shows_stored_filing_by_section(client):
+    html = client.get("/c/META").text
+    assert 'href="/doc/0001628280-25-047114">read</a>' in html  # stored → readable in the app
+    r = client.get("/doc/0001628280-25-047114")
+    assert r.status_code == 200
+    assert "EX-99.1" in r.text and "We expect fourth quarter 2025 total revenue" in r.text
+    assert "View this filing on SEC" in r.text
+    assert client.get("/doc/0000000000-00-000000").status_code == 404
+
+
+def test_search_hit_opens_reader_with_highlight(client):
+    html = client.get("/c/META?tab=search&q=revenue").text
+    assert "/doc/0001628280-25-047114?file=ex991.htm&start=" in html
+    start = REL.index("We expect")
+    end = start + len("We expect fourth quarter 2025 total revenue")
+    r = client.get(f"/doc/0001628280-25-047114?file=ex991.htm&start={start}&end={end}")
+    assert '<mark id="hl">We expect fourth quarter 2025 total revenue</mark>' in r.text

@@ -156,6 +156,9 @@ def create_app(settings: UiSettings) -> FastAPI:
         if tab == "overview":
             ctx["filings"] = services.filings(engine, cik, limit=10)
             ctx["events"] = services.events(engine, cik, limit=8)
+            ctx["readable"] = services.stored_accessions(
+                corpus, [f["accession"] for f in ctx["filings"]]
+            )
         elif tab == "financials":
             ctx["tables"] = services.financials(engine, cik)
         elif tab == "insiders":
@@ -163,6 +166,13 @@ def create_app(settings: UiSettings) -> FastAPI:
         elif tab == "events":
             ctx["events"] = services.events(engine, cik)
             ctx["filings"] = services.filings(engine, cik)
+            ctx["readable"] = services.stored_accessions(
+                corpus,
+                list(
+                    {f["accession"] for f in ctx["filings"]}
+                    | {e["accession"] for e in ctx["events"]}
+                ),
+            )
         elif tab == "search" and q.strip():
             ctx["result"] = services.company_search(corpus, cik, q.strip())
         return templates.TemplateResponse(request, "company.html", ctx)
@@ -199,6 +209,36 @@ def create_app(settings: UiSettings) -> FastAPI:
             return RedirectResponse(f"/c/{ticker}?msg=no-key", status_code=303)
         u = prices.update_symbol(engine, client, ticker, cik, datetime.now(UTC))
         return RedirectResponse(f"/c/{ticker}?msg={u.outcome}", status_code=303)
+
+    @app.get("/doc/{accession}", response_class=HTMLResponse)
+    def doc_page(
+        request: Request,
+        accession: str,
+        engine: Engine,
+        corpus: Corpus,
+        viewer: ViewerDep,
+        file: str | None = None,
+        section: int | None = None,
+        start: int | None = None,
+        end: int | None = None,
+    ):
+        view = services.reader(corpus, accession, file, section, start, end)
+        if view is None:
+            raise HTTPException(404, "That filing has no stored documents.")
+        row = engine.execute(
+            "SELECT f.form, f.filed, t.ticker FROM filing f LEFT JOIN ticker t ON t.cik = f.cik "
+            "AND t.valid_to IS NULL WHERE f.accession = ? LIMIT 1",
+            (accession,),
+        ).fetchone()
+        ctx = frame(engine) | {
+            "viewer": viewer,
+            "view": view,
+            "form": row["form"] if row else None,
+            "filed": row["filed"] if row else None,
+            "ticker": row["ticker"] if row else None,
+            "sec_url": services.filing_index_url(view.cik, accession),
+        }
+        return templates.TemplateResponse(request, "doc.html", ctx)
 
     @app.get("/source/{accession}/{filename}", response_class=HTMLResponse)
     def source_page(

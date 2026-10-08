@@ -264,3 +264,95 @@ def source(
         section,
         sha is not None and sha != doc["sha256"],
     )
+
+
+# --- Document reader -----------------------------------------------------------------
+
+
+def stored_accessions(corpus: sqlite3.Connection, accessions: list[str]) -> set[str]:
+    """Which of these filings have documents stored in corpus.db (readable in the app)."""
+    if not accessions:
+        return set()
+    marks = ", ".join("?" * len(accessions))
+    rows = corpus.execute(
+        f"SELECT DISTINCT accession FROM document WHERE accession IN ({marks})", accessions
+    ).fetchall()
+    return {r[0] for r in rows}
+
+
+@dataclass(frozen=True)
+class ReaderView:
+    accession: str
+    cik: str
+    docs: list[dict[str, Any]]  # filename, doc_type, description, chars
+    filename: str
+    doc_type: str | None
+    url: str
+    sections: list[dict[str, Any]]  # section_id, label, title, chars
+    section: dict[str, Any] | None
+    before: str
+    highlight: str
+    after: str
+
+
+def reader(
+    corpus: sqlite3.Connection,
+    accession: str,
+    filename: str | None = None,
+    section_id: int | None = None,
+    start: int | None = None,
+    end: int | None = None,
+) -> ReaderView | None:
+    """A stored filing by section, whole text (no limits, D22), optional highlight."""
+    docs = [
+        dict(r)
+        for r in corpus.execute(
+            "SELECT doc_id, cik, filename, doc_type, description, url, length(text) AS chars "
+            "FROM document WHERE accession = ? ORDER BY doc_id",
+            (accession,),
+        )
+    ]
+    if not docs:
+        return None
+    doc = next((d for d in docs if d["filename"] == filename), docs[0])
+    sections = [
+        dict(r) | {"chars": r["end_offset"] - r["start_offset"]}
+        for r in corpus.execute(
+            "SELECT section_id, label, title, start_offset, end_offset FROM section "
+            "WHERE doc_id = ? ORDER BY start_offset",
+            (doc["doc_id"],),
+        )
+    ]
+    chosen = None
+    if section_id is not None:
+        chosen = next((s for s in sections if s["section_id"] == section_id), None)
+    if chosen is None and start is not None:
+        chosen = next((s for s in sections if s["start_offset"] <= start < s["end_offset"]), None)
+    if chosen is None and sections:
+        body = [s for s in sections if s["label"] not in ("cover", "signatures")]
+        chosen = (body or sections)[0]
+    before = highlight = after = ""
+    if chosen is not None:
+        text = corpus.execute(
+            "SELECT substr(text, ? + 1, ? - ?) FROM document WHERE doc_id = ?",
+            (chosen["start_offset"], chosen["end_offset"], chosen["start_offset"], doc["doc_id"]),
+        ).fetchone()[0]
+        a, b = chosen["start_offset"], chosen["end_offset"]
+        if start is not None and end is not None and a <= start < b:
+            s, e = start - a, min(end, b) - a
+            before, highlight, after = text[:s], text[s:e], text[e:]
+        else:
+            before = text
+    return ReaderView(
+        accession,
+        doc["cik"],
+        [{k: d[k] for k in ("filename", "doc_type", "description", "chars")} for d in docs],
+        doc["filename"],
+        doc["doc_type"],
+        doc["url"],
+        sections,
+        chosen,
+        before,
+        highlight,
+        after,
+    )

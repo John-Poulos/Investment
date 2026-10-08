@@ -70,3 +70,9 @@ form.search button { padding: 4px 10px; border: 1px solid var(--line-2); border-
 .chartinfo { display: flex; gap: 10px; align-items: center; color: var(--text-2); font-size: 12px; margin-bottom: 4px; }
 .plot { flex: 1; min-height: 0; }
 .btn { padding: 4px 10px; border: 1px solid var(--line-2); border-radius: var(--radius); background: var(--panel-2); color: var(--text); cursor: pointer; }
+.reader { display: grid; grid-template-columns: 260px minmax(0, 1fr); min-height: calc(100vh - 40px); }
+.toc { border-right: 1px solid var(--line); background: var(--panel); padding: 8px; overflow-y: auto; }
+.toc h3 { font-size: 11px; font-weight: 400; color: var(--text-2); margin: 8px 4px 2px; }
+.toc a.row { display: flex; justify-content: space-between; gap: 6px; padding: 3px 6px; border-radius: var(--radius); color: var(--text); }
+.toc a.row.on { background: var(--panel-2); font-weight: 600; }
+.toc .name { color: var(--text-3); font-weight: 400; white-space: nowrap; }
