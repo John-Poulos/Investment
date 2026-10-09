@@ -15,7 +15,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from engine.guidance.sources import source_label
+from engine.guidance.sources import source_label, stated_prefix
 from engine.search.query import QueryError, phrase, search
 from engine.sec.xbrl_facts import CONCEPTS
 
@@ -537,7 +537,7 @@ def guidance_view(engine: sqlite3.Connection, cik: str) -> GuidanceView:
             value = f"direction only: {r['direction']} (no figure stated)"
         else:
             value = fmt_range(Decimal(str(r["low"])), Decimal(str(r["high"])), r["unit"])
-            value = {"floor": "more than ", "ceiling": "up to "}.get(r["bound"], "") + value
+            value = stated_prefix(r["kind"], r["bound"]) + value
         prior = None
         if r["prior_low"] is not None:
             prior = fmt_range(

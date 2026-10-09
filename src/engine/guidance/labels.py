@@ -30,7 +30,7 @@ from decimal import Decimal
 from typing import Any
 
 from engine.guidance.parse import PARSER_VERSION, ParseResult
-from engine.guidance.sources import origin_of
+from engine.guidance.sources import origin_of, stated_prefix
 from engine.sec.client import iso
 
 MODULE = "M11"
@@ -61,7 +61,7 @@ def _value_text(r: sqlite3.Row) -> str:
     if r["kind"] == "direction":
         return f"direction {r['direction']}"
     v = fmt_range(Decimal(str(r["low"])), Decimal(str(r["high"])), r["unit"])
-    return {"floor": "more than ", "ceiling": "up to "}.get(r["bound"], "") + v
+    return stated_prefix(r["kind"], r["bound"]) + v
 
 
 def describe_row(r: sqlite3.Row) -> str:

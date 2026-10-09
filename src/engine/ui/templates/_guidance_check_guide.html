@@ -1,0 +1,29 @@
+<details class="guide" open>
+<summary>Checking a guidance row — how to decide, with worked examples (D-M02-24)</summary>
+<div class="guidebody">
+<h3 class="sub">Ask three questions</h3>
+<ol>
+  <li><b>Whose number is it?</b> The company's own total — not a customer's, the industry's, a peer's, or one segment or product line.</li>
+  <li><b>Is it about the future?</b> A forecast for a coming period — not a result already reported, and not earlier guidance only retold as history.</li>
+  <li><b>Did the parser copy it faithfully?</b> Same metric, period, number, unit and wording ("approximately", "more than", "up to", "including …").</li>
+</ol>
+<p class="note">Three yes answers → <b>No error / Correct — no change needed</b>. Spoken wording is not an error: "approximately", "roughly", "about" are normal on calls; the row is stored and shown as approximate, and a company's later filing can upgrade the call's grade B to A. When unsure, leave the item open: a missing value is safer than a wrong one.</p>
+
+<h3 class="sub">Worked examples (wording shortened and paraphrased)</h3>
+<table class="data">
+  <tr><th style="width:38%">Sentence</th><th style="width:20%">Parser stored</th><th style="width:16%">Verdict</th><th>Why / correction</th></tr>
+  <tr><td>"In calendar 2026 we expect total capex of approximately $175 billion, including finance leases."</td><td>capex CY2026: approximately $175 billion</td><td>No error</td><td>Own company, future, faithful. "Approximately" and the "including finance leases" clause are kept.</td></tr>
+  <tr><td>"Capex by the top five hyperscalers is expected to reach nearly $800 billion this year."</td><td>capex FY2026: $800 billion</td><td>Wrong — another company's figure</td><td>Customers' spending, not the speaker's. No correction unless the sentence also states the company's own figure.</td></tr>
+  <tr><td>"Industry capex should be about $50 billion, of which we expect roughly $3 billion."</td><td>capex: $50 billion</td><td>Wrong — another company's figure</td><td>Correction: capex, the same period, Low 3, billions. Your $3B row replaces the parser's.</td></tr>
+  <tr><td>"We expect Q4 AI revenue of $21.7 billion."</td><td>revenue Q4: $21.7 billion</td><td>Wrong — a segment</td><td>AI revenue is a part of total revenue. Correct only with the company total if the same sentence states it.</td></tr>
+  <tr><td>"Capital expenditures were $41 billion, as noted in our guide."</td><td>capex Q1: $41 billion</td><td>Wrong — a reported actual</td><td>"Were" reports the quarter just ended. No correction.</td></tr>
+  <tr><td>"Earlier this year we said we planned to invest about $200 billion."</td><td>capex FY2026: $200 billion</td><td>Wrong — not guidance</td><td>Retold history. The current figure is usually in the next sentence ("we now expect …").</td></tr>
+  <tr><td>"For Q3 we expect a tax rate of about 19%."</td><td>tax rate FY2026: 19%</td><td>Wrong — wrong period</td><td>Correction: tax rate, FY2026 Q3, Low 19, unit %.</td></tr>
+  <tr><td>"We expect capex this year will be more than $25 billion."</td><td>capex FY2026: $25 billion (no "more than")</td><td>Wrong — wrong value</td><td>A lower bound shown as a point. Current parsers store and show "more than $25 billion" — then it is No error.</td></tr>
+  <tr><td><i>Set aside:</i> "This is a massive capex year, and the returns will be strong."</td><td>nothing (no figure, direction or period)</td><td>Not guidance</td><td>Confirms the skip.</td></tr>
+  <tr><td><i>Set aside or found by Gemini:</i> "Next year we see capex in the $60 to $65 billion range."</td><td>nothing</td><td>Missed</td><td>Correction: capex, next fiscal year (e.g. FY2027), Low 60, High 65, billions. The label tells the next parser build what wording to learn.</td></tr>
+  <tr><td><i>Found by Gemini:</i> "Gross margin will be affected by about $2 billion of depreciation."</td><td>nothing</td><td>Not guidance (note it)</td><td>An impact on margin, not a margin level the ledger can store. A note helps a later module.</td></tr>
+</table>
+<p class="note">Every verdict can be undone: "Your corrections and checks" on the company's Guidance tab, or Reopen on the answered item. Undo removes the label and any correction and restores the parser's row.</p>
+</div>
+</details>

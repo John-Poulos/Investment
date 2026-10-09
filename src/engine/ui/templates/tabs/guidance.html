@@ -13,6 +13,7 @@
 {% elif msg == 'stored-result' %}<div class="okbox">An identical request was already stored; shown at no cost.</div>
 {% elif msg == 'llm-error' %}<div class="warnbox">The Gemini call did not complete: {{ detail }}. Nothing new was stored as fact.</div>
 {% elif msg == 'labelled-wrong' %}<div class="okbox">Row marked wrong and removed; the label is kept for the next parser version (Runs page: guidance accuracy). Undo it under "Your corrections" below.</div>{% if detail %}<div class="warnbox">Correction stored with warnings: {{ detail }}</div>{% endif %}
+{% elif msg == 'labelled-right' %}<div class="okbox">Confirmed: no error. The row stays; your confirmation is listed under "Your corrections and checks" (undo there).</div>
 {% elif msg == 'undone' %}<div class="okbox">{{ detail }}</div>
 {% elif msg == 'checked' %}<div class="okbox">{{ detail }}</div>
 {% elif msg == 'nothing-to-ask' %}<div class="warnbox">Nothing to ask: no changed guidance with source passages.</div>{% endif %}
@@ -33,7 +34,7 @@
       </td>
       <td>
         <a href="/source/{{ r.accession }}/{{ r.filename }}?start={{ r.quote_start }}&end={{ r.quote_end }}&sha={{ r.doc_sha256 }}" title="{{ r.quote }}">{{ r.value }}</a>
-        {% if viewer.is_owner and r.source != 'owner' %} <a class="muted" href="/c/{{ ticker }}/guidance/{{ r.guidance_id }}/wrong" title="Mark this row wrong (D-M02-24)">wrong?</a>{% endif %}
+        {% if viewer.is_owner and r.source != 'owner' %} <a class="muted" href="/c/{{ ticker }}/guidance/{{ r.guidance_id }}/wrong" title="Check this row: no error, or wrong with a reason and an optional correction (D-M02-24)">check / wrong?</a>{% endif %}
         {% if r.clause %}<div class="muted">{{ r.clause }}</div>{% endif %}
         {% if r.matched and r.origin != 'release' %}<div class="muted">same figure in company document {{ r.matched }}</div>{% endif %}
         {% if r.prior %}<div class="muted">prior stated: {{ r.prior }}</div>{% endif %}

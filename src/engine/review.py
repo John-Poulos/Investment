@@ -319,6 +319,23 @@ def mark_wrong(
     return warnings
 
 
+def confirm_row(
+    engine: sqlite3.Connection, guidance_id: int, note: str, by: str, now: datetime
+) -> None:
+    """'No error — keep as is': the row stays; the confirmation is a 'right' label that
+    later parser versions are checked against (a row that stops appearing is reported)."""
+    engine.execute("BEGIN")
+    try:
+        labels.label_row(engine, guidance_id, "right", None, note, "owner", by, now)
+        engine.execute("COMMIT")
+    except labels.LabelError as e:
+        engine.execute("ROLLBACK")
+        raise ReviewError(str(e)) from e
+    except Exception:
+        engine.execute("ROLLBACK")
+        raise
+
+
 def undo_label(
     engine: sqlite3.Connection,
     corpus: sqlite3.Connection,

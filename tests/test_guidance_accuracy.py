@@ -172,12 +172,12 @@ def app_client(tmp_path, clock):
 def test_ui_wrong_button_check_page_and_accuracy(app_client):
     client, data = app_client
     html = client.get("/c/XCLD?tab=guidance").text
-    assert "wrong?</a>" in html and "/calls/check?acc=AV-XCLD-2026Q4" in html
+    assert "check / wrong?</a>" in html and "/calls/check?acc=AV-XCLD-2026Q4" in html
     engine = open_db("engine", data)
     gid = engine.execute("SELECT guidance_id FROM guidance WHERE period = 'CY2026'").fetchone()[0]
     engine.close()
     form = client.get(f"/c/XCLD/guidance/{gid}/wrong").text
-    assert "Why is it wrong?" in form and "including finance leases" in form
+    assert "Your verdict" in form and "including finance leases" in form
     r = client.post(f"/c/XCLD/guidance/{gid}/wrong", data={"reason": "wrong_period"},
                     follow_redirects=False)  # fmt: skip
     assert "msg=labelled-wrong" in r.headers["location"]
@@ -257,3 +257,23 @@ def test_ui_correction_and_undo(app_client):
     )
     assert r.headers["location"].startswith("/c/XCLD?tab=guidance&msg=undone")
     assert "Your corrections and checks" not in client.get("/c/XCLD?tab=guidance").text
+
+
+def test_no_error_verdict_keeps_the_row_and_wording_is_shown(app_client):
+    client, data = app_client
+    html = client.get("/c/XCLD?tab=guidance").text
+    assert "approximately $175 billion" in html  # spoken "approximately" is shown, not dropped
+    engine = open_db("engine", data)
+    gid = engine.execute("SELECT guidance_id FROM guidance WHERE period = 'CY2026'").fetchone()[0]
+    engine.close()
+    form = client.get(f"/c/XCLD/guidance/{gid}/wrong").text
+    assert "No error — keep the row as is" in form and "Ask three questions" in form
+    r = client.post(f"/c/XCLD/guidance/{gid}/wrong", follow_redirects=False,
+                    data={"reason": "no_error", "fix_low": "999"})  # fmt: skip
+    assert r.headers["location"].endswith("msg=labelled-right")
+    engine = open_db("engine", data)
+    assert engine.execute("SELECT 1 FROM guidance WHERE guidance_id = ?", (gid,)).fetchone()
+    lb = engine.execute("SELECT verdict, correction_id FROM guidance_label").fetchone()
+    assert tuple(lb) == ("right", None)  # the correction is ignored with "No error"
+    assert not engine.execute("SELECT 1 FROM guidance WHERE source = 'owner'").fetchone()
+    engine.close()

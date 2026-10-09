@@ -417,6 +417,14 @@ def create_app(settings: UiSettings) -> FastAPI:
         note: Annotated[str, Form()] = "",
     ) -> RedirectResponse:
         ticker = ticker.upper()
+        if reason == "no_error":
+            try:
+                review.confirm_row(engine, guidance_id, note, owner.id, datetime.now(UTC))
+            except review.ReviewError as e:
+                return RedirectResponse(
+                    f"/c/{ticker}/guidance/{guidance_id}/wrong?error={quote(str(e))}", 303
+                )
+            return RedirectResponse(f"/c/{ticker}?tab=guidance&msg=labelled-right", 303)
         try:
             warnings = review.mark_wrong(engine, guidance_id, reason, note, owner.id,
                                          datetime.now(UTC), corpus=corpus,

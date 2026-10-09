@@ -48,3 +48,12 @@ def source_label(accession: str, grade: str | None = None) -> str | None:
     if origin == "ir":
         return IR_LABEL + ", grade A"
     return None
+
+
+def stated_prefix(kind: str | None, bound: str | None) -> str:
+    """How the value was stated: 'approximately ', 'more than ', 'up to ' or ''."""
+    if bound == "floor":
+        return "more than "
+    if bound == "ceiling":
+        return "up to "
+    return "approximately " if kind == "approx" else ""
