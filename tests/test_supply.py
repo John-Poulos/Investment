@@ -336,3 +336,18 @@ def test_rescan_updates_kept_passages_and_prunes_the_rest(dbs, matcher):
     assert links.prune(engine, later) == 1  # the TSMC passage was not produced again
     row = engine.execute("SELECT discovered_at, seen_at FROM supply_link").fetchone()
     assert row[0] == first and row[1].startswith("2026-10-10")
+
+
+def test_bare_name_trial_reads_customer_lists_and_marks_them(matcher):
+    nvda = next(c for c in matcher.companies if c.key == "NVDA")
+    text = ("Our customers include NVIDIA and other GPU makers.\n"
+            "We purchase GPUs from NVIDIA for our servers.\n"
+            "Our software runs on NVIDIA platforms.\n"
+            "We compete with NVIDIA.\n")  # fmt: skip
+    from engine.supply.find import find_bare
+
+    found = find_bare(text, matcher, nvda, set())
+    assert [(f.direction, f.how.startswith("(c)")) for f in found] == [
+        ("a_to_b", True),
+        ("b_to_a", True),
+    ]

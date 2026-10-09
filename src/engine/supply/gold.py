@@ -16,7 +16,7 @@ from datetime import datetime
 from engine.sec.client import iso
 
 SIZE = 30
-ORDER = ("L2", "L1", "L3")
+ORDER = ("L2", "L2c", "L1", "L3")  # L2c = option (c) trial passages (D-M02-38)
 
 
 def build(engine: sqlite3.Connection, size: int = SIZE) -> int:
@@ -24,17 +24,19 @@ def build(engine: sqlite3.Connection, size: int = SIZE) -> int:
     have = engine.execute("SELECT count(*) FROM link_gold").fetchone()[0]
     if have:
         return have
-    pools = {
-        rung: [
+
+    def pool(name: str) -> list[int]:
+        rung, trial = name[:2], name.endswith("c")
+        return [
             r[0]
             for r in engine.execute(
-                "SELECT min(link_id) FROM supply_link WHERE rung = ? GROUP BY pair_key "
-                "ORDER BY max(filed) DESC",
-                (rung,),
+                "SELECT min(link_id) FROM supply_link WHERE rung = ? AND "
+                "(how LIKE '(c)%') = ? GROUP BY pair_key ORDER BY max(filed) DESC",
+                (rung, trial),
             )
         ]
-        for rung in ORDER
-    }
+
+    pools = {name: pool(name) for name in ORDER}
     chosen: list[int] = []
     while len(chosen) < size and any(pools.values()):
         for rung in ORDER:
@@ -177,3 +179,16 @@ def accuracy(engine: sqlite3.Connection) -> Accuracy:
         direction_n=len(dirs),
         direction_right=sum(r["gold_direction"] == r["llm_direction"] for r in dirs),
     )
+
+
+def trial_line(engine: sqlite3.Connection) -> str | None:
+    """Option (c) trial (D-M02-38): how many of its passages the owner labelled supply."""
+    rows = engine.execute(
+        "SELECT g.gold_type FROM link_gold g JOIN supply_link l ON l.link_id = g.link_id "
+        "WHERE l.how LIKE '(c)%' AND g.gold_type IS NOT NULL"
+    ).fetchall()
+    if not rows:
+        return None
+    supply = sum(r[0] == "supply" for r in rows)
+    return (f"option (c) trial: {supply} of {len(rows)} labelled bare-name passages state a "
+            "supplier/customer link")  # fmt: skip

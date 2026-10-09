@@ -17,6 +17,7 @@
     <h2 id="link-precision" style="margin-top:16px">Supplier-link precision set (D-M02-9, D-M02-35)</h2>
     {% if gold_size %}
     <p>{{ gold.line() }}</p>
+    {% if gold_trial %}<p>{{ gold_trial }}</p>{% endif %}
     {% if viewer.is_owner and gold.labelled < gold_size %}<p><a class="btn" href="/m02/labels">Label passages ({{ gold_size - gold.labelled }} left)</a></p>{% endif %}
     <p class="note">Link counts feed nothing until Gemini's labels have been measured here. Precision = of the passages Gemini called supplier/customer, the share you did too; direction = where both of you said supplier/customer and you named who supplies whom.</p>
     {% else %}<p class="empty">Not built yet (<code>scripts/run_suppliers.py --label-set</code>).</p>{% endif %}

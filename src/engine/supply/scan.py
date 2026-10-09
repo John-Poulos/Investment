@@ -24,7 +24,7 @@ from engine.sec.fulltext import search, search_page
 from engine.sec.results import Failed, NotFound, Ok
 from engine.supply import links
 from engine.supply.aliases import Company, Matcher
-from engine.supply.find import find_l1, find_l2, find_l3, self_keys
+from engine.supply.find import find_bare, find_l1, find_l2, find_l3, self_keys
 
 L2_TEMPLATES = ("{a} accounted for", "sales to {a}", "revenue from {a}", "{a} represented")
 L2_FORMS = ("10-K", "10-Q", "20-F")
@@ -49,6 +49,7 @@ class ScanReport:
     l2_queued: int = 0
     l2_fetched: int = 0
     l2_new: int = 0
+    bare_queued: int = 0
     probe: list[str] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
     phrase_hits: dict[str, int] = field(default_factory=dict)
@@ -58,7 +59,8 @@ class ScanReport:
             f"L1: {self.l1_docs} own 10-K/10-Q document(s) read, {self.l1_new} new passage(s)",
             f"L3: {self.l3_filings} Item 1.01 filing(s) read, {self.l3_new} new passage(s)",
             f"L2: {self.l2_searches} search(es), {self.l2_queued} hit document(s) queued, "
-            f"{self.l2_fetched} fetched, {self.l2_new} new passage(s)",
+            f"{self.l2_fetched} fetched, {self.l2_new} new passage(s)"
+            + (f"; option (c) trial queued {self.bare_queued}" if self.bare_queued else ""),
         ]
         out += [f"  {p}: {n} hit(s)" for p, n in sorted(self.phrase_hits.items())]
         if self.probe:
@@ -336,7 +338,54 @@ def read_l2(engine, corpus, matcher, q, customer: Company | None, now, rep) -> N
         name = company.name
     mine = self_keys(matcher, q["cik"])
     found = find_l2(doc.text, matcher, customer, mine)
+    if customer.bare:  # option (c) trial: wider sentences, marked "(c)"; L2 wins a sentence
+        taken = {f.start for f in found}
+        found += [f for f in find_bare(doc.text, matcher, customer, mine) if f.start not in taken]
     rep.l2_new += links.store(engine, q["cik"], name, company, doc, found, now)
+
+
+def search_bare(
+    client: SecClient, engine: sqlite3.Connection, c: Company, now: datetime, rep: ScanReport,
+    *, force: bool = False,
+) -> None:  # fmt: skip
+    """Option (c) trial (D-M02-38): the shortest name, ≤ 10 pages, hits from hardware/
+    semiconductor SIC filers queued for fetching; repeated after 30 days."""
+    state = f"supply_l2c:{c.key}"
+    row = engine.execute("SELECT fetched_at FROM refresh_state WHERE name = ?", (state,)).fetchone()
+    if row and not force and now - datetime.fromisoformat(row[0]) < L2_REPEAT:
+        return
+    name = min((n for n in c.names if len(n) >= 3), key=len)
+    start = (now - timedelta(days=30 * L2_MONTHS)).date().isoformat()
+    end = now.date().isoformat()
+    offset = 0
+    while offset < 1000:
+        res = search_page(client, name, forms=L2_FORMS, start=start, end=end, offset=offset,
+                          allow_fallback=False)  # fmt: skip
+        rep.l2_searches += 1
+        if not isinstance(res, Ok):
+            rep.problems.append(f"bare {name}: {getattr(res, 'reason', res)}")
+            return
+        for h in res.data.hits:
+            if h.url is None or (c.cik and h.cik == c.cik):
+                continue
+            if not set(h.sics) & set(HARDWARE_SICS):
+                continue
+            cur = engine.execute(
+                "INSERT OR IGNORE INTO supply_fetch (url, cik, entity_name, accession, filename, "
+                "form, file_date, customer_key, phrase, status, queued_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)",
+                (h.url, h.cik, h.entity_name, h.accession, h.filename, h.form, h.file_date,
+                 c.key, f"bare:{name}", iso(now)),
+            )  # fmt: skip
+            rep.bare_queued += cur.rowcount
+        offset += len(res.data.hits)
+        if not res.data.hits or offset >= res.data.total:
+            break
+    engine.execute(
+        "INSERT INTO refresh_state (name, source_ref, fetched_at, detail) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT (name) DO UPDATE SET fetched_at = excluded.fetched_at",
+        (state, c.key, iso(now), "{}"),
+    )
 
 
 def probe_c(client: SecClient, engine: sqlite3.Connection, c: Company, now: datetime) -> list[str]:

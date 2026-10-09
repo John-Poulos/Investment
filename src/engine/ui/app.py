@@ -400,7 +400,8 @@ def create_app(settings: UiSettings) -> FastAPI:
                                "accuracy": labels.accuracy(engine),
                                "tag_maps": mf_allocation.mapping_list(engine),
                                "gold": supply_gold.accuracy(engine),
-                               "gold_size": supply_gold.size(engine)}  # fmt: skip
+                               "gold_size": supply_gold.size(engine),
+                               "gold_trial": supply_gold.trial_line(engine)}  # fmt: skip
         return templates.TemplateResponse(request, "runs.html", ctx)
 
     @app.get("/m02/labels", response_class=HTMLResponse)

@@ -11,6 +11,8 @@
 # names = ["NVIDIA Corporation", "NVIDIA"]   # longest first; matched case-sensitively in
 #                                            # text, case-insensitively by full-text search
 # customer = true           # search suppliers' filings for this name (L2)
+# bare = true               # also search the bare name in hardware/semiconductor filers
+#                           # (option (c), trial for NVIDIA, D-M02-38)
 #
 # Avoid names that are common words or parts of other names ("Meta" in "metadata",
 # "Apple" alone is fine with word boundaries but "Oracle" also names a database).
@@ -20,6 +22,7 @@
 ticker = "NVDA"
 names = ["NVIDIA Corporation", "NVIDIA Corp", "NVIDIA"]
 customer = true
+bare = true
 
 [META]
 ticker = "META"

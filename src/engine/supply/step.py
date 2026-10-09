@@ -56,6 +56,8 @@ def run_supply_step(
         if client is not None:
             for c in wanted:
                 scan.search_l2(client, engine, c, now, rep, force=force_search)
+                if c.bare:
+                    scan.search_bare(client, engine, c, now, rep, force=force_search)
         scan.fetch_l2(client, engine, corpus, matcher, now, rep, l2_cap)
         if rescan:  # re-read every stored L2 document with the current rules, then prune
             by_key = {c.key: c for c in matcher.companies}

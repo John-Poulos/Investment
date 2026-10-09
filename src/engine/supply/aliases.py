@@ -23,6 +23,7 @@ class Company:
     names: tuple[str, ...]
     customer: bool
     cik: str | None = None
+    bare: bool = False  # option (c) trial: bare-name search in hardware/semiconductor filers
 
     @property
     def name(self) -> str:
@@ -54,7 +55,11 @@ def load(engine: sqlite3.Connection | None = None, path: Path = ALIASES) -> list
             ).fetchone()
             cik = row[0] if row else None
         names = tuple(sorted(v["names"], key=len, reverse=True))
-        out.append(Company(key, ticker, names, bool(v.get("customer", False)), cik))
+        out.append(
+            Company(
+                key, ticker, names, bool(v.get("customer", False)), cik, bool(v.get("bare", False))
+            )
+        )
     return out
 
 

@@ -142,6 +142,43 @@ def find_l2(text: str, matcher: Matcher, customer: Company, self_keys: set[str])
     return out
 
 
+_CUSTOMER_LIST = re.compile(
+    r"\b(?:customers?|end customers?|clients?|OEMs?)\b[^.;]{0,40}?"
+    r"\b(?:include|including|such as|like)\b"
+    r"|\b(?:sell|sells|sold|ship|ships|shipped|deliver\w*) (?:\w+ ){0,4}?to\b",
+    re.IGNORECASE,
+)
+
+
+def find_bare(text: str, matcher: Matcher, customer: Company, self_keys: set[str]) -> list[Found]:
+    """Option (c) trial (D-M02-38): any sentence naming `customer` with revenue, customer-list,
+    selling or buying wording. Wider than L2's phrases, so its passages are marked "(c)"
+    and measured in the precision set before the trial is extended."""
+    out = []
+    for s, e in _sentences_in(text):
+        sent = text[s:e]
+        if _COMPETE.search(sent):
+            continue
+        sells = _REVENUE.search(sent) or _CUSTOMER_LIST.search(sent)
+        buys = _BUYS.search(sent) or next(
+            (x for x in _SUPPLIER.finditer(sent) if not _GENERIC.match(sent, x.start())), None
+        )
+        if not (sells or buys):
+            continue
+        for m in _others(matcher, text, s, e, self_keys):
+            if m.company.key != customer.key:
+                continue
+            pct = _PCT.search(text, m.end, e) if sells else None
+            direction = "a_to_b" if sells and not buys else "b_to_a" if buys and not sells else None
+            w = (sells or buys).group(0).lower()
+            share = Decimal(pct.group(1)) if pct else None
+            out.append(
+                Found("L2", m.company, m.name, direction, share, s, e, f"(c) bare name: {w}")
+            )
+            break
+    return out
+
+
 def find_l3(text: str, matcher: Matcher, self_keys: set[str]) -> list[Found]:
     out, seen = [], set()
     for s, e in _sentences_in(text, 0, min(len(text), L3_HEAD)):

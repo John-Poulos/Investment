@@ -121,6 +121,8 @@ def gemini_labels(engine, now, use_gold: bool, yes: bool) -> list[str]:
         )
     if use_gold:
         out.append("  " + gold.accuracy(engine).line())
+        if trial := gold.trial_line(engine):
+            out.append("  " + trial)
     return out
 
 
