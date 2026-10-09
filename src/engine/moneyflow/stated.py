@@ -53,6 +53,10 @@ _PARTIAL = re.compile(
     r"(?:six|nine|twelve) months|trailing|cumulative|since)\b",
     re.IGNORECASE,
 )
+# two figures joined by "and"/"," are two periods (live check: Meta's Q4 release gave its
+# quarter figure to the full year)
+_PAIRED = re.compile(r"^\s*(?:,\s*)?(?:and|&)?\s*\$?$", re.IGNORECASE)
+_RESPECTIVELY = re.compile(r"\brespectively\b", re.IGNORECASE)
 _ORD = {"first": 1, "second": 2, "third": 3, "fourth": 4}
 _PAST_Q = re.compile(
     r"\b(?:(?:the|this)\s+(?P<this>quarter)\b|(?:the\s+)?(?P<q>first|second|third|fourth)"
@@ -133,6 +137,10 @@ def parse_stated(
                     continue
                 v = values[0]
                 if v.kind not in ("point", "approx") or v.bound or not v.scaled or v.low <= 0:
+                    continue
+                if len(values) > 1 and _PAIRED.search(sent[v.end : values[1].start + 1]):
+                    continue  # "$22.14B and $72.22B for the quarter and full year": two periods
+                if _RESPECTIVELY.search(sent):
                     continue
                 period = _past_period(sent, anchor)
                 how = "stated"

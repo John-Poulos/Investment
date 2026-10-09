@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 
 from engine.moneyflow.actuals import LEASE_PRINCIPAL, Book, compute, recipe_for
-from engine.moneyflow.periods import Span, point_at
+from engine.moneyflow.periods import Span, point_at, span_of
 from engine.sec.client import iso
 
 COVERAGE_MIN = 0.80
@@ -164,6 +164,14 @@ class Window:
         return self.ocf / self.capex
 
     @property
+    def ocf_cover_text(self) -> str:
+        if self.ocf_cover is None:
+            return "—"
+        if self.ocf is not None and self.ocf < 0:
+            return "n/m (negative OCF)"  # a negative ratio reads as nonsense, not as coverage
+        return f"{self.ocf_cover:.1f}×"
+
+    @property
     def net_debt(self) -> float | None:
         parts = [self.lines[r].value for r in ("debt_raised", "debt_net") if r in self.lines]
         rep = self.lines.get("debt_repaid")
@@ -293,6 +301,12 @@ def window(
     )
 
 
+def _fiscal_year_end(fye: str | None, end: str) -> bool:
+    d = date.fromisoformat(end)
+    span = span_of(f"FY{d.year}", fye)
+    return span is None or abs((span.end - d).days) <= 10  # unknown year end: keep
+
+
 def allocation(
     engine: sqlite3.Connection, cik: str, clause: str | None, override: dict | None = None
 ) -> list[Window]:
@@ -302,6 +316,8 @@ def allocation(
     out = []
     for ptype in ("TTM", "FY"):
         pts = [p for p in ocf if p.ptype == ptype]
+        if ptype == "FY":  # a 12-month 10-Q figure (Amazon's trailing cash flows) is not a year
+            pts = [p for p in pts if _fiscal_year_end(book.fye, p.end)]
         if pts:
             out.append(
                 window(engine, book, ptype, date.fromisoformat(pts[-1].end), clause, override)
@@ -328,7 +344,7 @@ def raise_tag_items(
                 "window": w.label,
                 "coverage": w.coverage,
                 "scope": scope,
-                "why": f"{w.coverage_text}; {tag} = {v / 1e6:,.0f}M in {w.label}",
+                "why": f"{w.coverage_text}; {tag} = ${v:,.0f} in {w.label}",
             }
             res = propose(
                 engine,

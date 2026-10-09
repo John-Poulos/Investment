@@ -49,7 +49,7 @@
   <tr><th></th>{% for w in m.windows %}<th class="num">{{ w.label }}</th>{% endfor %}</tr>
   <tr><td>Operating cash flow</td>{% for w in m.windows %}<td class="num">{{ w.ocf | money }}</td>{% endfor %}</tr>
   <tr><td>Capex (own definition)</td>{% for w in m.windows %}<td class="num" title="{{ w.capex_note }}">{{ w.capex | money }}</td>{% endfor %}</tr>
-  <tr><td>OCF ÷ capex</td>{% for w in m.windows %}<td class="num">{% if w.ocf_cover is not none %}{{ '%.1f' | format(w.ocf_cover) }}×{% else %}—{% endif %}</td>{% endfor %}</tr>
+  <tr><td>OCF ÷ capex</td>{% for w in m.windows %}<td class="num">{{ w.ocf_cover_text }}</td>{% endfor %}</tr>
   <tr><td>Net debt (raised − repaid)</td>{% for w in m.windows %}<td class="num">{{ w.net_debt | money }}</td>{% endfor %}</tr>
   <tr><td>Net equity (issued − buybacks − withholding)</td>{% for w in m.windows %}<td class="num">{{ w.net_equity | money }}</td>{% endfor %}</tr>
   {% for role, name in [('debt_raised', 'debt raised'), ('debt_repaid', 'debt repaid'), ('debt_net', 'short-term debt, net'), ('equity_issued', 'equity issued'), ('buybacks', 'buybacks'), ('withholding', 'shares withheld for taxes'), ('dividends', 'dividends'), ('lease_principal', 'finance-lease principal'), ('other', 'other financing (mapped)')] %}

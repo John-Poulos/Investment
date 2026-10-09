@@ -33,8 +33,14 @@ def _gap_items(
     out = []
     for label in _quarter_labels(book) + sorted({p.split()[0] for p in st}):
         a = actual_for(book, label, clause, override, st)
-        if a.status != "gap" or a.gap is None or a.stated is None:
+        if a.status not in ("gap", "doubtful statement") or a.gap is None or a.stated is None:
             continue
+        shown = (
+            "the recipe is shown: a gap this large usually means the sentence was misread "
+            "(a year or year-to-date figure, another item)"
+            if a.status == "doubtful statement"
+            else "the stated figure is shown (D-M02-32)"
+        )
         payload = {
             "ticker": ticker,
             "period": label,
@@ -45,7 +51,7 @@ def _gap_items(
             "quote": a.stated.quote,
             "gap": a.gap,
             "why": f"recipe {money(a.recipe.value)} vs stated {money(a.stated.value)} "
-            f"({a.gap:+.1%}); the stated figure is shown (D-M02-32). If the "
+            f"({a.gap:+.1%}); {shown}. If the "
             "company's definition differs, add a section to "
             "config/capex_definitions.toml.",
         }
@@ -90,7 +96,7 @@ def company_lines(
             f"    actual {label}: recipe {rec}, stated {sv}, shown {money(a.shown)} ({a.label})"
         )
     for w in allocation(engine, cik, clause, override):
-        cover = f"{w.ocf_cover:.1f}×" if w.ocf_cover is not None else "—"
+        cover = w.ocf_cover_text
         out.append(
             f"    allocation {w.label}: OCF {money(w.ocf)}, capex {money(w.capex)}, "
             f"OCF÷capex {cover}, net debt {money(w.net_debt)}, net equity "

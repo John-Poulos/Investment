@@ -219,3 +219,28 @@ def money(x: float | None) -> str:
     if x >= 1e9:
         return f"{sign}${x / 1e9:,.2f}B"
     return f"{sign}${x / 1e6:,.0f}M"
+
+
+def dollars(x: float | int) -> str:
+    """Full dollars with commas: 13000000000.0 → $13,000,000,000 (review payloads)."""
+    sign = "−" if x < 0 else ""
+    return f"{sign}${abs(x):,.0f}"
+
+
+# Payload keys shown as dollars or as percentages on review items (M02 proposals).
+DOLLAR_KEYS = frozenset({"value", "capex", "recipe", "stated", "prior", "base", "contribution"})
+RATIO_KEYS = frozenset({"coverage", "share"})
+SIGNED_RATIO_KEYS = frozenset({"growth", "gap"})
+
+
+def payload_value(key: str, v: object) -> object:
+    """Display form of one review-payload value; anything else is returned unchanged."""
+    if isinstance(v, bool) or not isinstance(v, int | float):
+        return v
+    if key in DOLLAR_KEYS:
+        return dollars(v)
+    if key in RATIO_KEYS:
+        return f"{v:.1%}"
+    if key in SIGNED_RATIO_KEYS:
+        return f"{v:+.1%}"
+    return f"{v:,}" if isinstance(v, int) and abs(v) >= 10_000 else v

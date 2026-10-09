@@ -40,6 +40,9 @@ from engine.sec.xbrl_facts import Point
 
 DEFINITIONS = Path("config/capex_definitions.toml")
 TOLERANCE = 0.01  # reconciled within 1%
+# An exact recipe this far from a stated figure means the sentence was misread (live check:
+# a fiscal-year figure taken as a quarter), not that the recipe is wrong: the recipe stays.
+MISREAD = 0.25
 PPE = "us-gaap:PaymentsToAcquirePropertyPlantAndEquipment"
 PRODUCTIVE = "us-gaap:PaymentsToAcquireProductiveAssets"
 LEASE_PRINCIPAL = "us-gaap:FinanceLeasePrincipalPayments"
@@ -181,8 +184,14 @@ class Actual:
     def label(self) -> str:
         if self.status == "reconciled":
             return f"reconciled ({abs(self.gap or 0):.1%})"
-        if self.status in ("gap", "approximate") and self.gap is not None:
+        if self.status == "approximate" and self.gap is not None:
             return f"stated shown; recipe ≈, gap {self.gap:+.1%}"
+        if self.status == "gap" and self.gap is not None:
+            return f"stated shown; recipe off by {self.gap:+.1%}"
+        if self.status == "doubtful statement" and self.gap is not None:
+            return (
+                f"recipe shown; stated figure {-self.gap / (1 + self.gap):+.0%} off, likely misread"
+            )
         return self.status
 
 
@@ -214,6 +223,8 @@ def actual_for(
     gap = (rv.value - st.value) / st.value
     if abs(gap) <= TOLERANCE and not rv.approximate:
         return Actual(label, rv.value, "recipe", "reconciled", rv, st, gap)
+    if not rv.approximate and abs(gap) > MISREAD:
+        return Actual(label, rv.value, "recipe", "doubtful statement", rv, st, gap)
     status = "approximate" if rv.approximate else "gap"
     return Actual(label, st.value, "stated", status, rv, st, gap)
 

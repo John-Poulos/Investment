@@ -143,6 +143,7 @@ def create_app(settings: UiSettings) -> FastAPI:
     templates.env.globals["is_sec"] = is_sec
     templates.env.globals["FORECAST_NOTE"] = FORECAST_NOTE
     templates.env.filters["money"] = mf_views.money  # M02 part 3
+    templates.env.globals["payload_value"] = mf_views.payload_value
 
     for db in ("engine", "corpus"):  # bring schemas up to date once, at start
         conn = connect(settings.data_dir / f"{db}.db")

@@ -143,14 +143,28 @@ def latest_rows(engine: sqlite3.Connection, cik: str) -> list[sqlite3.Row]:
 # --- Freshness ---------------------------------------------------------------------
 
 
+RESULTS_MIN_DAYS = 10  # results never come this soon after quarter end (D-M02-23)
+
+
 def _latest_event(engine: sqlite3.Connection, cik: str) -> sqlite3.Row | None:
+    """The latest earnings results 8-K (Item 2.02). One filed within 10 days of a quarter
+    end is an operating update, not results (Tesla files deliveries under Item 2.02)."""
+    from engine.calls.transcripts import last_quarter
+    from engine.moneyflow.periods import fiscal_year_end
+
+    fye = fiscal_year_end(engine, cik)
     for r in engine.execute(
         "SELECT accession, filed, items FROM filing WHERE cik = ? AND form = '8-K' "
         "ORDER BY filed DESC LIMIT 20",
         (cik,),
     ):
-        if r["items"] and "2.02" in r["items"].split(","):
-            return r
+        if not (r["items"] and "2.02" in r["items"].split(",")):
+            continue
+        filed = date.fromisoformat(r["filed"][:10])
+        last = last_quarter(filed, fye)
+        if last is not None and (filed - last[2]).days < RESULTS_MIN_DAYS:
+            continue
+        return r
     return None
 
 

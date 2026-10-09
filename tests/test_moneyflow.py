@@ -318,20 +318,20 @@ def test_freshness_states(dbs):
     engine, corpus = dbs
     _entity(engine)
     assert freshness(engine, CIK, "CY2026", TODAY).state == "no earnings release on file"
-    _release(engine, corpus, "r1", "2026-10-01", "x", scanned=False)
+    _release(engine, corpus, "r1", "2026-07-29", "x", scanned=False)
     assert freshness(engine, CIK, "CY2026", TODAY).state == "latest results not read yet"
     engine.execute("INSERT INTO guidance_scan (accession, filename, cik, filed, outcome, "
                    "candidates, items, unparsed, conflicts, parser_version, at) VALUES "
-                   "('r1', 'ex991.htm', ?, '2026-10-01', 'none', 0, 0, 0, 0, 't', 'n')", (CIK,))  # fmt: skip
-    assert freshness(engine, CIK, "CY2026", TODAY).state == "call not stored yet"
-    assert freshness(engine, CIK, "CY2026", date(2026, 11, 15)).state == (
+                   "('r1', 'ex991.htm', ?, '2026-07-29', 'none', 0, 0, 0, 0, 't', 'n')", (CIK,))  # fmt: skip
+    assert freshness(engine, CIK, "CY2026", date(2026, 8, 10)).state == "call not stored yet"
+    assert freshness(engine, CIK, "CY2026", date(2026, 9, 15)).state == (
         "call unavailable — not checked")  # fmt: skip
     engine.execute("INSERT INTO call_document (accession, filename, cik, symbol, quarter, source, "
-                   "doc_kind, release_accession, stated_on, added_at) VALUES ('AV-META-2026Q3', "
-                   "'t.txt', ?, 'META', 'FY2026 Q3', 'alpha_vantage', 'transcript', 'r1', "
-                   "'2026-10-01', 'n')", (CIK,))  # fmt: skip
+                   "doc_kind, release_accession, stated_on, added_at) VALUES ('AV-META-2026Q2', "
+                   "'t.txt', ?, 'META', 'FY2026 Q2', 'alpha_vantage', 'transcript', 'r1', "
+                   "'2026-07-29', 'n')", (CIK,))  # fmt: skip
     assert freshness(engine, CIK, "CY2026", TODAY).state == "not restated"
-    _guid(engine, "AV-META-2026Q3", "CY2026", 1e9, 2e9, origin="call", grade="B")
+    _guid(engine, "AV-META-2026Q2", "CY2026", 1e9, 2e9, origin="call", grade="B")
     f = freshness(engine, CIK, "CY2026", TODAY, change="raised")
     assert f.state == "restated" and "raised in the call" in f.why
 
@@ -340,7 +340,7 @@ def test_explicit_refusal_reads_no_outlook(dbs):
     engine, corpus = dbs
     _entity(engine)
     text = "We are not providing a 2027 capex outlook at this time.\n"
-    _release(engine, corpus, "r1", "2026-10-01", text)
+    _release(engine, corpus, "r1", "2026-07-29", text)
     engine.execute("INSERT INTO guidance_skip VALUES ('r1', 'ex991.htm', ?, 0, ?, "
                    "'says no guidance is given', 't')", (CIK, len(text) - 1))  # fmt: skip
     assert freshness(engine, CIK, "CY2027", TODAY, corpus).state == "company gives no outlook yet"
@@ -476,3 +476,63 @@ def test_company_view_and_money_tab_render(client):  # noqa: F811
     assert "Capex guidance" in html and "$130.0B–$145.0B" in html
     assert "Capital allocation" in html and "not reported" in html
     assert "RPO not reported" in html and "object at 0x" not in html
+
+
+# --- live check 1 fixes (2026-10-09) ------------------------------------------------------
+
+
+def test_payload_values_show_dollars_and_percentages():
+    from engine.moneyflow.views import payload_value
+
+    assert payload_value("value", 13000000000.0) == "$13,000,000,000"
+    assert payload_value("capex", -2_500_000) == "−$2,500,000"
+    assert payload_value("coverage", 0.6176470588235294) == "61.8%"
+    assert payload_value("growth", 0.8) == "+80.0%"
+    assert payload_value("money_flow", True) is True and payload_value("ticker", "AMZN") == "AMZN"
+    assert payload_value("sentences", 3) == 3
+
+
+def test_two_figures_for_two_periods_are_not_read_as_one():
+    text = ("Capital expenditures were $22.1 billion and $72.2 billion for the fourth quarter "
+            "and full year 2025.\n"
+            "Capital expenditures were $44.9 billion, up from $22.4 billion a year ago.\n")  # fmt: skip
+    found = stated.parse_stated(text, [(0, len(text))], (2025, 4), release=True)
+    assert [(f.period, float(f.value)) for f in found] == [("FY2025 Q4", 44.9e9)]
+
+
+def test_stated_far_from_exact_recipe_is_doubtful_and_recipe_stays(meta):
+    engine, corpus = meta
+    engine.execute(
+        "INSERT INTO capex_stated (cik, accession, filename, origin, grade, period, period_how, "
+        "kind, value, stated_on, quote, quote_start, quote_end, parser_version) VALUES "
+        "(?, 'a-rel', 'ex991.htm', 'release', 'A', 'FY2026 Q1', 'stated', 'point', 45e9, "
+        "'2026-04-29', 'q', 0, 1, 't')",
+        (CIK,),
+    )
+    a = actual_for(Book(engine, CIK), "FY2026 Q1", PRINCIPAL)
+    assert a.status == "doubtful statement" and a.shown == pytest.approx(13.69e9)
+    assert "likely misread" in a.label
+
+
+def test_fiscal_year_window_ignores_twelve_month_10q_figures(dbs):
+    engine, _ = dbs
+    _entity(engine)
+    _fy(engine, "NetCashProvidedByUsedInOperatingActivities", 100e9)
+    _fact(engine, "NetCashProvidedByUsedInOperatingActivities", "2025-07-01", "2026-06-30", 120e9)
+    _fact(engine, "NetCashProvidedByUsedInOperatingActivities", "2025-07-01", "2025-09-30", -5e9)
+    windows = {w.ptype: w for w in allocation.allocation(engine, CIK, None)}
+    assert windows["FY"].end == "2025-12-31" and windows["FY"].ocf == 100e9
+    engine.execute("UPDATE fact SET value = -1e9 WHERE period_end = '2025-12-31'")
+    _fy(engine, "PaymentsToAcquirePropertyPlantAndEquipment", 2e9)
+    w = {w.ptype: w for w in allocation.allocation(engine, CIK, None)}["FY"]
+    assert w.ocf_cover_text == "n/m (negative OCF)"
+
+
+def test_freshness_skips_an_operating_update_filed_days_after_quarter_end(dbs):
+    engine, corpus = dbs
+    _entity(engine)
+    _release(engine, corpus, "results", "2026-07-22", "x")
+    engine.execute("INSERT INTO filing (accession, cik, form, filed, items, ingested_at) "
+                   "VALUES ('deliveries', ?, '8-K', '2026-10-02', '2.02,9.01', 'n')", (CIK,))  # fmt: skip
+    f = freshness(engine, CIK, "CY2026", TODAY)
+    assert f.state == "call unavailable — not checked" and "2026-07-22" in f.why
