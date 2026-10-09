@@ -21,7 +21,7 @@ One section per proposed amendment, discussed with the owner in order. Outcome l
 | 7 | Search inputs | modified: 5/s pace; form.idx denominator; 10-page cap with lower bound; section + quantified rule; queued drill-down | D-M02-14 |
 | 8 | Failure modes | approved: 12 rows + capex-funding row added; ★ guards are build requirements | D-M02-15 |
 
-## Build parts (owner approved order 2026-10-09; one conversation each, Medium effort)
+## Build parts (owner approved order 2026-10-09, revised: part 4 before part 3, D-M02-19; one conversation each, Medium effort)
 | Part | Covers | Decisions | Depends on | Live checks (owner runs) | Status |
 |---|---|---|---|---|---|
 | 1 Theme core | `config/themes.toml` seeds + DB themes/phrases with `discovered_at`; EFTS breadth with `form.idx` denominator, 10-page cap, lower bound; Themes tab v1 (share of filers, same window YoY) | D-M02-1, -14, -16, -17 | M00 | done: probe + first run 2026-10-09 | built (branch `m02-theme-core`) |
@@ -55,6 +55,11 @@ Effort: High only if a part raises a new design question; otherwise Medium. Each
 - For generators (parts 3–7): call `proposals.propose(engine, kind, key, reason, payload, now, cik=…)`. Put `companies` (int) and `money_flow` (bool) in the payload so material-change re-raising works; `samples` (list of quotes) and `why` render on the item page; `phrase_id`/`theme_id` let accept/reject set status. Keys must be stable across runs (e.g. `theme:phrase`, `cik`, `accession`).
 - Tracked names are synced on first sight; their prices start in the rotation on the next run.
 - Not built: reopen for M02 items (would need undoing tier/status changes); evidence rules for promotion (parts 3/5/6).
+
+### Part 3 pre-check (2026-10-09, D-M02-19) — read before building part 3
+- Order: build part 4 first. Part 3 then adds: derived spenders from frames (capex tags `PaymentsToAcquirePropertyPlantAndEquipment`, fallback `PaymentsToAcquireProductiveAssets`; ~30 frame requests for 2019→now; `sec/frames.py` exists), candidate proposals for top spenders/growers via `proposals.propose(..., "m02_candidate", cik, ...)`, spender→theme quote link (new review kind needed, e.g. `m02_spender`; the customer–supplier `m02_link` does not fit), Capital allocation block, supplier RPO view, per-spender contributions (D-M02-15).
+- New concepts for `sec/xbrl_facts.py` concept map: finance_lease_principal, debt_issued, debt_repaid, equity_issued, buybacks, tax_withholding, dividends (check tag names against real company facts in the live check; facts parser version bump → re-sync).
+- Funding coverage = OCF ÷ capex (own definition), trailing four quarters; net debt/equity = issued − repaid, same window; labelled association, not cause.
 
 ### Money flow — capex guidance (D-M02-5)
 - Reuse: `guidance/ledger.py` (metric `capex`), `guidance/changes.py` (raised/lowered…), `sec/xbrl_facts.py` concepts `capex` (`PaymentsToAcquirePropertyPlantAndEquipment`, fallback `PaymentsToAcquireProductiveAssets` — the fallback tag must be shown, M00_SEC_DATA open item) and `rpo`.
@@ -120,7 +125,9 @@ Effort: High only if a part raises a new design question; otherwise Medium. Each
 - L2 alias table per customer (legal name, short name, ticker-free aliases) + nearby customer/revenue wording.
 - News dedupe key (normalized URL; else title + date + company).
 
-### Call guidance from IR documents (D-M02-6, DS1)
+### Call guidance from IR documents (D-M02-6, DS1) — next part (built before part 3, D-M02-19)
+- Also owns (moved from part 3): the capex "including/excluding …" clause tag on ledger rows and the "definition changed" label in `guidance/changes.py`.
+- Open question to settle first: directional call guidance ("FY27 capex to grow") — direction-only row vs review queue.
 - Main spenders first: Alphabet, Amazon, Microsoft, Oracle (Meta's capex is in its release).
 - Step 1: owner runs `uv run python scripts/probe_alpha_vantage.py` (7 requests; summary in logs/probe_av_*.txt, raw JSON in data/probe/alpha_vantage/). Answers: free-key access, coverage (AMZN, MSFT, ORCL, AAPL, TSLA), calendar vs fiscal `quarter`, capex wording present.
 - **Result (logs/probe_av_20261009-000758.txt):** 7/7 HTTP 200, no premium/limit messages. Response `{symbol, quarter, transcript: [{speaker, title, content, sentiment}]}`; 24–61 turns, 35–57k characters per call. `quarter` = company fiscal label: MSFT 2026Q2 → FY26 Q2 call ("Capital expenditures were $37.5 billion in this quarter…"), MSFT 2026Q4 → July 2026 call ($41 billion), ORCL 2026Q3 → March 2026 call (analyst asks about FY2027 capex). ORCL 2027Q1 (Sept 2026 call) → `transcript: []` (empty = not available yet; missing, never "no guidance"). AAPL 2026Q3: no capex wording (Apple gives none). Raw JSON in data/probe/alpha_vantage/ (owner's machine only).
