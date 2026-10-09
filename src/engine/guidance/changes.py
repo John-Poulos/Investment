@@ -11,6 +11,13 @@ Kinds, on (low, high):
 - raised low end / lowered low end / raised high end / lowered high end: one end moved,
   the other held (e.g. $125-145B → $130-145B, which companies often call "narrowed")
 - narrowed / widened: low up and high down / low down and high up
+- definition changed: capex rows whose stated "including/excluding ..." clauses differ
+  (Microsoft's finance → operating lease change looked like a cut, D-M02-5); the values
+  are shown, the direction is not claimed
+
+Call rows (M02 part 4): a call row stated the same day as a release row with the same
+key repeats it (the release wins, D-M02-20) and is skipped; otherwise calls count as
+statements like releases. Direction-only rows have no values and are skipped.
 """
 
 from __future__ import annotations
@@ -35,9 +42,11 @@ class Change:
     new_high: Decimal
     guidance_id: int  # the newer row
     prev_guidance_id: int | None  # None when the prior was stated in the same sentence
-    accession: str  # release announcing the newer value
+    accession: str  # release (or call document) announcing the newer value
     filename: str
     stated_on: str
+    origin: str = "release"  # of the newer row: release | call | ir
+    prev_origin: str | None = None
 
 
 def classify(prev: tuple[Decimal, Decimal], new: tuple[Decimal, Decimal]) -> str:
@@ -64,10 +73,22 @@ def _d(x: object) -> Decimal:
 def changes_for(engine: sqlite3.Connection, cik: str) -> list[Change]:
     rows = engine.execute(
         "SELECT guidance_id, metric, basis, period, unit, low, high, prior_low, prior_high, "
-        "accession, filename, stated_on FROM guidance "
-        "WHERE cik = ? AND flag IS NULL ORDER BY metric, basis, period, stated_on, guidance_id",
+        "accession, filename, stated_on, origin, clause FROM guidance "
+        "WHERE cik = ? AND flag IS NULL AND kind != 'direction' "
+        "ORDER BY metric, basis, period, stated_on, origin = 'call', guidance_id",
         (cik,),
     ).fetchall()
+    released = {
+        (r["metric"], r["basis"], r["period"], r["stated_on"])
+        for r in rows
+        if r["origin"] == "release"
+    }
+    rows = [
+        r
+        for r in rows
+        if r["origin"] == "release"
+        or (r["metric"], r["basis"], r["period"], r["stated_on"]) not in released
+    ]
     out: list[Change] = []
     prev = None
     for r in rows:
@@ -85,17 +106,25 @@ def changes_for(engine: sqlite3.Connection, cik: str) -> list[Change]:
             accession=r["accession"],
             filename=r["filename"],
             stated_on=r["stated_on"],
+            origin=r["origin"],
         )
         if prev is not None and prev[0] == key and prev[1]["accession"] != r["accession"]:
             p = prev[1]
             old = (_d(p["low"]), _d(p["high"]))
+            redefined = (
+                r["metric"] == "capex"
+                and p["clause"] is not None
+                and r["clause"] is not None
+                and p["clause"].lower() != r["clause"].lower()
+            )
             out.append(
                 Change(
-                    kind=classify(old, new),
+                    kind="definition changed" if redefined else classify(old, new),
                     source="releases",
                     prev_low=old[0],
                     prev_high=old[1],
                     prev_guidance_id=p["guidance_id"],
+                    prev_origin=p["origin"],
                     **common,
                 )
             )

@@ -61,6 +61,32 @@ def prices_step(engine, report) -> str:
     return "\n".join(lines) + "\n"
 
 
+def companies_of(report) -> dict[str, str]:
+    """symbol → cik for core, promoted and tracked names in this run."""
+    out: dict[str, str] = {}
+    for ticker, label in report.watchlist.items():
+        cik = label.rsplit("(", 1)[-1].rstrip(")") if label.endswith(")") else None
+        if cik and len(cik) == 10:
+            out[ticker] = cik
+    return out | {t: c for t, c in report.tracked.items() if t not in out}
+
+
+def calls_step(engine, corpus, report) -> str:
+    """Releases and calls into the guidance ledger; transcripts within 20 Alpha Vantage
+    requests a day (D-M02-20). Never fails the run."""
+    from engine.calls.alpha_vantage import AlphaVantageClient, MissingKey, key_from_env
+    from engine.calls.step import run_calls_step
+
+    client, reason = None, ""
+    try:
+        client = AlphaVantageClient(key_from_env(), engine)
+    except MissingKey as e:
+        reason = str(e)
+    lines = run_calls_step(engine, corpus, client, companies_of(report), datetime.now(UTC),
+                           no_client_reason=reason)  # fmt: skip
+    return "\n" + "\n".join(lines) + "\n"
+
+
 def last_scheduled_slot(now_local: datetime) -> datetime:
     slot = now_local.replace(hour=SCHEDULED_AT.hour, minute=SCHEDULED_AT.minute, second=0,
                              microsecond=0)  # fmt: skip
@@ -192,9 +218,10 @@ def main() -> int:
             "scheduled" if args.scheduled else "manual")  # fmt: skip
         report = run_refresh(client, engine, corpus, load_config(Path(args.config)),
                              datetime.now(UTC), trigger=trigger)  # fmt: skip
+        calls = calls_step(engine, corpus, report)
         skipped = "\nPrices (Tiingo): skipped (--skip-prices)\n"
         prices = skipped if args.skip_prices else prices_step(engine, report)
-        text = format_report(report) + prices
+        text = format_report(report) + calls + prices
         logs = ROOT / "logs"
         logs.mkdir(exist_ok=True)
         out = logs / f"refresh_{datetime.now():%Y%m%d-%H%M%S}.txt"

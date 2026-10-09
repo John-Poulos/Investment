@@ -1,0 +1,12 @@
+{# Optional corrected value (fields fix_*), sent with "wrong" or "missed" (D-M02-24). #}
+<fieldset class="entry" style="margin-top:8px">
+  <legend class="muted">Optional: the right value from this sentence (leave Low empty to skip)</legend>
+  <label>Metric <select name="fix_metric">{% for m in metrics %}<option value="{{ m }}"{% if m == (fix_default.metric if fix_default else '') %} selected{% endif %}>{{ m | replace('_', ' ') }}</option>{% endfor %}</select></label>
+  <label>Basis <select name="fix_basis"><option>unspecified</option><option>GAAP</option><option>non-GAAP</option></select></label>
+  <label>Period <input name="fix_period" size="14" placeholder="FY2026 Q3" value="{{ fix_default.period if fix_default else '' }}"></label>
+  <label>Unit <select name="fix_unit"><option value="USD">USD</option><option value="%">%</option><option value="count">count</option></select></label>
+  <label>Low <input name="fix_low" size="9"></label>
+  <label>High <input name="fix_high" size="9" placeholder="= low"></label>
+  <label>Scale <select name="fix_scale"><option value="1000000000">billions</option><option value="1000000">millions</option><option value="1">as entered</option></select></label>
+  <p class="muted">Stored as owner-entered, quoting this sentence; it wins over the parser on later scans and is removed if you undo the label. Example: "industry capex of $50 billion, of which we expect about $3 billion" → capex, Low 3, billions.</p>
+</fieldset>

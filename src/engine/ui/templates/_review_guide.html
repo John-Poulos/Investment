@@ -7,6 +7,8 @@
   <tr><td>Enter guidance</td><td>Adds a real row to the guidance ledger (marked owner-entered). It appears in the Guidance tab, takes part in raised/lowered comparisons and Gemini reason analysis, and will be scored against actual results (M11, R19). Survives re-scans and overrides the parser for that metric and period.</td></tr>
   <tr><td>Dismiss / acknowledge</td><td>Changes no data. Records your note and stops re-scans from raising the same sentence again. Notes also show which wording the parser misses.</td></tr>
   <tr><td>Keep stored / keep other</td><td>Chooses which of two parsed values stays in the ledger.</td></tr>
+  <tr><td>Guidance check: correct / wrong</td><td>A stored row from the weekly random sample or a plausibility flag. <b>Correct</b> keeps it and counts toward the parser's measured precision; <b>Wrong</b> (with a reason) removes it and keeps it out of later scans. Either answer becomes a label every new parser version is re-checked against.</td></tr>
+  <tr><td>Guidance check: not guidance / missed</td><td>A sentence the parser set aside (weekly sample) or one Gemini read as guidance that the code did not store. <b>Missed</b> records a gap for the next parser build (enter the value by hand from the sentence's review item if you need it now); <b>Not guidance</b> confirms the skip.</td></tr>
   <tr><td>Leave open</td><td>Nothing is lost. Use this for real information the program cannot store yet; a later module can pick it up from the queue.</td></tr>
   <tr><td>Reopen (resolved items)</td><td>Undo. Returns the item to the queue; an entered value is removed from the ledger.</td></tr>
 </table>
@@ -37,7 +39,7 @@
 <table class="data">
   <tr><th>Kind</th><th>Actions and their effect</th></tr>
   <tr><td>New theme / new phrase</td><td><b>Accept</b> adds it to theme counting from now on (its discovery date is kept). <b>Reject</b> stops it; it returns only if its distinct filers double or money-flow evidence appears, with your note shown. Leave open if you want another season of data.</td></tr>
-  <tr><td>Candidate company</td><td><b>Accept</b> puts it on the Tracked list (filings + XBRL only, a few SEC requests). <b>Reject</b> as above. Prefer candidates with a substantive mention (business section or numbers), not only risk factors.</td></tr>
+  <tr><td>Candidate company</td><td><b>Accept</b> puts it on the Tracked list (filings, XBRL, earnings releases and call transcripts; a few requests a quarter). <b>Reject</b> as above. Prefer candidates with a substantive mention (business section or numbers), not only risk factors.</td></tr>
   <tr><td>Customer–supplier link</td><td><b>Confirm</b> when the quote names both companies and says who supplies whom; <b>Confirm, direction flipped</b> when the quote supports the reverse; <b>Reject</b> otherwise. A missing link means unknown, not "no link".</td></tr>
   <tr><td>Input category</td><td><b>Confirm</b> when the company's own filing says it depends on that input.</td></tr>
   <tr><td>Call document to download</td><td>Open the IR link, download the file, then <b>Downloaded</b> (the file is picked up from your Downloads folder).</td></tr>

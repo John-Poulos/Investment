@@ -9,7 +9,26 @@
   <p class="muted">Item {{ it.item_id }} · {{ it.module_id }} · created {{ it.created_at[:16] | replace('T', ' ') }}
     {% if it.payload.accession %} · <a href="/doc/{{ it.payload.accession }}?file={{ it.payload.filename }}{% if it.payload.offsets %}&start={{ it.payload.offsets[0] }}&end={{ it.payload.offsets[1] }}#hl{% endif %}">open in the reader</a>{% endif %}</p>
 
-  {% if it.kind == 'guidance_conflict' %}
+  {% if it.payload.accession and source_label(it.payload.accession) %}<p class="muted">Source: {{ source_label(it.payload.accession) }}.</p>{% endif %}
+  {% if it.kind == 'guidance_conflict' and it.payload.cross %}
+  <div class="grid2">
+    <div><h3 class="sub">Release (stands)</h3><div class="quote">“{{ it.payload.kept }}”</div><p class="muted"><a href="/doc/{{ it.payload.kept_accession }}?file={{ it.payload.kept_filename }}">{{ it.payload.kept_accession }}</a></p></div>
+    <div><h3 class="sub">Call (not stored)</h3><div class="quote">“{{ it.payload.other }}”</div></div>
+  </div>
+  <p class="muted">The release wins (D-M02-20). If the call corrects the release, enter the value by hand from the release's review or note it here; otherwise dismiss.</p>
+  {% elif it.kind in ('guidance_audit', 'guidance_implausible') %}
+  {% set p = it.payload %}
+  <div class="quote">“{{ p.text }}”</div>
+  <table class="data">
+    {% if p.sample == 'row' %}<tr><th>The parser stored</th><td>{{ p.stored }} <span class="muted">({{ p.origin }}, grade {{ p.grade }})</span></td></tr>
+    {% elif p.sample == 'skipped' %}<tr><th>The parser set it aside</th><td>{{ p.skipped_because }}</td></tr>
+    {% else %}<tr><th>Gemini read</th><td>{{ p.gemini_read }} <span class="muted">(not stored; the code did not store or queue this sentence)</span></td></tr>{% endif %}
+    {% if p.why %}<tr><th>Why flagged</th><td>{{ p.why }}</td></tr>{% endif %}
+    <tr><th>Found by</th><td>{{ {'audit': 'weekly random sample', 'plausibility': 'plausibility check', 'gemini': 'Gemini cross-check', 'owner': 'owner'}.get(p.found_by, p.found_by) }} · parser {{ p.parser_version }}</td></tr>
+  </table>
+  <p class="muted">Your answer becomes a label: the error rate per parser version is on the Runs page, and each new parser version is re-checked against every label (D-M02-24).</p>
+  {% include "_guidance_check_guide.html" %}
+  {% elif it.kind == 'guidance_conflict' %}
   <div class="grid2">
     <div><h3 class="sub">Stored value (kept)</h3><div class="quote">“{{ it.payload.kept }}”</div></div>
     <div><h3 class="sub">Other value</h3><div class="quote">“{{ it.payload.other }}”</div></div>
@@ -37,14 +56,29 @@
 
   {% if it.resolved_at %}
   <div class="okbox" style="margin-top:12px">Resolved: {{ it.resolution }} by {{ it.resolved_by }} on {{ it.resolved_at[:16] | replace('T', ' ') }}{% if it.note %} — {{ it.note }}{% endif %}</div>
-  {% if viewer.is_owner and it.resolution in ('entered', 'dismiss', 'acknowledge', 'keep_stored', 'keep_map') %}
+  {% if viewer.is_owner and it.resolution in ('entered', 'dismiss', 'acknowledge', 'keep_stored', 'keep_map', 'correct', 'wrong', 'no_guidance', 'missed') %}
   <form method="post" action="/review/{{ it.item_id }}/reopen" style="margin-top:8px">
-    <button class="btn" type="submit">Reopen{% if it.resolution == 'entered' %} and remove the entered value{% endif %}</button>
+    <button class="btn" type="submit">Reopen{% if it.resolution == 'entered' %} and remove the entered value{% elif it.resolution in ('correct', 'wrong', 'no_guidance', 'missed') %} and undo this answer (label and any correction removed{% if it.resolution == 'wrong' %}, the parser's row restored{% endif %}){% endif %}</button>
   </form>
   {% endif %}
   {% elif not viewer.is_owner %}
   <p class="muted">Only the owner can resolve review items.</p>
   {% else %}
+  {% if it.kind == 'm02_ir_download' %}
+  <h3 class="sub">I downloaded it</h3>
+  {% if pickup %}
+  <form method="post" action="/review/{{ it.item_id }}/ingest" class="entry">
+    <p>Newest PDF in Downloads: <b>{{ pickup.name }}</b> <span class="muted">({{ (pickup.size / 1024) | round | int }} KB, saved {{ pickup.modified.strftime('%Y-%m-%d %H:%M') }})</span></p>
+    <input type="hidden" name="name" value="{{ pickup.name }}">
+    <label>It is <select name="doc_kind">{% for k in doc_kinds %}<option value="{{ k }}">{{ k | replace('_', ' ') }}</option>{% endfor %}</select></label>
+    <label class="wide">Note <input name="note" size="50" placeholder="optional"></label>
+    <button class="btn" type="submit">Store this file for {{ it.payload.ticker }} {{ it.payload.quarter }}</button>
+    <p class="muted">The file stays in Downloads; a copy is stored and parsed (management's prepared remarks only; Q&A is not parsed). Grade A: the company's own document.</p>
+  </form>
+  {% else %}
+  <p><a class="btn" href="/review/{{ it.item_id }}/pickup">I downloaded it — find the newest PDF in Downloads</a></p>
+  {% endif %}
+  {% endif %}
   <h3 class="sub">Resolve</h3>
   {% if 'enter' in it.actions %}
   <form method="post" action="/review/{{ it.item_id }}/enter" class="entry">
@@ -61,10 +95,14 @@
   </form>
   {% endif %}
   <div class="actions">
-  {% for a in it.actions if a != 'enter' %}
+  {% set row_check = it.payload.sample == 'row' %}
+  {% for a in it.actions if a != 'enter' and not (a == 'keep_other' and it.payload.cross)
+       and not (it.kind.startswith('guidance_') and it.payload.sample and ((row_check and a in ('no_guidance', 'missed')) or (not row_check and a in ('correct', 'wrong')))) %}
   <form method="post" action="/review/{{ it.item_id }}/{{ a }}">
+    {% if a == 'wrong' %}<select name="reason" required><option value="">— why wrong —</option>{% for k, v in reasons.items() if k != 'missed_guidance' %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>{% endif %}
     <input name="note" size="40" placeholder="Note (optional)">
-    <button class="btn" type="submit">{{ {'dismiss': 'Dismiss', 'keep_stored': 'Keep stored value', 'keep_other': 'Keep other value', 'acknowledge': 'Acknowledge', 'approve': 'Apply at next nightly run', 'keep_map': 'Keep stored map', 'accept': 'Accept', 'reject': 'Reject', 'confirm': 'Confirm', 'flip': 'Confirm, direction flipped', 'downloaded': 'Downloaded', 'promote': 'Promote to watchlist', 'keep_tracked': 'Keep tracked', 'keep': 'Keep tracking', 'remove': 'Stop tracking'}.get(a, a) }}</button>
+    {% if a in ('wrong', 'missed') and it.kind.startswith('guidance_') %}{% set fix_default = {'metric': it.payload.metric, 'period': it.payload.period} %}{% include "_correction.html" %}{% endif %}
+    <button class="btn" type="submit">{{ {'dismiss': 'Dismiss', 'keep_stored': 'Keep stored value', 'keep_other': 'Keep other value', 'acknowledge': 'Acknowledge', 'approve': 'Apply at next nightly run', 'keep_map': 'Keep stored map', 'accept': 'Accept', 'reject': 'Reject', 'confirm': 'Confirm', 'flip': 'Confirm, direction flipped', 'downloaded': 'Downloaded', 'promote': 'Promote to watchlist', 'keep_tracked': 'Keep tracked', 'keep': 'Keep tracking', 'remove': 'Stop tracking', 'correct': 'Correct — no change needed', 'wrong': 'Wrong — remove the row', 'no_guidance': 'Not guidance (right to skip)', 'missed': 'Missed — it is guidance'}.get(a, a) }}</button>
   </form>
   {% endfor %}
   </div>

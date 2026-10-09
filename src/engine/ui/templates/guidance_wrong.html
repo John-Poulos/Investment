@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Check guidance — {{ ticker }}{% endblock %}
+{% block topleft %}<a href="/c/{{ ticker }}?tab=guidance">← {{ ticker }} guidance</a><span class="name">Check a guidance row</span>{% endblock %}
+{% block body %}
+<main class="detail" style="max-width: 900px">
+  {% if error %}<div class="warnbox">{{ error }}</div>{% endif %}
+  <h2>{{ stored }}</h2>
+  <p class="muted">{{ row.origin }} · grade {{ row.grade }} · {{ row.stated_on }} · parser {{ row.parser_version }}{% if source_label(row.accession, row.grade) %} · {{ source_label(row.accession, row.grade) }}{% endif %}</p>
+  <div class="quote">“{{ row.quote }}”</div>
+  <form method="post" action="/c/{{ ticker }}/guidance/{{ row.guidance_id }}/wrong" class="entry">
+    <label class="wide">Your verdict
+      <select name="reason" required>
+        <option value="">— choose —</option>
+        <option value="no_error">No error — keep the row as is</option>
+        <optgroup label="Wrong, because it is:">
+        {% for k, v in reasons.items() if k != 'missed_guidance' %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
+        </optgroup>
+      </select>
+    </label>
+    <label class="wide">Note <input name="note" size="60" placeholder="optional"></label>
+    {% set fix_default = {'metric': row.metric, 'period': row.period} %}
+    {% include "_correction.html" %}
+    <p class="muted">The correction is ignored when the verdict is "No error".</p>
+    <button class="btn" type="submit">Save verdict</button>
+  </form>
+  <p class="note"><b>No error</b> keeps the row and records your confirmation (later parser versions are checked against it). Leaving this page without saving changes nothing. <b>Wrong</b>: the row is removed and stays out of later scans; a correction is stored in its place. Your label is kept: every new parser version is re-checked against it (D-M02-24), and the next build uses it to fix the rule. Changed your mind? Undo it under "Your corrections" on the Guidance tab — the parser's row comes back.</p>
+  {% include "_guidance_check_guide.html" %}
+</main>
+{% endblock %}

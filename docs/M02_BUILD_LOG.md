@@ -1,6 +1,6 @@
 # M02 — Build log (running)
 
-Updated: 2026-10-08 · Companion to M02_THEMES.md (decisions live there; this file holds what each build conversation needs) · Cross-module lessons: LESSONS.md
+Updated: 2026-10-09 · Companion to M02_THEMES.md (decisions live there; this file holds what each build conversation needs) · Cross-module lessons: LESSONS.md
 
 ## How to use
 - A build conversation reads M02_THEMES.md, then its part below, then LESSONS.md.
@@ -27,7 +27,7 @@ One section per proposed amendment, discussed with the owner in order. Outcome l
 | 1 Theme core | `config/themes.toml` seeds + DB themes/phrases with `discovered_at`; EFTS breadth with `form.idx` denominator, 10-page cap, lower bound; Themes tab v1 (share of filers, same window YoY) | D-M02-1, -14, -16, -17 | M00 | done: probe + first run 2026-10-09 | built (branch `m02-theme-core`) |
 | 2 Plumbing | Review kinds m02_theme/phrase/candidate/link/input/ir_download; weekly header, cap 10, suppression; guide panel; tracked tier tables + side panel core/promoted/tracked; promotion suggestion + 12-month review; price rotation (tracked 3-day) + 8/h app reserve; end-of-run summary box | D-M02-10, -11, -12 | 1 | one refresh with a tracked name | built (branch `m02-plumbing`) |
 | 3 Money flow | Capex components (clause tag, "definition changed", stale flag, own-definition actuals incl. finance-lease principal, funding coverage); new XBRL concepts; spender→theme quote link; per-spender view | D-M02-5, -15 | 1, 2 | guidance re-scan; MSFT/META checks | — |
-| 4 Call guidance | Alpha Vantage adapter (probe done 2026-10-09: works, fiscal labels); allowed-site IR fetch (MSFT, MRVL, GFS, MU paced); Downloads pickup + m02_ir_download; PDF/DOCX/PPTX text; parser; grade B → A on match | D-M02-6 | 2, 3 | probe done 2026-10-09 | — |
+| 4 Call guidance | Alpha Vantage adapter (probe done 2026-10-09: works, fiscal labels); Downloads PDF pickup + m02_ir_download (lean, D-M02-21); call parser + direction rows; release vs call; grade B → A on match; clause tag + "definition changed"; labels | D-M02-6, -20, -21, -22 | 2 | `run_calls.py --import-probe --fetch 6` | built (branch `m02-call-guidance`, live checks 1–4) |
 | 5 Suppliers L0–L3 | Reverse lookup with alias table; L1 passages; Exhibit 10 ingest for Item 1.01; Gemini 5/5b; labelled precision set (~30); m02_link/m02_input | D-M02-7, -9, -15 | 1, 2 | NVDA reverse lookup; Gemini labels on the labelled set | — |
 | 6 Seasonal pass | Corpus phrase mining; phrase tests (hits, ≥ N companies, industry spread, samples); Gemini 4 naming; candidate proposals (section + quantified rule); crowding flag; first-mention flags | D-M02-8, -10, -14, -15 | 1, 2, 5 | one seasonal run | — |
 | 7 News & feeds | IR RSS; Finnhub + Massive; 11 trade-press feeds; arXiv, USAspending, Federal Register, Congress.gov; dedupe; weekly event digest content | D-M02-13, -15 | 2 | one weekly digest | — |
@@ -55,6 +55,23 @@ Effort: High only if a part raises a new design question; otherwise Medium. Each
 - For generators (parts 3–7): call `proposals.propose(engine, kind, key, reason, payload, now, cik=…)`. Put `companies` (int) and `money_flow` (bool) in the payload so material-change re-raising works; `samples` (list of quotes) and `why` render on the item page; `phrase_id`/`theme_id` let accept/reject set status. Keys must be stable across runs (e.g. `theme:phrase`, `cik`, `accession`).
 - Tracked names are synced on first sight; their prices start in the rotation on the next run.
 - Not built: reopen for M02 items (would need undoing tier/status changes); evidence rules for promotion (parts 3/5/6).
+
+### Part 4 — Call guidance (built 2026-10-09, D-M02-22)
+- Code: `calls/alpha_vantage.py`, `calls/transcripts.py` (fiscal_quarter, plan, store_transcript, fetch_due, queue_reminders, import_files), `calls/ir_inbox.py`, `calls/step.py`; `guidance/calls.py` (scan_call, scan_calls, management_turns), `guidance/sources.py` (labels), `guidance/parse.py` guidance-5 (`parse_call`, `clause_of`, anchored periods, CY), `guidance/changes.py` (definition changed, call repeats skipped); migrations engine 0016, corpus 0006; `scripts/run_calls.py`; `run_refresh.py` `calls_step`; prompt `guidance_reasons_2.md`; UI guidance tab, reader, source, search, review item (pickup/ingest routes); tests `test_calls.py` (synthetic transcript in AV shape).
+- Dependency: pypdf (D-M02-21).
+- Live check (owner): `uv run python scripts/run_calls.py --import-probe --fetch 6` → imports the 7 probe replies, scans releases (guidance-5 re-scan), requests ≤ 6 due transcripts (newest releases first), scans calls; log `logs/calls_*.txt` lists speaker titles per role, rows, matches, conflicts and capex sentences sent to review. Check: management/analyst split is right; MSFT/ORCL/AMZN capex rows; fiscal labels match AV for NVDA (January FYE) and AAPL.
+- Expect from the real corpus (LESSONS: each live scan found new wording): new spoken capex phrasing → review items; role titles not covered by the rules → "call other" (never parsed) — extend `role_of` from the log.
+- Not built: auto-fetch from allowed IR sites (D-M02-21 dropped it), DOCX/PPTX, owner override of "definition changed", stale flag "may have been updated on the call" (part 3), reopen of a `downloaded` item.
+- Live check 1 (2026-10-09, logs/calls_20261009-122055.txt): roles right in all 9 transcripts (Alpha Vantage titles look like "Analyst (Barclays)", "Analyst, UBS", "Chief Financial Officer"); 48 transcripts left in the queue (16 companies × ~4 quarters, ~20/day). Problems found and fixed in guidance-6 (D-M02-23): retold prior guidance, third-party capex, segment revenue, bounds, year-ago "from", noun "guide", period from the previous sentence, review noise, deliveries 8-K as release date, re-linking, warrant ticker. Re-check: same command without `--import-probe` (`--force` re-scans everything locally; `--fetch 6` continues the queue).
+
+- Live check 2 (2026-10-09, logs/calls_20261009-132915.txt): 20 transcripts; fixes D-M02-25 (guidance-7). Still to explain: Alphabet's call capex (0 rows) — the next log lists capex sentences that produced nothing.
+- Live check 3 (2026-10-09, logs/calls_20261009-134554.txt + refresh run 8): Alphabet explained by the capex-not-stored lines; fixes D-M02-26 (guidance-8). Alpha Vantage limit reached for the day; 39 transcripts queued.
+- Live check 4 (2026-10-09, logs/calls_20261009-144011.txt): round-3 fixes confirmed; D-M02-27 (guidance-9). PR opened after this round.
+
+### Part 4b — Guidance accuracy loop (built 2026-10-09, D-M02-24)
+- Code: `guidance/labels.py` (label_row, label_span, current_row, wrong_keys, store_skips, queue_audit, check_plausibility, accuracy, check_labels), `llm/call_check.py` + prompt `call_check_1.md`, `guidance/calls.parse_document`; ParseResult.skipped_spans; scans skip labelled-wrong rows and store skips; calls step runs plausibility + weekly audit; `review.label_action`, `review.mark_wrong`; UI `guidance_wrong.html`, `call_check.html`, review item check view, Runs "Guidance accuracy"; `run_calls.py --check-labels`, `--gemini-check DAYS [--yes]`; migration engine 0018; tests `test_guidance_accuracy.py`.
+- Every build session that touches the guidance parser: run `run_calls.py --check-labels` (owner) and read new labels in the log before changing rules; paraphrase new cases into fixture tests.
+- Review load: ~8 audit items/week plus plausibility flags (only on new outliers).
 
 ### Part 3 pre-check (2026-10-09, D-M02-19) — read before building part 3
 - Order: build part 4 first. Part 3 then adds: derived spenders from frames (capex tags `PaymentsToAcquirePropertyPlantAndEquipment`, fallback `PaymentsToAcquireProductiveAssets`; ~30 frame requests for 2019→now; `sec/frames.py` exists), candidate proposals for top spenders/growers via `proposals.propose(..., "m02_candidate", cik, ...)`, spender→theme quote link (new review kind needed, e.g. `m02_spender`; the customer–supplier `m02_link` does not fit), Capital allocation block, supplier RPO view, per-spender contributions (D-M02-15).
@@ -125,7 +142,7 @@ Effort: High only if a part raises a new design question; otherwise Medium. Each
 - L2 alias table per customer (legal name, short name, ticker-free aliases) + nearby customer/revenue wording.
 - News dedupe key (normalized URL; else title + date + company).
 
-### Call guidance from IR documents (D-M02-6, DS1) — next part (built before part 3, D-M02-19)
+### Call guidance from IR documents (D-M02-6, DS1) — design notes (built as part 4, see above)
 - Also owns (moved from part 3): the capex "including/excluding …" clause tag on ledger rows and the "definition changed" label in `guidance/changes.py`.
 - Settled (D-M02-21): lean fallback (reminder + PDF pickup, pypdf); use case 1 may read call passages; transcripts in corpus/search/reader; source label on every call-derived item + "forecast, not a commitment" note on all guidance (Guidance tab, money flow, Gemini output, search hits).
 - Settled (D-M02-20): direction-only rows for directional guidance; release wins over call; all metrics from management turns, capex-only review items; tracked names get releases + transcripts; Alpha Vantage budget ≤ 20/day for runs, ~5 interactive; import probe responses; dev sample of one quarter across ~11 companies (~6 new calls), backfill later in the background. Guidance schema needs a direction-only kind (no low/high) — migration.

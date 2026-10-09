@@ -112,7 +112,7 @@ def test_past_full_year_goes_to_review_not_ledger(dbs, clock):
     (res,) = scan_all(engine, corpus, clock.now())
     assert (res.outcome, res.items, res.unparsed) == ("review", 0, 1)
     (reason,) = [r[0] for r in engine.execute("SELECT reason FROM review_queue")]
-    assert "ended before the release" in reason
+    assert "already over at the release" in reason
 
 
 def test_point_equal_to_centre_is_not_a_conflict(dbs, clock):

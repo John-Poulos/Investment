@@ -117,10 +117,10 @@ def test_refresh_gives_tracked_names_a_light_sync(make_client, dbs, clock):
     report = run_refresh(make_client(t), engine, corpus, cfg, clock.now())
     [c] = report.companies
     assert (c.ticker, c.tier, c.failures) == ("XSEM", "tracked", [])
-    assert c.insider_rows == 0 and c.documents == 0  # no Form 4s, no documents
-    assert not any("form4" in url or "-index.htm" in url for url, _, _ in t.calls)
+    assert c.insider_rows == 0 and c.documents == 2  # no Form 4s; earnings 8-K + EX-99.1
+    assert not any("form4" in url for url, _, _ in t.calls)
     assert report.tracked == {"XSEM": CIK}
-    assert "tracked (filings + XBRL only): XSEM" in format_report(report)
+    assert "tracked (filings, XBRL, earnings releases): XSEM" in format_report(report)
     # Second run: already synced and nothing new → not processed again.
     clock.advance(3600)
     again = run_refresh(make_client(FakeTransport(routes())), engine, corpus, cfg, clock.now())

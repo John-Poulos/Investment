@@ -19,7 +19,16 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
-from engine.guidance.parse import PARSER_VERSION, Item, Value, parse_release
+from engine.guidance.parse import (
+    PARSER_VERSION,
+    Direction,
+    Item,
+    Value,
+    clause_of,
+    ended,
+    parse_release,
+)
+from engine.guidance.sources import default_grade, origin_of
 from engine.sec.client import iso
 
 RELEASE_TYPES = ("EX-99.1", "EX-99.01", "EX-99")
@@ -106,7 +115,10 @@ def quality_flag(item: Item) -> tuple[str | None, str | None]:
 
 
 def _consistent(a: Value, b: Value) -> bool:
-    """Same value, or a bare point equal to the other's centre ('74.8%' vs '74.8% ± 50 bps')."""
+    """Same value, or a bare point equal to the other's centre ('74.8%' vs '74.8% ± 50 bps').
+    A bound ('more than $25 billion') equals only the same bound."""
+    if a.bound != b.bound:
+        return False
     if (a.low, a.high) == (b.low, b.high):
         return True
     for x, y in ((a, b), (b, a)):
@@ -149,15 +161,24 @@ def _review(
 
 
 def _insert(
-    engine: sqlite3.Connection, release: Release, text: str, sha: str, item: Item, now: str
+    engine: sqlite3.Connection,
+    release: Release,
+    text: str,
+    sha: str,
+    item: Item,
+    now: str,
+    *,
+    grade: str | None = None,
+    matched: str | None = None,
 ) -> None:
     v, p = item.value, item.prior
+    origin = origin_of(release.accession)
     engine.execute(
         "INSERT INTO guidance (cik, accession, filename, metric, basis, period, unit, kind, low, "
         "high, point, spread, spread_kind, prior_low, prior_high, stated_on, source, quote, "
         "quote_start, quote_end, period_quote, period_start, period_end, doc_sha256, "
-        "parser_version, created_at, flag, flag_reason) "
-        f"VALUES ({', '.join('?' * 28)})",
+        "parser_version, created_at, flag, flag_reason, origin, grade, matched_accession, "
+        f"clause, bound) VALUES ({', '.join('?' * 33)})",
         (
             release.cik,
             release.accession,
@@ -186,8 +207,62 @@ def _insert(
             PARSER_VERSION,
             now,
             *quality_flag(item),
+            origin,
+            grade or default_grade(origin),
+            matched,
+            clause_of(text, item),
+            v.bound,
         ),
     )
+
+
+def _insert_direction(
+    engine: sqlite3.Connection, release: Release, text: str, sha: str, d: Direction, now: str
+) -> None:
+    """Direction-only row (D-M02-20): no figure, low/high NULL; scored later by direction."""
+    origin = origin_of(release.accession)
+    engine.execute(
+        "INSERT INTO guidance (cik, accession, filename, metric, basis, period, unit, kind, "
+        "stated_on, source, quote, quote_start, quote_end, period_quote, period_start, "
+        "period_end, doc_sha256, parser_version, created_at, origin, grade, direction) "
+        "VALUES (?, ?, ?, ?, 'unspecified', ?, 'USD', 'direction', ?, 'sentence', ?, ?, ?, ?, ?, "
+        "?, ?, ?, ?, ?, ?, ?)",
+        (
+            release.cik,
+            release.accession,
+            release.filename,
+            d.metric,
+            d.period,
+            release.filed,
+            text[d.quote_start : d.quote_end],
+            d.quote_start,
+            d.quote_end,
+            text[d.period_start : d.period_end],
+            d.period_start,
+            d.period_end,
+            sha,
+            PARSER_VERSION,
+            now,
+            origin,
+            default_grade(origin),
+            d.direction,
+        ),
+    )
+
+
+def reported_quarter(engine: sqlite3.Connection, release: Release) -> tuple[int, int] | None:
+    """The fiscal quarter an earnings release reports (from its date and the fiscal year
+    end); guidance for it or earlier is a reported actual (live check 4: a Broadcom release
+    row for the quarter just reported)."""
+    from datetime import date
+
+    from engine.calls.transcripts import fiscal_quarter
+
+    row = engine.execute("SELECT fiscal_year_end FROM entity WHERE cik = ?",
+                         (release.cik,)).fetchone()  # fmt: skip
+    if not row or not release.filed:
+        return None
+    return fiscal_quarter(date.fromisoformat(release.filed[:10]), row[0])
 
 
 def scan_release(
@@ -203,17 +278,21 @@ def scan_release(
     engine.execute("BEGIN")
     try:
         _clear(engine, release)
+        from engine.guidance.labels import wrong_keys
+
+        wrong = wrong_keys(engine, release.accession, release.filename)
         kept: dict[tuple[str, str, str], Item] = {}
         conflicts = 0
         past = 0
+        reported = reported_quarter(engine, release)
         for item in parsed.items:
-            if _past_full_year(item.period, release.filed):
+            if _past_full_year(item.period, release.filed) or ended(item.period, reported):
                 past += 1
                 _review(
                     engine,
                     release,
                     "guidance_unparsed",
-                    f"{item.metric} {item.period}: full-year period ended before the release "
+                    f"{item.metric} {item.period}: period already over at the release "
                     "(likely a reported actual, not guidance)",
                     {
                         "text": text[item.quote_start : item.quote_end],
@@ -222,6 +301,8 @@ def scan_release(
                     at,
                 )
                 continue
+            if (item.quote_start, item.metric, item.period) in wrong:
+                continue  # the owner labelled this wrong (D-M02-24)
             key = (item.metric, item.basis, item.period)
             if engine.execute(
                 "SELECT 1 FROM guidance WHERE accession = ? AND filename = ? AND metric = ? "

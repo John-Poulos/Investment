@@ -12,6 +12,10 @@
 {% if msg == 'analyzed' %}<div class="okbox">Gemini run stored. Verified reasons are shown below with their quotes.</div>
 {% elif msg == 'stored-result' %}<div class="okbox">An identical request was already stored; shown at no cost.</div>
 {% elif msg == 'llm-error' %}<div class="warnbox">The Gemini call did not complete: {{ detail }}. Nothing new was stored as fact.</div>
+{% elif msg == 'labelled-wrong' %}<div class="okbox">Row marked wrong and removed; the label is kept for the next parser version (Runs page: guidance accuracy). Undo it under "Your corrections" below.</div>{% if detail %}<div class="warnbox">Correction stored with warnings: {{ detail }}</div>{% endif %}
+{% elif msg == 'labelled-right' %}<div class="okbox">Confirmed: no error. The row stays; your confirmation is listed under "Your corrections and checks" (undo there).</div>
+{% elif msg == 'undone' %}<div class="okbox">{{ detail }}</div>
+{% elif msg == 'checked' %}<div class="okbox">{{ detail }}</div>
 {% elif msg == 'nothing-to-ask' %}<div class="warnbox">Nothing to ask: no changed guidance with source passages.</div>{% endif %}
 
 {% if not g.groups %}
@@ -22,12 +26,17 @@
 <section class="ggroup">
   <h2>{{ grp.period }} · {{ grp.metric | replace('_', ' ') }}{% if grp.basis != 'unspecified' %} <span class="muted">({{ grp.basis }})</span>{% endif %}</h2>
   <table class="data gtable">
-    <tr><th style="width:12%">Release</th><th style="width:24%">Guidance</th><th style="width:15%">Change</th><th>Stated reason (verified quote)</th></tr>
+    <tr><th style="width:12%">Source</th><th style="width:24%">Guidance</th><th style="width:15%">Change</th><th>Stated reason (verified quote)</th></tr>
     {% for r in grp.rows %}
     <tr{% if r.flag %} class="flagged"{% endif %}>
-      <td style="white-space:nowrap">{{ r.stated_on }}</td>
+      <td style="white-space:nowrap">{{ r.stated_on }}
+        {% if r.label %}<div class="muted" title="{{ r.label }}">{% if r.origin == 'call' %}call · oral · grade {{ r.grade }}{% else %}IR document · A{% endif %}</div>{% else %}<div class="muted">release · A</div>{% endif %}
+      </td>
       <td>
         <a href="/source/{{ r.accession }}/{{ r.filename }}?start={{ r.quote_start }}&end={{ r.quote_end }}&sha={{ r.doc_sha256 }}" title="{{ r.quote }}">{{ r.value }}</a>
+        {% if viewer.is_owner and r.source != 'owner' %} <a class="muted" href="/c/{{ ticker }}/guidance/{{ r.guidance_id }}/wrong" title="Check this row: no error, or wrong with a reason and an optional correction (D-M02-24)">check / wrong?</a>{% endif %}
+        {% if r.clause %}<div class="muted">{{ r.clause }}</div>{% endif %}
+        {% if r.matched and r.origin != 'release' %}<div class="muted">same figure in company document {{ r.matched }}</div>{% endif %}
         {% if r.prior %}<div class="muted">prior stated: {{ r.prior }}</div>{% endif %}
         {% if r.flag %}<div class="muted" title="{{ r.flag_reason }}">{{ r.flag | replace('_', ' ') }}: {{ r.flag_reason }}</div>{% endif %}
       </td>
@@ -36,9 +45,9 @@
         {% if r.reason %}
           {{ r.reason.claim }}
           {% for c in r.reason.citations %}
-          <div class="quote"><a href="/doc/{{ c.accession }}?file={{ c.filename }}&start={{ c.start }}&end={{ c.end }}#hl">“{{ c.quote }}”</a></div>
+          <div class="quote"><a href="/doc/{{ c.accession }}?file={{ c.filename }}&start={{ c.start }}&end={{ c.end }}#hl">“{{ c.quote }}”</a>{% if source_label(c.accession) %} <span class="muted" title="{{ source_label(c.accession) }}">(call transcript, oral, grade B)</span>{% endif %}</div>
           {% endfor %}
-        {% elif r.change in ('first stated', 'reaffirmed', '—') %}<span class="muted">—</span>
+        {% elif r.change in ('first stated', 'reaffirmed', 'same as release', '—') %}<span class="muted">—</span>
         {% else %}<span class="muted">not analyzed</span>{% endif %}
       </td>
     </tr>
@@ -48,7 +57,34 @@
 {% endfor %}
 
 {% if g.no_guidance %}
-<p class="note">Releases scanned with no numeric guidance: {{ g.no_guidance | join(', ') }}. Guidance given only on the earnings call is not collected yet (DATA_SOURCES DS1).</p>
+<p class="note">Releases scanned with no numeric guidance: {{ g.no_guidance | join(', ') }}.</p>
+{% endif %}
+{% if g.calls %}
+<p class="note">Earnings calls:
+{% for c in g.calls %}{% if c.accession %}<a href="/doc/{{ c.accession }}?file={{ c.filename }}">{{ c.quarter }}</a> ({{ 'transcript, Alpha Vantage' if c.source == 'alpha_vantage' else c.doc_kind | replace('_', ' ') ~ ', IR download' }}{% if c.outcome %}: {{ c['items'] }} row{{ 's' if c['items'] != 1 }}{% elif not c.stated_on %}: no matching release, not parsed{% endif %}) <a class="muted" href="/c/{{ ticker }}/calls/check?acc={{ c.accession }}&file={{ c.filename }}" title="Gemini cross-check: finds guidance the code missed (cost shown first)">check</a>{% else %}{{ c.quarter }} (no transcript yet: {{ c.missing }}, {{ c.attempts }} tr{{ 'ies' if c.attempts != 1 else 'y' }}){% endif %}{{ ', ' if not loop.last }}{% endfor %}.</p>
+{% else %}
+<p class="note">No earnings-call transcripts stored for this company yet (collected for watchlist and tracked names, DATA_SOURCES DS1).</p>
+{% endif %}
+{% if g.labels %}
+<section class="ggroup">
+  <h2>Your corrections and checks <span class="muted">(accuracy labels, D-M02-24)</span></h2>
+  <table class="data">
+    <tr><th style="width:11%">When</th><th style="width:16%">Answer</th><th>Sentence</th><th style="width:24%">Parser had · your correction</th><th style="width:8%"></th></tr>
+    {% for lb in g.labels %}
+    <tr>
+      <td style="white-space:nowrap">{{ lb.labelled_at[:10] }}<div class="muted">{{ lb.found_by }}</div></td>
+      <td>{{ lb.verdict }}{% if lb.reason %}<div class="muted">{{ lb.reason | replace('_', ' ') }}</div>{% endif %}{% if lb.note %}<div class="muted">{{ lb.note }}</div>{% endif %}</td>
+      <td><a href="/doc/{{ lb.accession }}?file={{ lb.filename }}&start={{ lb.quote_start }}&end={{ lb.quote_end }}#hl">“{{ lb.quote[:220] }}{% if lb.quote | length > 220 %}…{% endif %}”</a></td>
+      <td>{% if lb.metric %}{{ lb.metric | replace('_', ' ') }} {{ lb.period }}: {{ lb.value_text }}{% else %}<span class="muted">not stored</span>{% endif %}{% if lb.fix %}<div>→ {{ lb.fix }}</div>{% endif %}</td>
+      <td>{% if viewer.is_owner %}<form method="post" action="/labels/{{ lb.label_id }}/undo?back=/c/{{ ticker }}%3Ftab%3Dguidance"><button class="btn" type="submit" title="Remove this label{% if lb.fix %} and its correction{% endif %}{% if lb.verdict == 'wrong' %}; the parser's row comes back{% endif %}">Undo</button></form>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
 {% endif %}
 {% if g.open_reviews %}<p class="note">{{ g.open_reviews }} open review item{{ 's' if g.open_reviews != 1 }} for this company (unparsed sentences, conflicts or rejected Gemini output) — <a href="/review?ticker={{ ticker }}">open the review queue</a>.</p>{% endif %}
-<p class="note">Values are parsed by code from the company's earnings releases (R19); click a value to see its exact sentence or table row. Changes are computed by code. Reasons are Gemini's reading of the release, shown only when every quote and number was verified against the stored text; they are interpretations.</p>
+<p class="note">All guidance is a {{ FORECAST_NOTE }}: forward-looking statements the company may change without notice (safe harbor, Exchange Act §21E).
+Values are parsed by code from the company's earnings releases (R19) and from management's remarks on its earnings calls; click a value to see its exact sentence or table row.
+Call rows come from a third-party transcript (Alpha Vantage): oral statements, not in an SEC filing, grade B — grade A when a company document states the same figure. The release wins when both state a figure for the same period; a different call figure goes to the review queue.
+"Direction only" rows record spoken direction without a figure. Changes are computed by code; "definition changed" means the capex wording (including/excluding …) differs between the two statements.
+Reasons are Gemini's reading of the release and the same quarter's call, shown only when every quote and number was verified against the stored text; they are interpretations.</p>

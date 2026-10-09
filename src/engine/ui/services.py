@@ -15,6 +15,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from engine.guidance.sources import source_label, stated_prefix
 from engine.search.query import QueryError, phrase, search
 from engine.sec.xbrl_facts import CONCEPTS
 
@@ -468,6 +469,11 @@ class GuidanceRow:
     flag: str | None
     flag_reason: str | None
     reason: dict[str, Any] | None = None  # verified Gemini observation, with citations
+    origin: str = "release"  # release | call | ir (D-M02-21 source label)
+    grade: str = "A"
+    label: str | None = None  # source label for non-SEC documents
+    clause: str | None = None  # capex "including/excluding ..." clause
+    matched: str | None = None  # company document stating the same figure
 
 
 @dataclass
@@ -484,6 +490,8 @@ class GuidanceView:
     no_guidance: list[str]  # filing dates of releases scanned with no numeric guidance
     open_reviews: int
     last_call: dict[str, Any] | None
+    calls: list[dict[str, Any]] = field(default_factory=list)  # call documents and fetches
+    labels: list[dict[str, Any]] = field(default_factory=list)  # owner's accuracy labels
 
 
 def _period_key(period: str) -> tuple[int, int]:
@@ -525,30 +533,48 @@ def guidance_view(engine: sqlite3.Connection, cik: str) -> GuidanceView:
     ):
         key = (r["metric"], r["basis"], r["period"])
         g = groups.setdefault(key, GuidanceGroup(*key, []))
-        low, high = Decimal(str(r["low"])), Decimal(str(r["high"]))
+        if r["kind"] == "direction":
+            value = f"direction only: {r['direction']} (no figure stated)"
+        else:
+            value = fmt_range(Decimal(str(r["low"])), Decimal(str(r["high"])), r["unit"])
+            value = stated_prefix(r["kind"], r["bound"]) + value
         prior = None
         if r["prior_low"] is not None:
             prior = fmt_range(
                 Decimal(str(r["prior_low"])), Decimal(str(r["prior_high"])), r["unit"]
             )
+        numeric_before = any(x.kind != "direction" for x in g.rows)
+        if r["guidance_id"] in kinds:
+            change = kinds[r["guidance_id"]]
+        elif r["kind"] == "direction":
+            change = "—"
+        elif r["origin"] != "release" and r["matched_accession"]:
+            change = "same as release"
+        else:
+            change = "first stated" if not numeric_before else "—"
         g.rows.append(
             GuidanceRow(
                 r["guidance_id"],
                 r["stated_on"],
                 r["accession"],
                 r["filename"],
-                fmt_range(low, high, r["unit"]),
+                value,
                 r["kind"],
                 r["source"],
                 r["quote"],
                 r["quote_start"],
                 r["quote_end"],
                 r["doc_sha256"],
-                kinds.get(r["guidance_id"], "first stated" if not g.rows else "—"),
+                change,
                 prior,
                 r["flag"],
                 r["flag_reason"],
                 reasons.get(r["guidance_id"]),
+                r["origin"],
+                r["grade"],
+                source_label(r["accession"], r["grade"]),
+                r["clause"],
+                r["matched_accession"],
             )  # fmt: skip
         )
     order = {m: i for i, m in enumerate(METRIC_ORDER)}
@@ -564,7 +590,7 @@ def guidance_view(engine: sqlite3.Connection, cik: str) -> GuidanceView:
         r[0]
         for r in engine.execute(
             "SELECT filed FROM guidance_scan WHERE cik = ? AND outcome = 'none' "
-            "ORDER BY filed DESC",
+            "AND accession NOT LIKE 'AV-%' AND accession NOT LIKE 'IR-%' ORDER BY filed DESC",
             (cik,),
         )
     ]
@@ -573,7 +599,44 @@ def guidance_view(engine: sqlite3.Connection, cik: str) -> GuidanceView:
         "AND kind IN ('guidance_unparsed', 'guidance_conflict', 'llm_rejected')",
         (cik,),
     ).fetchone()[0]
-    return GuidanceView(ordered, none, reviews, last_call)
+    calls = [
+        dict(r)
+        for r in engine.execute(
+            "SELECT d.accession, d.filename, d.quarter, d.source, d.doc_kind, d.stated_on, "
+            "s.outcome, s.items FROM call_document d LEFT JOIN guidance_scan s "
+            "ON s.accession = d.accession AND s.filename = d.filename WHERE d.cik = ? "
+            "ORDER BY d.quarter DESC, d.accession",
+            (cik,),
+        )
+    ]
+    calls += [
+        {"quarter": "FY" + r["quarter"][:4] + " Q" + r["quarter"][-1], "missing": r["outcome"],
+         "attempts": r["attempts"], "last_at": r["last_at"]}
+        for r in engine.execute(
+            "SELECT quarter, outcome, attempts, last_at FROM call_fetch WHERE cik = ? "
+            "AND outcome != 'ok' ORDER BY quarter DESC",
+            (cik,),
+        )
+    ]  # fmt: skip
+    labels = [
+        dict(r)
+        for r in engine.execute(
+            "SELECT l.*, g.metric AS fix_metric, g.period AS fix_period, g.low AS fix_low, "
+            "g.high AS fix_high, g.unit AS fix_unit FROM guidance_label l "
+            "LEFT JOIN guidance g ON g.guidance_id = l.correction_id "
+            "WHERE l.cik = ? ORDER BY l.labelled_at DESC, l.label_id DESC",
+            (cik,),
+        )
+    ]
+    from engine.llm.guidance_reasons import fmt_range
+
+    for lb in labels:
+        if lb["fix_low"] is not None:
+            value = fmt_range(
+                Decimal(str(lb["fix_low"])), Decimal(str(lb["fix_high"])), lb["fix_unit"]
+            )
+            lb["fix"] = f"{lb['fix_metric']} {lb['fix_period']}: {value}"
+    return GuidanceView(ordered, none, reviews, last_call, calls, labels)
 
 
 # --- Runs and costs ------------------------------------------------------------------

@@ -20,10 +20,13 @@
       <span>{{ s.label }}{% if s.title %} <span class="muted">{{ s.title }}</span>{% endif %}</span>
     </a>
     {% else %}<div class="muted" style="padding:3px 6px">Not split into sections</div>{% endfor %}
+    {% if sec_url %}
     <h3>Elsewhere</h3>
     <a class="row" href="{{ sec_url }}" target="_blank" rel="noopener">View this filing on SEC</a>
+    {% endif %}
   </nav>
   <main class="detail">
+    {% if source_label(view.accession) %}<div class="warnbox">Source: {{ source_label(view.accession) }}. Guidance in it is a {{ FORECAST_NOTE }}.</div>{% endif %}
     {% if view.section %}
     <h2>{{ view.section.label }}{% if view.section.title %} — {{ view.section.title }}{% endif %}</h2>
     <p class="muted">{{ view.doc_type or view.filename }} · {{ '{:,}'.format(view.section.chars) }} characters, shown in full{% if view.highlight %} · <a href="#hl">jump to the highlighted passage</a>{% endif %}</p>
