@@ -96,6 +96,15 @@ def money_step(client, engine, corpus, report) -> str:
     return "\n".join(lines) + "\n"
 
 
+def supply_step(client, engine, corpus, report) -> str:
+    """Supplier passages after money flow (M02 part 5): L1 local, L3 and L2 within per-run
+    caps; Gemini never runs here. Never fails the run."""
+    from engine.supply.step import run_supply_step
+
+    lines = run_supply_step(client, engine, corpus, companies_of(report), datetime.now(UTC))
+    return "\n".join(lines) + "\n"
+
+
 def last_scheduled_slot(now_local: datetime) -> datetime:
     slot = now_local.replace(hour=SCHEDULED_AT.hour, minute=SCHEDULED_AT.minute, second=0,
                              microsecond=0)  # fmt: skip
@@ -229,6 +238,7 @@ def main() -> int:
                              datetime.now(UTC), trigger=trigger)  # fmt: skip
         calls = calls_step(engine, corpus, report)
         calls += money_step(client, engine, corpus, report)
+        calls += supply_step(client, engine, corpus, report)
         skipped = "\nPrices (Tiingo): skipped (--skip-prices)\n"
         prices = skipped if args.skip_prices else prices_step(engine, report)
         text = format_report(report) + calls + prices

@@ -36,6 +36,7 @@ from engine.moneyflow import views as mf_views
 from engine.prices import store as prices
 from engine.prices.tiingo import MissingKey, TiingoClient, token_from_env
 from engine.store.db import connect, migrate
+from engine.supply import gold as supply_gold
 from engine.themes import proposals, tiers
 from engine.themes import views as themes
 from engine.ui import services
@@ -397,8 +398,36 @@ def create_app(settings: UiSettings) -> FastAPI:
         now = datetime.now(UTC).isoformat(timespec="seconds")
         ctx = frame(engine) | {"viewer": viewer, "rc": services.runs_and_costs(engine, now),
                                "accuracy": labels.accuracy(engine),
-                               "tag_maps": mf_allocation.mapping_list(engine)}  # fmt: skip
+                               "tag_maps": mf_allocation.mapping_list(engine),
+                               "gold": supply_gold.accuracy(engine),
+                               "gold_size": supply_gold.size(engine)}  # fmt: skip
         return templates.TemplateResponse(request, "runs.html", ctx)
+
+    @app.get("/m02/labels", response_class=HTMLResponse)
+    def label_page(request: Request, engine: Engine, owner: OwnerDep, pos: int = 0,
+                   error: str = ""):  # fmt: skip
+        """Blind labelling of the supplier-link precision set (D-M02-35)."""
+        card = supply_gold.card(engine, pos or None)
+        ctx = frame(engine) | {"viewer": owner, "card": card, "error": error,
+                               "acc": supply_gold.accuracy(engine),
+                               "size": supply_gold.size(engine)}  # fmt: skip
+        return templates.TemplateResponse(request, "labels.html", ctx)
+
+    @app.post("/m02/labels/{gold_id}")
+    def label_submit(
+        gold_id: int,
+        engine: Engine,
+        owner: OwnerDep,
+        gold_type: Annotated[str, Form()] = "",
+        direction: Annotated[str, Form()] = "",
+        pos: Annotated[int, Form()] = 0,
+    ) -> RedirectResponse:
+        try:
+            supply_gold.label(engine, gold_id, gold_type, direction or None, owner.id,
+                              datetime.now(UTC))  # fmt: skip
+        except ValueError as e:
+            return RedirectResponse(f"/m02/labels?pos={pos}&error={quote(str(e))}", 303)
+        return RedirectResponse("/m02/labels", 303)
 
     @app.post("/money/tag-map/{map_id}/undo")
     def tag_map_undo(map_id: int, engine: Engine, owner: OwnerDep) -> RedirectResponse:

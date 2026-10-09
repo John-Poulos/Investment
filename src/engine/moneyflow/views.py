@@ -83,6 +83,7 @@ class CompanyMoneyFlow:
     windows: list[Window]
     links: list[sqlite3.Row]
     rpo: Rpo
+    supply: list = field(default_factory=list)  # M02 part 5 link passages
     verdicts: dict[str, str] = field(default_factory=dict)
 
 
@@ -132,8 +133,54 @@ def company_view(
         windows=allocation(engine, cik, clause, override),
         links=links.company_links(engine, cik),
         rpo=rpo(engine, cik),
+        supply=supply_rows(engine, cik),
         verdicts={g.period: v for g in lines if (v := guided_vs_actual(g))},
     )
+
+
+@dataclass(frozen=True)
+class SupplyRow:
+    other: str
+    other_cik: str | None
+    role: str  # "supplier to this company" | "customer of this company" | "direction not stated"
+    rung: str
+    share_pct: float | None
+    status: str
+    quote: str
+    accession: str
+    filename: str
+    quote_start: int
+    filed: str | None
+    llm: str | None
+
+
+def supply_rows(engine: sqlite3.Connection, cik: str) -> list[SupplyRow]:
+    """One row per company pair (strongest passage), confirmed first (D-M02-7)."""
+    from engine.supply.links import RUNG_ORDER, company_links
+
+    best: dict[str, sqlite3.Row] = {}
+    for r in sorted(company_links(engine, cik), key=lambda r: RUNG_ORDER[r["rung"]]):
+        best.setdefault(r["pair_key"], r)
+    out = []
+    for r in best.values():
+        me_a = r["a_cik"] == cik
+        other, other_cik = (r["b_name"], r["b_cik"]) if me_a else (r["a_name"], r["a_cik"])
+        d = r["direction"]
+        if d is None:
+            role = "direction not stated"
+        elif (d == "a_to_b") == me_a:
+            role = "customer of this company"  # this company supplies the other
+        else:
+            role = "supplier to this company"
+        llm = (
+            f"Gemini: {r['llm_type']} {r['llm_direction'] or ''}".strip() if r["llm_type"] else None
+        )
+        out.append(SupplyRow(other, other_cik, role, r["rung"],
+                             float(r["share_pct"]) if r["share_pct"] is not None else None,
+                             r["status"], r["quote"], r["accession"], r["filename"],
+                             r["quote_start"], r["filed"], llm))  # fmt: skip
+    order = {"confirmed": 0, "candidate": 1, "rejected": 2}
+    return sorted(out, key=lambda s: (order[s.status], s.role, s.other))
 
 
 @dataclass(frozen=True)

@@ -220,7 +220,15 @@ def apply(
         from engine.moneyflow.allocation import map_tag
 
         map_tag(engine, payload, action, None, by, now)
-    # m02_link / m02_input / m02_ir_download / m02_capex_gap: the resolution itself is the
+    elif kind == "m02_link" and payload.get("pair"):
+        from engine.supply.links import decide
+
+        decide(engine, payload, action, by, now, core)
+    elif kind == "m02_input" and cik and payload.get("category"):
+        from engine.llm.supply_labels import decide_input
+
+        decide_input(engine, cik, payload, action)
+    # m02_ir_download / m02_capex_gap: the resolution itself is the
     # record; the parts that create them (5, 4, 3) read it.
 
 
