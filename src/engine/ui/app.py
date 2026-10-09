@@ -30,6 +30,7 @@ from engine.llm.runs import run as llm_run
 from engine.prices import store as prices
 from engine.prices.tiingo import MissingKey, TiingoClient, token_from_env
 from engine.store.db import connect, migrate
+from engine.themes import views as themes
 from engine.ui import services
 from engine.ui.settings import UiSettings
 from engine.ui.viewer import Viewer, current_viewer, require_owner
@@ -44,11 +45,10 @@ TABS = (
     ("insiders", "Insiders", True),
     ("events", "Events and filings", True),
     ("search", "Search", True),
-    ("themes", "Themes", False),  # M02
+    ("themes", "Themes", True),  # M02 part 1
     ("ask", "Ask", False),  # reserved (D-SRCH-18)
 )
 NOT_BUILT = {
-    "themes": "Themes arrive with M02.",
     "ask": "Reserved for grounded Q&A, to be decided after the fixed analyses prove themselves.",
 }
 
@@ -184,6 +184,11 @@ def create_app(settings: UiSettings) -> FastAPI:
                     | {e["accession"] for e in ctx["events"]}
                 ),
             )
+        elif tab == "themes":
+            ctx["ct"] = themes.company_themes(engine, cik, ticker)
+            ctx["readable"] = services.stored_accessions(
+                corpus, [m["accession"] for m in ctx["ct"].mentions]
+            )
         elif tab == "search" and q.strip():
             ctx["result"] = services.company_search(corpus, cik, q.strip())
         return templates.TemplateResponse(request, "company.html", ctx)
@@ -249,6 +254,58 @@ def create_app(settings: UiSettings) -> FastAPI:
             return RedirectResponse(f"/c/{ticker}?tab=guidance&msg=llm-error&detail={detail}", 303)
         msg = "stored-result" if res.cached else "analyzed"
         return RedirectResponse(f"/c/{ticker}?tab=guidance&msg={msg}", 303)
+
+    def pick_family(engine: sqlite3.Connection, family: str) -> tuple[str, list[str]]:
+        fams = themes.families_with_data(engine)
+        return (family if family in fams else fams[0]), fams
+
+    @app.get("/themes", response_class=HTMLResponse)
+    def themes_page(request: Request, engine: Engine, viewer: ViewerDep, family: str = "10-K"):
+        family, fams = pick_family(engine, family)
+        ctx = frame(engine) | {
+            "viewer": viewer,
+            "family": family,
+            "families": fams,
+            "themes": themes.theme_list(engine, family),
+            "through": themes.data_through(engine),
+        }
+        return templates.TemplateResponse(request, "themes.html", ctx)
+
+    @app.get("/themes/{key}", response_class=HTMLResponse)
+    def theme_page(
+        request: Request, key: str, engine: Engine, viewer: ViewerDep, family: str = "10-K"
+    ):
+        family, _ = pick_family(engine, family)
+        d = themes.theme_detail(engine, key, family)
+        if d is None:
+            raise HTTPException(404, f"Unknown theme {key}.")
+        ctx = frame(engine) | {"viewer": viewer, "d": d}
+        return templates.TemplateResponse(request, "theme.html", ctx)
+
+    @app.get("/themes/{key}/filers", response_class=HTMLResponse)
+    def theme_filers_page(
+        request: Request,
+        key: str,
+        engine: Engine,
+        corpus: Corpus,
+        viewer: ViewerDep,
+        phrase: Annotated[str, Query(max_length=200)],
+        start: Annotated[str, Query(pattern=r"^\d{4}-\d{2}-\d{2}$")],
+        end: Annotated[str, Query(pattern=r"^\d{4}-\d{2}-\d{2}$")],
+        family: str = "10-K",
+    ):
+        family, _ = pick_family(engine, family)
+        row = engine.execute("SELECT name FROM theme WHERE key = ?", (key,)).fetchone()
+        if row is None:
+            raise HTTPException(404, f"Unknown theme {key}.")
+        filers, partial = themes.phrase_filers(engine, phrase, family, start, end)
+        ctx = frame(engine) | {
+            "viewer": viewer, "key": key, "name": row["name"], "family": family,
+            "phrase": phrase, "start": start, "end": end, "filers": filers,
+            "partial": partial,
+            "readable": services.stored_accessions(corpus, [f.accession for f in filers]),
+        }  # fmt: skip
+        return templates.TemplateResponse(request, "theme_filers.html", ctx)
 
     @app.get("/runs", response_class=HTMLResponse)
     def runs_page(request: Request, engine: Engine, viewer: ViewerDep):

@@ -130,7 +130,7 @@ def test_missing_values_are_dashes_not_zero():
 
 
 @pytest.mark.parametrize(
-    "tab", ["overview", "financials", "insiders", "events", "search", "guidance"]
+    "tab", ["overview", "financials", "insiders", "events", "search", "guidance", "themes"]
 )
 def test_no_python_objects_leak_into_pages(client, tab):
     html = client.get(f"/c/META?tab={tab}").text

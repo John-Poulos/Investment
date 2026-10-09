@@ -1,0 +1,24 @@
+{% if ct.linked %}
+<h2>Linked themes</h2>
+<table class="data">
+  <tr><th>Theme</th><th>Source</th><th>Since</th><th>Reason</th></tr>
+  {% for t in ct.linked %}
+  <tr><td><a href="/themes/{{ t.key }}">{{ t.name }}</a></td><td class="muted">{{ t.source }}</td><td>{{ t.discovered_at[:10] }}</td><td class="muted">{{ t.reason or '—' }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}<p class="empty">Not linked to a theme yet (links come from config/themes.toml, later from accepted proposals).</p>{% endif %}
+<h2 style="margin-top:16px">This company's filings that mention a theme phrase</h2>
+{% if ct.mentions %}
+<table class="data">
+  <tr><th>Filed</th><th>Form</th><th>Phrases</th><th>Themes</th><th>Document</th></tr>
+  {% for m in ct.mentions %}
+  <tr>
+    <td>{{ m.file_date or '—' }}</td><td>{{ m.form or '—' }}</td>
+    <td>{{ m.phrases | join(', ') }}</td>
+    <td>{% for k, n in m.themes.items() %}<a href="/themes/{{ k }}">{{ n }}</a>{{ ', ' if not loop.last }}{% endfor %}</td>
+    <td>{% if m.accession in readable %}<a href="/doc/{{ m.accession }}">read</a> · {% endif %}<a href="{{ m.url }}" target="_blank" rel="noopener">SEC</a></td>
+  </tr>
+  {% endfor %}
+</table>
+<p class="note">From stored full-text search hits (up to 1,000 per phrase and window), so a very common phrase may not list every filing.</p>
+{% else %}<p class="empty">No stored hits for this company yet.</p>{% endif %}

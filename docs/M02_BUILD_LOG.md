@@ -24,7 +24,7 @@ One section per proposed amendment, discussed with the owner in order. Outcome l
 ## Build parts (owner approved order 2026-10-09; one conversation each, Medium effort)
 | Part | Covers | Decisions | Depends on | Live checks (owner runs) | Status |
 |---|---|---|---|---|---|
-| 1 Theme core | `config/themes.toml` seeds + DB themes/phrases with `discovered_at`; EFTS breadth with `form.idx` denominator, 10-page cap, lower bound; Themes tab v1 (share of filers, same window YoY) | D-M02-1, -14, -16 | M00 | EFTS probe (aggregations, NEAR/OR, 10-K/A); breadth for seed phrases | next |
+| 1 Theme core | `config/themes.toml` seeds + DB themes/phrases with `discovered_at`; EFTS breadth with `form.idx` denominator, 10-page cap, lower bound; Themes tab v1 (share of filers, same window YoY) | D-M02-1, -14, -16, -17 | M00 | done: probe + first run 2026-10-09 | built (branch `m02-theme-core`) |
 | 2 Plumbing | Review kinds m02_theme/phrase/candidate/link/input/ir_download; weekly header, cap 10, suppression; guide panel; tracked tier tables + side panel core/promoted/tracked; promotion suggestion + 12-month review; price rotation (tracked 3-day) + 8/h app reserve; end-of-run summary box | D-M02-10, -11, -12 | 1 | one logon catch-up with tracked names | — |
 | 3 Money flow | Capex components (clause tag, "definition changed", stale flag, own-definition actuals incl. finance-lease principal, funding coverage); new XBRL concepts; spender→theme quote link; per-spender view | D-M02-5, -15 | 1, 2 | guidance re-scan; MSFT/META checks | — |
 | 4 Call guidance | Alpha Vantage adapter (probe done 2026-10-09: works, fiscal labels); allowed-site IR fetch (MSFT, MRVL, GFS, MU paced); Downloads pickup + m02_ir_download; PDF/DOCX/PPTX text; parser; grade B → A on match | D-M02-6 | 2, 3 | probe done 2026-10-09 | — |
@@ -36,6 +36,14 @@ Effort: High only if a part raises a new design question; otherwise Medium. Each
 
 ## Notes per part
 (filled during the review and the builds)
+
+### Part 1 — Theme core (built 2026-10-09, D-M02-17)
+- Code: `themes/seeds.py`, `themes/universe.py`, `themes/breadth.py`, `themes/views.py`; `sec/fulltext.py` (`parse_entities`, `SearchResult.complete`); migration engine 0014; `scripts/run_themes.py`; templates `themes.html`, `theme.html`, `theme_filers.html`, `tabs/themes.html`, `_theme_macros.html`; tests `test_themes.py`, `test_ui_themes.py`, live `tests/live/test_m02_live.py` (label m02-probe).
+- Probe facts: entity_filter 30 buckets; forms=10-K includes 10-K/A; NEAR → 0 through the API; form.gz present.
+- First run: 443 SEC requests for 37 phrases × 9 windows (10-K); 32 form indexes (~24k tracked-family rows per quarter). One persistent EFTS 500 ("advanced packaging" 2020) → half-window retry added afterwards.
+- Generic phrases seen: "domestic manufacturing" (replaced), "behind-the-meter" (dropped), "HBM" may collide with other acronyms/tickers, "advanced packaging" may include non-semiconductor packaging → part 6 industry-spread test (SIC per hit is stored in `fulltext_hit.sics`).
+- Not done in part 1 (later parts): weekly/seasonal scheduling (part 2/6), 10-Q/8-K families by default (run with `--families`), phrase tests and proposals (part 6).
+- Visual check: scratch data in `.claude/launch.json` config `ui-scratch` (port 8799; data dir = session scratchpad — change the path for a new session).
 
 ### Money flow — capex guidance (D-M02-5)
 - Reuse: `guidance/ledger.py` (metric `capex`), `guidance/changes.py` (raised/lowered…), `sec/xbrl_facts.py` concepts `capex` (`PaymentsToAcquirePropertyPlantAndEquipment`, fallback `PaymentsToAcquireProductiveAssets` — the fallback tag must be shown, M00_SEC_DATA open item) and `rpo`.

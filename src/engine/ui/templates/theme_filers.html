@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ phrase }} — Themes{% endblock %}
+{% block topleft %}<a href="/themes/{{ key }}?family={{ family }}">← {{ name }}</a><span class="name">{{ phrase }}</span>{% endblock %}
+{% block body %}
+<main class="detail" style="max-width: 1100px">
+  <p class="note">{{ family }} filings {{ start }} to {{ end }} containing {{ phrase }} · {{ filers | length }} filings{% if partial %} · <span class="badge">partial list: more than 1,000 hits, only the first pages were fetched</span>{% endif %}</p>
+  {% if filers %}
+  <table class="data">
+    <tr><th>Company</th><th>Form</th><th>Filed</th><th>Document</th></tr>
+    {% for f in filers %}
+    <tr>
+      <td>{{ f.entity or '—' }} <span class="muted">{{ f.cik or '' }}</span></td>
+      <td>{{ f.form or '—' }}</td><td>{{ f.file_date or '—' }}</td>
+      <td>{% if f.accession in readable %}<a href="/doc/{{ f.accession }}">read</a> · {% endif %}{% if f.url %}<a href="{{ f.url }}" target="_blank" rel="noopener">SEC</a>{% endif %} <span class="muted">{{ f.filename }}</span></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="empty">No stored hits for this phrase and window.</p>{% endif %}
+</main>
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% from "_theme_macros.html" import share, companies, change, spark %}
+{% block title %}Themes — Investment engine{% endblock %}
+{% block topleft %}<a href="/">← Engine</a><span class="name">Themes</span>{% endblock %}
+{% block body %}
+<main class="detail" style="max-width: 1100px">
+  <p class="note">{{ family }} filers · data through {{ through or '—' }}
+    {% if families | length > 1 %}· family: {% for f in families %}<a href="/themes?family={{ f }}" class="{{ 'on' if f == family }}">{{ f }}</a> {% endfor %}{% endif %}</p>
+  {% if themes %}
+  <table class="data">
+    <tr><th>Theme</th><th class="num">Companies (newest window)</th><th class="num">Share of filers</th><th class="num">vs same span a year ago</th><th>Share by year</th><th></th></tr>
+    {% for t in themes %}
+    <tr>
+      <td><a href="/themes/{{ t.key }}?family={{ family }}">{{ t.name }}</a> <span class="muted">{{ t.tickers | join(' ') }}</span></td>
+      <td class="num">{{ companies(t.latest) }}{% if t.latest %} <span class="muted">{{ t.latest.start[:4] }}{{ '' if t.latest.end.endswith('12-31') else ' YTD' }}</span>{% endif %}</td>
+      <td class="num">{{ share(t.latest) }}</td>
+      <td class="num">{{ change(t.latest) }}</td>
+      <td class="spark-cell">{{ spark(t.series) }}</td>
+      <td>{% if t.missing %}<span class="badge" title="a window failed; it stays missing">missing window</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="note">Share = distinct companies mentioning any of the theme's phrases ÷ distinct {{ family }} filers in the same window (EDGAR form index). "≥" = lower bound (a phrase had more than 1,000 hits). Mentions measure attention, not money; read them with money flow when it arrives (D-M02-5).</p>
+  {% else %}
+  <p class="empty">No theme breadth stored yet. Run <code>uv run python scripts/run_themes.py</code>.</p>
+  {% endif %}
+</main>
+{% endblock %}

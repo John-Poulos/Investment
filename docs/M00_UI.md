@@ -36,7 +36,7 @@ Before sharing (not now): login, HTTPS behind a reverse proxy, CSRF protection o
   - *Insiders (M07):* Form 4 transactions (data exists; classification when M07 is built).
   - *Events & filings:* 8-K events by category and severity, filing list with SEC links.
   - *Search:* Tier-2 search within this company (passages, snippets).
-  - *Themes (M02):* when built.
+  - *Themes (M02):* linked themes and the company's own theme mentions (D-UI-17); theme pages at `/themes`.
   - *Ask (reserved):* grounded Q&A slot, not built (D-SRCH-18).
 
 ### 2. Source viewer and document reader (used everywhere)
@@ -110,6 +110,8 @@ Nightly run reports, guidance scan summary, Gemini call log with tokens and cost
 - D-UI-15 (2026-10-08): Review guide and undo (owner): a collapsible "How to resolve review items" panel on the queue and item pages explains each action's effect, rules for a good entry (forward guidance only, numbers from the sentence, company period labels, basis only when stated, no forcing unsupported metrics, when unsure leave open) and worked examples from the real queue (Boeing milestone and Marvell growth rate → leave open; Meta reason, NVIDIA SBC assumption, Infleqtion remittance, Strategy dividend table → dismiss; a missed capex sentence → enter). Policy: real information the program cannot store yet stays open for its future module. **Reopen** returns a resolved item to the queue and removes an owner-entered value (not available for keep_other/approve).
 
 - D-UI-16 (2026-10-08, M02 review): Tiingo's IEX endpoint returns a latest snapshot for many tickers in one request (free plan) but no adjusted prices, dividends or splits; Tiingo-calculated OHLC, IEX-only volume before the close, `last` empty since 2025-02 without an IEX agreement. Deferred until symbols pass ~150–200 (nightly > 3–4 h) or live side-panel prices are wanted; per-ticker EOD stays the record and a snapshot is never stored as a bar. Before building: one test call to learn whether a batch counts each ticker toward the monthly symbol cap (undocumented). Note: the 500/month cap counts unique symbols, so nightly vs on-open fetching uses the same cap share (owner).
+
+- D-UI-17 (2026-10-09, M02 part 1): Themes screens built from the reviewed mockup (D-UI-4): top-bar "Themes" link; `/themes`, `/themes/<key>`, `/themes/<key>/filers`; company tab Themes enabled (linked themes + the company's own mentions). Shares show "≥" for lower bounds and "—" for missing windows; every count links to its filings (D-M02-17) (owner).
 
 ## Open questions
 - Phone-sized layout: not planned while local-only.

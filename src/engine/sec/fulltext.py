@@ -15,6 +15,10 @@ count is never mistaken for the true total. If a quoted phrase fails (EFTS has
 returned HTTP 500 for some quoted terms), the unquoted terms are tried and the
 result is labeled `terms (fallback)`: weaker evidence, never silently mixed.
 EFTS returns no matched text; fetch the document (documents.py) to read it.
+
+Each response also carries an `entity_filter` aggregation (filers by hit count). It
+lists only the top buckets (~30, observed by others; confirm live), so it gives a
+lower bound on distinct companies when not every hit was fetched (M02 D-M02-14).
 """
 
 from __future__ import annotations
@@ -93,6 +97,28 @@ class SearchPage:
     total: int
     capped: bool
     hits: tuple[Hit, ...]
+    entities: tuple[str, ...] = ()  # entity_filter bucket keys (top filers only)
+    entities_other: int | None = None  # hits outside those buckets, when reported
+
+
+_CIK_IN_KEY = re.compile(r"CIK\s*0*(\d+)")
+
+
+def parse_entities(data: dict[str, Any]) -> tuple[tuple[str, ...], int | None]:
+    """Filer keys from the `entity_filter` aggregation: the CIK when the key shows one,
+    else the key itself. Missing aggregation → ((), None)."""
+    agg = (data.get("aggregations") or {}).get("entity_filter")
+    if not isinstance(agg, dict):
+        return (), None
+    keys = []
+    for b in agg.get("buckets") or []:
+        key = str(b.get("key", "")).strip()
+        if not key:
+            continue
+        m = _CIK_IN_KEY.search(key)
+        keys.append(normalize_cik(m.group(1)) or key if m else key)
+    other = agg.get("sum_other_doc_count")
+    return tuple(dict.fromkeys(keys)), int(other) if isinstance(other, int) else None
 
 
 def parse_hits(data: dict[str, Any]) -> tuple[int, bool, list[Hit]]:
@@ -173,9 +199,10 @@ def search_page(
         if isinstance(res, Ok):
             try:
                 total, capped, hits = parse_hits(res.data)
+                entities, other = parse_entities(res.data)
             except (ValueError, TypeError) as exc:
                 return Failed(f"EFTS response unreadable: {exc}", url=EFTS_URL)
-            return Ok(SearchPage(quoted, variant, total, capped, tuple(hits)),
+            return Ok(SearchPage(quoted, variant, total, capped, tuple(hits), entities, other),
                       source_ref=res.source_ref, fetched_at=res.fetched_at,
                       from_cache=res.from_cache)  # fmt: skip
         if isinstance(res, Failed) and (res.throttled or (res.status or 0) < 500):
@@ -195,6 +222,13 @@ class SearchResult:
     hits: tuple[Hit, ...]
     sic_dropped: int = 0
     incomplete: tuple[str, ...] = field(default_factory=tuple)  # pages that failed
+    entities: tuple[str, ...] = ()  # entity_filter keys from the first page (top filers)
+    entities_other: int | None = None
+
+    @property
+    def complete(self) -> bool:
+        """Every hit was fetched, so distinct filings and companies are exact."""
+        return not self.capped and not self.incomplete and len(self.hits) >= self.total
 
 
 def search(
@@ -238,7 +272,8 @@ def search(
     query_id = _store(engine, page, forms, start, end, kept, sic_set, now)
     return Ok(
         SearchResult(query_id, page.phrase, page.variant, page.total, page.capped, tuple(kept),
-                     len(hits) - len(kept), tuple(incomplete)),
+                     len(hits) - len(kept), tuple(incomplete), page.entities,
+                     page.entities_other),
         source_ref=first.source_ref, fetched_at=iso(now),
     )  # fmt: skip
 
@@ -317,7 +352,7 @@ def count_by_window(
             out.append(WindowCount(start, end, None, False, None, error=reason))
             continue
         r = res.data
-        complete = not r.capped and not r.incomplete and len(r.hits) >= r.total
+        complete = r.complete
         out.append(
             WindowCount(
                 start,
