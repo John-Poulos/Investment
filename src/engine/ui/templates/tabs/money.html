@@ -1,0 +1,84 @@
+{% set m = mf %}
+<p class="note">Money flow (M02 part 3): hypothesis, not backtested · guidance is a {{ FORECAST_NOTE }} · capex on the company's own definition: <b>{{ m.recipe_label }}</b>{% if m.recipe_source == 'override' %} (config/capex_definitions.toml){% endif %}.</p>
+
+<h2>Capex guidance</h2>
+{% if m.no_guidance %}
+<p class="empty">No capex guidance given: no release or call of this company states capex (D-M02-30).</p>
+{% elif not m.guided %}
+<p class="empty">Capex guidance is stored only for periods that are not matched to reported figures.</p>
+{% else %}
+<table class="data">
+  <tr><th>Period</th><th>Latest statement</th><th>Source</th><th>Growth vs last year</th><th>Freshness</th></tr>
+  {% for g in m.guided %}
+  <tr>
+    <td>{{ g.period }}</td>
+    <td><a href="/source/{{ g.accession }}/{{ g.filename }}" title="{{ g.quote }}">{{ g.value_text }}</a>
+      {% if g.clause %}<div class="muted">{{ g.clause }}</div>{% endif %}
+      {% if g.change %}<div class="muted">{{ g.change }}</div>{% endif %}</td>
+    <td style="white-space:nowrap" {% if source_label(g.accession) %}title="{{ source_label(g.accession, g.grade) }}"{% endif %}>{{ g.source_text }}<div class="muted">{{ g.stated_on }}</div></td>
+    <td>{{ g.growth_text }}
+      {% if g.base and g.base.shown is not none %}<div class="muted">vs {{ g.base.period }} {{ g.base.shown | money }}{% if g.base.source == 'stated' %} (stated){% elif g.base.recipe and g.base.recipe.approximate %} (≈){% endif %}</div>{% endif %}</td>
+    <td>{% if g.ended %}period ended: {{ m.verdicts.get(g.period, 'no actual yet') }}{% if g.actual and g.actual.shown is not none %}<div class="muted">actual {{ g.actual.shown | money }} · {{ g.actual.label }}</div>{% endif %}
+        {% else %}<span title="{{ g.freshness.why }}">{{ g.freshness.state }}</span><div class="muted">{{ g.freshness.why }}</div>{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+<h2 style="margin-top:16px">Actual capex ({{ m.recipe_label }})</h2>
+{% if m.actuals %}
+<table class="data">
+  <tr><th>Period</th><th class="num">Recipe (XBRL)</th><th>Stated</th><th class="num">Shown</th><th>Check</th></tr>
+  {% for r in m.actuals %}{% set a = r.actual %}
+  <tr>
+    <td>{{ r.period }}</td>
+    <td class="num" {% if a.recipe %}title="{{ a.recipe.how }}"{% endif %}>{% if a.recipe %}{{ '≈ ' if a.recipe.approximate }}{{ a.recipe.value | money }}{% else %}—{% endif %}
+      {% if a.recipe and a.recipe.note %}<div class="muted">{{ a.recipe.note }}</div>{% endif %}</td>
+    <td>{% if a.stated %}<a href="/source/{{ a.stated.accession }}/{{ a.stated.filename }}" title="{{ a.stated.quote }}">{{ a.stated.value | money }}</a> <span class="muted">{{ a.stated.origin }} · {{ a.stated.grade }}{% if a.stated.period_how != 'stated' %} · period from the {{ a.stated.period_how }}{% endif %}</span>{% else %}—{% endif %}</td>
+    <td class="num"><b>{{ a.shown | money }}</b></td>
+    <td>{{ a.label }}</td>
+  </tr>
+  {% endfor %}
+</table>
+<p class="note">Reconciled = the XBRL recipe is within 1% of the company's stated figure. When the recipe is approximate, partial or further off, the stated figure is shown and the recipe stays beside it (D-M02-32).</p>
+{% else %}<p class="empty">No capex reported in XBRL and none stated.</p>{% endif %}
+
+<h2 style="margin-top:16px">Capital allocation</h2>
+{% if m.windows %}
+<table class="data">
+  <tr><th></th>{% for w in m.windows %}<th class="num">{{ w.label }}</th>{% endfor %}</tr>
+  <tr><td>Operating cash flow</td>{% for w in m.windows %}<td class="num">{{ w.ocf | money }}</td>{% endfor %}</tr>
+  <tr><td>Capex (own definition)</td>{% for w in m.windows %}<td class="num" title="{{ w.capex_note }}">{{ w.capex | money }}</td>{% endfor %}</tr>
+  <tr><td>OCF ÷ capex</td>{% for w in m.windows %}<td class="num">{{ w.ocf_cover_text }}</td>{% endfor %}</tr>
+  <tr><td>Net debt (raised − repaid)</td>{% for w in m.windows %}<td class="num">{{ w.net_debt | money }}</td>{% endfor %}</tr>
+  <tr><td>Net equity (issued − buybacks − withholding)</td>{% for w in m.windows %}<td class="num">{{ w.net_equity | money }}</td>{% endfor %}</tr>
+  {% for role, name in [('debt_raised', 'debt raised'), ('debt_repaid', 'debt repaid'), ('debt_net', 'short-term debt, net'), ('equity_issued', 'equity issued'), ('buybacks', 'buybacks'), ('withholding', 'shares withheld for taxes'), ('dividends', 'dividends'), ('lease_principal', 'finance-lease principal'), ('other', 'other financing (mapped)')] %}
+  <tr><td class="muted">&nbsp;&nbsp;{{ name }}</td>{% for w in m.windows %}{% set l = w.lines.get(role) %}<td class="num muted" {% if l %}title="{{ l.tags | join(', ') }}"{% endif %}>{% if l %}{{ l.value | money }}{% elif role == 'lease_principal' and w.lease_in_capex %}in capex{% else %}not reported{% endif %}</td>{% endfor %}</tr>
+  {% endfor %}
+  <tr><td>Net cash from financing (reported)</td>{% for w in m.windows %}<td class="num">{{ w.financing | money }}</td>{% endfor %}</tr>
+  <tr><td></td>{% for w in m.windows %}<td class="num" {% if w.coverage is not none and w.coverage < 0.8 %}style="color: var(--warn)"{% endif %}>{{ w.coverage_text }}</td>{% endfor %}</tr>
+</table>
+{% for w in m.windows %}{% if not w.lines.get('withholding') and w.lines.get('buybacks') %}<p class="note">{{ w.label }}: buybacks may include shares withheld for taxes (no separate withholding tag).</p>{% endif %}{% endfor %}
+<p class="note">Association, not cause: new debt may fund buybacks rather than capex. Finance-lease principal sits in capex when the company's definition includes it, otherwise on its own line. Unmapped financing lines are listed in the review queue (m02_tag).</p>
+{% else %}<p class="empty">No operating cash flow reported in XBRL.</p>{% endif %}
+
+<h2 style="margin-top:16px">Theme links</h2>
+{% if m.links %}
+<table class="data">
+  <tr><th>Theme</th><th>Status</th><th>Sentence</th><th>Source</th></tr>
+  {% for l in m.links[:12] %}
+  <tr><td><a href="/themes/{{ l['key'] }}">{{ l['name'] }}</a></td><td>{{ l['status'] }}</td>
+    <td><a href="/doc/{{ l['accession'] }}?file={{ l['filename'] }}&start={{ l['quote_start'] }}#hl">“{{ l['quote'] }}”</a></td>
+    <td class="muted" style="white-space:nowrap">{{ l['origin'] }} · {{ l['grade'] }} · {{ l['filed'] or '—' }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}<p class="empty">No sentence found yet tying this company's spending to a theme phrase.</p>{% endif %}
+
+<h2 style="margin-top:16px">Remaining performance obligations (RPO)</h2>
+{% if m.rpo.reported %}
+<table class="data">
+  <tr><th>Quarter end</th><th class="num">RPO</th><th class="num">vs a year earlier</th></tr>
+  {% for r in m.rpo.rows %}<tr><td>{{ r.end }}</td><td class="num">{{ r.value | money }}</td><td class="num">{% if r.yoy is not none %}{{ '%+.0f' | format(100 * r.yoy) }}%{% else %}—{% endif %}</td></tr>{% endfor %}
+</table>
+<p class="note">Compared with the company's own history only (contracts ≤ 1 year may be excluded, S79){% if m.rpo.own_median_yoy is not none %}: median growth {{ '%+.0f' | format(100 * m.rpo.own_median_yoy) }}%{% if m.rpo.latest_vs_own is not none %}, latest {{ '%+.0f' | format(100 * m.rpo.latest_vs_own) }} pts vs that{% endif %}{% endif %}.</p>
+{% else %}<p class="empty">RPO not reported (common for hardware sellers) — never shown as zero.</p>{% endif %}

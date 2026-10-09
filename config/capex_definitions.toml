@@ -1,0 +1,18 @@
+# Capex on each company's own definition (M02 part 3, D-M02-29). Hand-edited; the app
+# never edits this file. A section overrides the recipe the engine would choose from the
+# company's guidance clause. Terms are "taxonomy:Tag"; company extension tags (amzn:...)
+# are read from each 10-K/10-Q XBRL instance (moneyflow/instance.py), one request per
+# filing. Until they are stored, the recipe uses the plus terms only, labelled
+# "approximate: excludes ...", and the company's stated figure is shown when it has one
+# (D-M02-32).
+#
+# [TICKER]
+# definition = "how the company defines capex, in its words"
+# plus = ["us-gaap:PaymentsToAcquirePropertyPlantAndEquipment"]
+# minus = []
+# approximate = false   # true: shown with "≈" even when every term is present
+
+[AMZN]
+definition = "cash capital expenditures: purchases of property and equipment, net of proceeds from sales and incentives"
+plus = ["us-gaap:PaymentsToAcquireProductiveAssets"]
+minus = ["amzn:ProceedsFromPropertyPlantAndEquipmentSalesAndIncentives"]

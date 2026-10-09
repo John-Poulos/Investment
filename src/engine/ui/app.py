@@ -31,6 +31,8 @@ from engine.llm import call_check, guidance_reasons
 from engine.llm.provider import GeminiProvider, estimate_tokens, load_settings
 from engine.llm.runs import cached_call
 from engine.llm.runs import run as llm_run
+from engine.moneyflow import allocation as mf_allocation
+from engine.moneyflow import views as mf_views
 from engine.prices import store as prices
 from engine.prices.tiingo import MissingKey, TiingoClient, token_from_env
 from engine.store.db import connect, migrate
@@ -78,6 +80,7 @@ def correction_form(
 TABS = (
     ("overview", "Overview", True),
     ("guidance", "Guidance", True),
+    ("money", "Money flow", True),  # M02 part 3
     ("financials", "Financials", True),
     ("insiders", "Insiders", True),
     ("events", "Events and filings", True),
@@ -139,6 +142,8 @@ def create_app(settings: UiSettings) -> FastAPI:
     templates.env.globals["source_label"] = source_label  # D-M02-21 labels
     templates.env.globals["is_sec"] = is_sec
     templates.env.globals["FORECAST_NOTE"] = FORECAST_NOTE
+    templates.env.filters["money"] = mf_views.money  # M02 part 3
+    templates.env.globals["payload_value"] = mf_views.payload_value
 
     for db in ("engine", "corpus"):  # bring schemas up to date once, at start
         conn = connect(settings.data_dir / f"{db}.db")
@@ -208,6 +213,8 @@ def create_app(settings: UiSettings) -> FastAPI:
         elif tab == "guidance":
             ctx["guidance"] = services.guidance_view(engine, cik)
             ctx["analyze"] = analyze_estimate(engine, corpus, cik)
+        elif tab == "money":
+            ctx["mf"] = mf_views.company_view(engine, cik, datetime.now(UTC).date(), corpus)
         elif tab == "financials":
             ctx["tables"] = services.financials(engine, cik)
         elif tab == "insiders":
@@ -355,7 +362,9 @@ def create_app(settings: UiSettings) -> FastAPI:
         d = themes.theme_detail(engine, key, family)
         if d is None:
             raise HTTPException(404, f"Unknown theme {key}.")
-        ctx = frame(engine) | {"viewer": viewer, "d": d}
+        row = engine.execute("SELECT theme_id FROM theme WHERE key = ?", (key,)).fetchone()
+        mf = mf_views.theme_view(engine, row["theme_id"], key, datetime.now(UTC).date())
+        ctx = frame(engine) | {"viewer": viewer, "d": d, "mf": mf}
         return templates.TemplateResponse(request, "theme.html", ctx)
 
     @app.get("/themes/{key}/filers", response_class=HTMLResponse)
@@ -387,8 +396,15 @@ def create_app(settings: UiSettings) -> FastAPI:
     def runs_page(request: Request, engine: Engine, viewer: ViewerDep):
         now = datetime.now(UTC).isoformat(timespec="seconds")
         ctx = frame(engine) | {"viewer": viewer, "rc": services.runs_and_costs(engine, now),
-                               "accuracy": labels.accuracy(engine)}  # fmt: skip
+                               "accuracy": labels.accuracy(engine),
+                               "tag_maps": mf_allocation.mapping_list(engine)}  # fmt: skip
         return templates.TemplateResponse(request, "runs.html", ctx)
+
+    @app.post("/money/tag-map/{map_id}/undo")
+    def tag_map_undo(map_id: int, engine: Engine, owner: OwnerDep) -> RedirectResponse:
+        """Undo a cash-flow tag mapping (D-M02-31 (5)); its review item reopens."""
+        mf_allocation.unmap(engine, map_id, owner.id, datetime.now(UTC))
+        return RedirectResponse("/runs#tag-maps", 303)
 
     # --- guidance accuracy (D-M02-24) ------------------------------------------------
 
