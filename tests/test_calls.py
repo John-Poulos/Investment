@@ -335,7 +335,7 @@ def test_definition_change_is_labelled_not_a_cut(loaded, clock):
 
 def test_paired_call_passages_go_to_gemini(loaded, clock):
     engine, corpus, *_ = loaded
-    _release(engine, corpus, clock, "later-rel", "2026-10-28",
+    _release(engine, corpus, clock, "later-rel", "2026-08-15",
              "We expect capital expenditures of $45 billion in the first quarter of fiscal 2027.\n")  # fmt: skip
     engine.execute("UPDATE call_document SET release_accession = 'later-rel'")  # pair for the test
     scan_all(engine, corpus, clock.now())
@@ -696,3 +696,52 @@ def test_carried_period_replaced_by_the_release_period(dbs, clock):
     row = engine.execute("SELECT * FROM guidance WHERE origin = 'call'").fetchone()
     # the carried "next fiscal year" (FY2027) gives way to the release's FY2027 Q1 for $40B
     assert (row["period"], row["grade"], row["period_quote"]) == ("FY2027 Q1", "A", "")
+
+
+# --- Live check 4 fixes (2026-10-09, D-M02-27) --------------------------------------
+
+
+def test_revenue_from_a_product_and_retold_comments():
+    r = _parse_turn(
+        "We expect quarterly revenue from optical modules to exceed $1 billion next quarter. "
+        "You're right that we commented that the capex increase for fiscal '27 is for clean rooms. "
+        "We expect revenue of $3 billion next quarter.",
+        anchor=(2027, 1),
+    )
+    assert [(i.metric, i.value.low) for i in r.items] == [("revenue", 3e9)]
+    assert r.directions == []
+
+
+def test_quarter_already_reported_goes_to_review(dbs, clock):
+    engine, corpus = dbs
+    _setup(engine, corpus, clock)  # fye June; release 2026-07-29 reports FY2026 Q4
+    _release(engine, corpus, clock, "q4-actual", "2026-07-30",
+             "We expect fourth quarter fiscal 2026 operating margin to be 45%.\n")  # fmt: skip
+    scan_all(engine, corpus, clock.now())
+    assert not engine.execute("SELECT 1 FROM guidance WHERE accession = 'q4-actual'").fetchone()
+    reason = engine.execute(
+        "SELECT reason FROM review_queue WHERE json_extract(payload, '$.accession') = 'q4-actual'"
+    ).fetchone()[0]
+    assert "period already over at the release" in reason
+
+
+def test_release_period_is_never_the_quarter_just_reported(dbs, clock):
+    engine, corpus = dbs
+    _setup(engine, corpus, clock)
+    # a release row for the reported quarter (FY2026 Q4) must not re-period a call figure
+    engine.execute(
+        "INSERT INTO guidance (cik, accession, filename, metric, basis, period, unit, kind, low, "
+        "high, stated_on, source, quote, quote_start, quote_end, period_quote, period_start, "
+        "period_end, doc_sha256, parser_version, created_at, origin, grade) VALUES (?, ?, "
+        "'ex991.htm', 'operating_margin', 'unspecified', 'FY2026 Q4', '%', 'point', 67, 67, "
+        "'2026-07-29', 'sentence', 'q', 0, 1, 'q', 0, 1, 'sha', 't', 'n', 'release', 'A')",
+        (CIK, RELEASE),
+    )
+    from engine.guidance.calls import CallDoc, release_period
+    from engine.guidance.parse import parse_call
+
+    text = "For next fiscal year we expect strong demand. We expect operating margin of 67%."
+    [item] = parse_call(text, [(0, len(text))], (2026, 4)).items
+    cd = CallDoc("AV-XCLD-2026Q4", "transcript.txt", CIK, "XCLD", "FY2026 Q4", "alpha_vantage",
+                 "transcript", RELEASE, "2026-07-29")  # fmt: skip
+    assert release_period(engine, cd, item).period == "FY2027"  # carried period kept

@@ -19,7 +19,15 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
-from engine.guidance.parse import PARSER_VERSION, Direction, Item, Value, clause_of, parse_release
+from engine.guidance.parse import (
+    PARSER_VERSION,
+    Direction,
+    Item,
+    Value,
+    clause_of,
+    ended,
+    parse_release,
+)
 from engine.guidance.sources import default_grade, origin_of
 from engine.sec.client import iso
 
@@ -242,6 +250,21 @@ def _insert_direction(
     )
 
 
+def reported_quarter(engine: sqlite3.Connection, release: Release) -> tuple[int, int] | None:
+    """The fiscal quarter an earnings release reports (from its date and the fiscal year
+    end); guidance for it or earlier is a reported actual (live check 4: a Broadcom release
+    row for the quarter just reported)."""
+    from datetime import date
+
+    from engine.calls.transcripts import fiscal_quarter
+
+    row = engine.execute("SELECT fiscal_year_end FROM entity WHERE cik = ?",
+                         (release.cik,)).fetchone()  # fmt: skip
+    if not row or not release.filed:
+        return None
+    return fiscal_quarter(date.fromisoformat(release.filed[:10]), row[0])
+
+
 def scan_release(
     engine: sqlite3.Connection, corpus: sqlite3.Connection, release: Release, now: datetime
 ) -> ScanResult:
@@ -261,14 +284,15 @@ def scan_release(
         kept: dict[tuple[str, str, str], Item] = {}
         conflicts = 0
         past = 0
+        reported = reported_quarter(engine, release)
         for item in parsed.items:
-            if _past_full_year(item.period, release.filed):
+            if _past_full_year(item.period, release.filed) or ended(item.period, reported):
                 past += 1
                 _review(
                     engine,
                     release,
                     "guidance_unparsed",
-                    f"{item.metric} {item.period}: full-year period ended before the release "
+                    f"{item.metric} {item.period}: period already over at the release "
                     "(likely a reported actual, not guidance)",
                     {
                         "text": text[item.quote_start : item.quote_end],

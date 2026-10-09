@@ -38,6 +38,7 @@ from engine.guidance.parse import (
     Item,
     ParseResult,
     Value,
+    ended,
     parse_call,
     parse_release,
 )
@@ -196,6 +197,7 @@ def release_period(engine: sqlite3.Connection, cd: CallDoc, item: Item) -> Item:
         )
         if (item.basis == r["basis"] or "unspecified" in (item.basis, r["basis"]))
         and _consistent(_row_value(r), item.value)
+        and not ended(r["period"], anchor_of(cd.quarter))  # never the quarter just reported
     }
     if len(periods) != 1:
         return item
@@ -215,7 +217,8 @@ def scan_call(
     if cd.stated_on is None:
         return CallScan(cd, "no_date")  # stored and searchable; no ledger rows without a date
     text, sha = doc["text"], doc["sha256"]
-    parsed = parse_call(text, management_turns(corpus, doc["doc_id"], text), anchor_of(cd.quarter))
+    anchor = anchor_of(cd.quarter)
+    parsed = parse_call(text, management_turns(corpus, doc["doc_id"], text), anchor)
     rel = Release(cd.cik, cd.accession, cd.filename, cd.stated_on, doc["doc_id"])
     at = iso(now)
 
@@ -230,10 +233,10 @@ def scan_call(
             item = release_period(engine, cd, item)
             if (item.quote_start, item.metric, item.period) in wrong:
                 continue  # the owner labelled this wrong (D-M02-24)
-            if _past_full_year(item.period, cd.stated_on):
+            if _past_full_year(item.period, cd.stated_on) or ended(item.period, anchor):
                 past += 1
                 _review(engine, rel, "guidance_unparsed",
-                        f"{item.metric} {item.period}: full-year period ended before the call "
+                        f"{item.metric} {item.period}: period already over at the call "
                         "(likely a reported actual, not guidance)",
                         {"text": text[item.quote_start : item.quote_end],
                          "offsets": [item.quote_start, item.quote_end]}, at)  # fmt: skip

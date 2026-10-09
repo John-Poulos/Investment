@@ -55,7 +55,7 @@ import re
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 
-PARSER_VERSION = "guidance-8"
+PARSER_VERSION = "guidance-9"
 
 # --- Metrics -----------------------------------------------------------------
 
@@ -488,8 +488,18 @@ _PARTY_BEFORE = re.compile(_PARTY + r"[^.;]{0,25}$", re.IGNORECASE)
 _PARTY_AFTER = re.compile(r"\s+(?:by|of|from|among|across)\b[^.,;]{0,40}?" + _PARTY, re.I)
 
 
+_REVENUE_FROM = re.compile(
+    r"\s*(?:revenues?|net sales)\s+(?:from|of)\s+"
+    r"(?!(?:continuing|operations|the quarter|the year|approximately|about|roughly)\b)"
+    r"(?:our\s+|the\s+)?[A-Za-z]",
+    re.IGNORECASE,
+)
+
+
 def segment_revenue(clause: str, start: int) -> bool:
-    """True when the word before 'revenue' names a segment ('AI revenue')."""
+    """True when 'revenue' names a segment: 'AI revenue', or 'revenue from TIAs and drivers'."""
+    if _REVENUE_FROM.match(clause, start):
+        return True
     words = re.findall(r"[A-Za-z][\w-]*", clause[max(0, start - 40) : start])
     return bool(words) and words[-1].lower().split("-")[-1] not in _REVENUE_LEAD
 
@@ -863,7 +873,8 @@ CALL_CUE = re.compile(  # not "guide": "as noted in our guide" is a noun (live c
     _CUE.pattern + r"|\b(?:will|plan(?:s|ning)? to|going to|guiding)\b", re.IGNORECASE
 )
 _RECOUNT = re.compile(
-    r"\b(?:we (?:had )?(?:said|guided|indicated)|earlier this year|previously|"
+    r"\b(?:we (?:had )?(?:said|guided|indicated)|we (?:commented|noted|mentioned) that|"
+    r"earlier this year|previously|"
     r"last quarter,? we|on our last call|our (?:prior|previous) (?:guidance|outlook))\b",
     re.IGNORECASE,
 )
@@ -969,7 +980,7 @@ def clause_of(text: str, item: Item) -> str | None:
     return " ".join(m.group(0).split()) if m else None
 
 
-def _ended(label: str, anchor: tuple[int, int] | None) -> bool:
+def ended(label: str, anchor: tuple[int, int] | None) -> bool:
     """A period already over at the call (never carried to the next sentence)."""
     if anchor is None:
         return False
@@ -1025,7 +1036,7 @@ def parse_call(
                 )  # retold or "no guidance" sentences never set the period for the next one
                 context = next((p for p in reversed(recent[-2:]) if p is not None), None)
                 own = [p for p in (find_periods(sent, anchor=anchor) if forward else [])
-                       if not _ended(p.label, anchor)]  # fmt: skip
+                       if not ended(p.label, anchor)]  # fmt: skip
                 if own:
                     recent.append(Period(own[0].label, s + own[0].start, s + own[0].end))
                 else:  # a forward sentence without its own period carries the context on
