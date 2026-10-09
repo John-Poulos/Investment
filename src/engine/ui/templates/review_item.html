@@ -55,9 +55,9 @@
 
   {% if it.resolved_at %}
   <div class="okbox" style="margin-top:12px">Resolved: {{ it.resolution }} by {{ it.resolved_by }} on {{ it.resolved_at[:16] | replace('T', ' ') }}{% if it.note %} — {{ it.note }}{% endif %}</div>
-  {% if viewer.is_owner and it.resolution in ('entered', 'dismiss', 'acknowledge', 'keep_stored', 'keep_map') %}
+  {% if viewer.is_owner and it.resolution in ('entered', 'dismiss', 'acknowledge', 'keep_stored', 'keep_map', 'correct', 'wrong', 'no_guidance', 'missed') %}
   <form method="post" action="/review/{{ it.item_id }}/reopen" style="margin-top:8px">
-    <button class="btn" type="submit">Reopen{% if it.resolution == 'entered' %} and remove the entered value{% endif %}</button>
+    <button class="btn" type="submit">Reopen{% if it.resolution == 'entered' %} and remove the entered value{% elif it.resolution in ('correct', 'wrong', 'no_guidance', 'missed') %} and undo this answer (label and any correction removed{% if it.resolution == 'wrong' %}, the parser's row restored{% endif %}){% endif %}</button>
   </form>
   {% endif %}
   {% elif not viewer.is_owner %}
@@ -100,6 +100,7 @@
   <form method="post" action="/review/{{ it.item_id }}/{{ a }}">
     {% if a == 'wrong' %}<select name="reason" required><option value="">— why wrong —</option>{% for k, v in reasons.items() if k != 'missed_guidance' %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>{% endif %}
     <input name="note" size="40" placeholder="Note (optional)">
+    {% if a in ('wrong', 'missed') and it.kind.startswith('guidance_') %}{% set fix_default = {'metric': it.payload.metric, 'period': it.payload.period} %}{% include "_correction.html" %}{% endif %}
     <button class="btn" type="submit">{{ {'dismiss': 'Dismiss', 'keep_stored': 'Keep stored value', 'keep_other': 'Keep other value', 'acknowledge': 'Acknowledge', 'approve': 'Apply at next nightly run', 'keep_map': 'Keep stored map', 'accept': 'Accept', 'reject': 'Reject', 'confirm': 'Confirm', 'flip': 'Confirm, direction flipped', 'downloaded': 'Downloaded', 'promote': 'Promote to watchlist', 'keep_tracked': 'Keep tracked', 'keep': 'Keep tracking', 'remove': 'Stop tracking', 'correct': 'Correct', 'wrong': 'Wrong — remove the row', 'no_guidance': 'Not guidance (right to skip)', 'missed': 'Missed — it is guidance'}.get(a, a) }}</button>
   </form>
   {% endfor %}

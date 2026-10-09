@@ -118,6 +118,26 @@ def parse_document(
     return parse_call(doc["text"], turns, anchor_of(cd["quarter"]) if cd else None)
 
 
+def rescan_document(
+    engine: sqlite3.Connection,
+    corpus: sqlite3.Connection,
+    accession: str,
+    filename: str,
+    now: datetime,
+) -> None:
+    """Re-scan one release or call document (after a label is undone)."""
+    if origin_of(accession) == "release":
+        from engine.guidance.ledger import earnings_releases, scan_release
+
+        for r in earnings_releases(engine, corpus):
+            if (r.accession, r.filename) == (accession, filename):
+                scan_release(engine, corpus, r, now)
+        return
+    for cd in call_documents(engine):
+        if (cd.accession, cd.filename) == (accession, filename):
+            scan_call(engine, corpus, cd, now)
+
+
 def anchor_of(quarter: str) -> tuple[int, int] | None:
     m = re.fullmatch(r"FY(\d{4}) Q([1-4])", quarter)
     return (int(m.group(1)), int(m.group(2))) if m else None

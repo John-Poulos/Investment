@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -41,6 +42,38 @@ from engine.ui.viewer import Viewer, current_viewer, require_owner
 
 HERE = Path(__file__).parent
 EXPECTED_OUTPUT_TOKENS = 1500  # allowance for the cost estimate (reply + thinking)
+
+
+@dataclass(frozen=True)
+class Correction:
+    """Optional corrected value sent with 'wrong' or 'missed' (fields fix_*, D-M02-24)."""
+
+    metric: str = ""
+    basis: str = "unspecified"
+    period: str = ""
+    unit: str = "USD"
+    low: str = ""
+    high: str = ""
+    scale: str = "1"
+
+    def manual(self) -> review.ManualGuidance | None:
+        if not self.low.strip():
+            return None
+        return review.ManualGuidance(self.metric, self.basis, self.period, self.unit,
+                                     self.low, self.high, self.scale)  # fmt: skip
+
+
+def correction_form(
+    fix_metric: Annotated[str, Form()] = "",
+    fix_basis: Annotated[str, Form()] = "unspecified",
+    fix_period: Annotated[str, Form()] = "",
+    fix_unit: Annotated[str, Form()] = "USD",
+    fix_low: Annotated[str, Form()] = "",
+    fix_high: Annotated[str, Form()] = "",
+    fix_scale: Annotated[str, Form()] = "1",
+) -> Correction:
+    return Correction(fix_metric, fix_basis, fix_period, fix_unit, fix_low, fix_high, fix_scale)
+
 
 TABS = (
     ("overview", "Overview", True),
@@ -368,6 +401,7 @@ def create_app(settings: UiSettings) -> FastAPI:
             raise HTTPException(404, "That guidance row is no longer stored.")
         ctx = frame(engine) | {"viewer": owner, "ticker": ticker.upper(), "row": row,
                                "stored": labels.describe_row(row), "reasons": labels.REASONS,
+                               "metrics": services.METRIC_ORDER,
                                "error": error}  # fmt: skip
         return templates.TemplateResponse(request, "guidance_wrong.html", ctx)
 
@@ -376,18 +410,35 @@ def create_app(settings: UiSettings) -> FastAPI:
         ticker: str,
         guidance_id: int,
         engine: Engine,
+        corpus: Corpus,
         owner: OwnerDep,
+        fix: Annotated[Correction, Depends(correction_form)],
         reason: Annotated[str, Form()] = "",
         note: Annotated[str, Form()] = "",
     ) -> RedirectResponse:
         ticker = ticker.upper()
         try:
-            review.mark_wrong(engine, guidance_id, reason, note, owner.id, datetime.now(UTC))
+            warnings = review.mark_wrong(engine, guidance_id, reason, note, owner.id,
+                                         datetime.now(UTC), corpus=corpus,
+                                         correction=fix.manual())  # fmt: skip
         except review.ReviewError as e:
             return RedirectResponse(
                 f"/c/{ticker}/guidance/{guidance_id}/wrong?error={quote(str(e))}", 303
             )
-        return RedirectResponse(f"/c/{ticker}?tab=guidance&msg=labelled-wrong", 303)
+        detail = quote("; ".join(warnings))
+        return RedirectResponse(f"/c/{ticker}?tab=guidance&msg=labelled-wrong&detail={detail}", 303)
+
+    @app.post("/labels/{label_id}/undo")
+    def label_undo(label_id: int, engine: Engine, corpus: Corpus, owner: OwnerDep,
+                   back: str = "/runs") -> RedirectResponse:  # fmt: skip
+        """Take back a label (D-M02-24): correction removed, item reopened, row restored."""
+        try:
+            done = review.undo_label(engine, corpus, label_id, owner.id, datetime.now(UTC))
+        except review.ReviewError as e:
+            done = str(e)
+        target = back if back.startswith("/") and not back.startswith("//") else "/runs"
+        sep = "&" if "?" in target else "?"
+        return RedirectResponse(f"{target}{sep}msg=undone&detail={quote(done)}", 303)
 
     @app.get("/c/{ticker}/calls/check", response_class=HTMLResponse)
     def call_check_page(request: Request, ticker: str, acc: str, file: str, engine: Engine,
@@ -539,6 +590,7 @@ def create_app(settings: UiSettings) -> FastAPI:
         engine: Engine,
         corpus: Corpus,
         owner: OwnerDep,
+        fix: Annotated[Correction, Depends(correction_form)],
         note: Annotated[str, Form()] = "",
         metric: Annotated[str, Form()] = "",
         basis: Annotated[str, Form()] = "unspecified",
@@ -564,9 +616,13 @@ def create_app(settings: UiSettings) -> FastAPI:
             elif action == "keep_other":
                 review.keep_other(engine, corpus, item_id, note, owner.id, now)
             elif action == "reopen":
-                done = review.reopen(engine, item_id, owner.id, now)
+                done = review.reopen(engine, item_id, owner.id, now, corpus)
             elif action in review.LABEL_ACTIONS:
-                review.label_action(engine, item_id, action, reason, note, owner.id, now)
+                warnings = review.label_action(engine, item_id, action, reason, note, owner.id,
+                                               now, corpus=corpus,
+                                               correction=fix.manual())  # fmt: skip
+                if warnings:
+                    done = f"{action}; correction stored with warnings: " + "; ".join(warnings)
             elif action == "approve":
                 review.approve_ticker_hold(engine, item_id, note, owner.id, now)
             elif (it := review.get(engine, item_id)) and it.kind.startswith("m02_"):

@@ -26,7 +26,9 @@ CREATE TABLE guidance_label (
     origin         TEXT NOT NULL,      -- release | call | ir
     parser_version TEXT NOT NULL,      -- the version that produced (or skipped) the sentence
     labelled_by    TEXT NOT NULL,
-    labelled_at    TEXT NOT NULL
+    labelled_at    TEXT NOT NULL,
+    item_id        INTEGER,            -- the review item answered, if any (undo reopens it)
+    correction_id  INTEGER             -- owner-entered guidance row stored with the label
 );
 CREATE INDEX guidance_label_doc ON guidance_label (accession, filename);
 

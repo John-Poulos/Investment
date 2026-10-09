@@ -12,7 +12,8 @@
 {% if msg == 'analyzed' %}<div class="okbox">Gemini run stored. Verified reasons are shown below with their quotes.</div>
 {% elif msg == 'stored-result' %}<div class="okbox">An identical request was already stored; shown at no cost.</div>
 {% elif msg == 'llm-error' %}<div class="warnbox">The Gemini call did not complete: {{ detail }}. Nothing new was stored as fact.</div>
-{% elif msg == 'labelled-wrong' %}<div class="okbox">Row marked wrong and removed; the label is kept for the next parser version (Runs page: guidance accuracy).</div>
+{% elif msg == 'labelled-wrong' %}<div class="okbox">Row marked wrong and removed; the label is kept for the next parser version (Runs page: guidance accuracy). Undo it under "Your corrections" below.</div>{% if detail %}<div class="warnbox">Correction stored with warnings: {{ detail }}</div>{% endif %}
+{% elif msg == 'undone' %}<div class="okbox">{{ detail }}</div>
 {% elif msg == 'checked' %}<div class="okbox">{{ detail }}</div>
 {% elif msg == 'nothing-to-ask' %}<div class="warnbox">Nothing to ask: no changed guidance with source passages.</div>{% endif %}
 
@@ -62,6 +63,23 @@
 {% for c in g.calls %}{% if c.accession %}<a href="/doc/{{ c.accession }}?file={{ c.filename }}">{{ c.quarter }}</a> ({{ 'transcript, Alpha Vantage' if c.source == 'alpha_vantage' else c.doc_kind | replace('_', ' ') ~ ', IR download' }}{% if c.outcome %}: {{ c['items'] }} row{{ 's' if c['items'] != 1 }}{% elif not c.stated_on %}: no matching release, not parsed{% endif %}) <a class="muted" href="/c/{{ ticker }}/calls/check?acc={{ c.accession }}&file={{ c.filename }}" title="Gemini cross-check: finds guidance the code missed (cost shown first)">check</a>{% else %}{{ c.quarter }} (no transcript yet: {{ c.missing }}, {{ c.attempts }} tr{{ 'ies' if c.attempts != 1 else 'y' }}){% endif %}{{ ', ' if not loop.last }}{% endfor %}.</p>
 {% else %}
 <p class="note">No earnings-call transcripts stored for this company yet (collected for watchlist and tracked names, DATA_SOURCES DS1).</p>
+{% endif %}
+{% if g.labels %}
+<section class="ggroup">
+  <h2>Your corrections and checks <span class="muted">(accuracy labels, D-M02-24)</span></h2>
+  <table class="data">
+    <tr><th style="width:11%">When</th><th style="width:16%">Answer</th><th>Sentence</th><th style="width:24%">Parser had · your correction</th><th style="width:8%"></th></tr>
+    {% for lb in g.labels %}
+    <tr>
+      <td style="white-space:nowrap">{{ lb.labelled_at[:10] }}<div class="muted">{{ lb.found_by }}</div></td>
+      <td>{{ lb.verdict }}{% if lb.reason %}<div class="muted">{{ lb.reason | replace('_', ' ') }}</div>{% endif %}{% if lb.note %}<div class="muted">{{ lb.note }}</div>{% endif %}</td>
+      <td><a href="/doc/{{ lb.accession }}?file={{ lb.filename }}&start={{ lb.quote_start }}&end={{ lb.quote_end }}#hl">“{{ lb.quote[:220] }}{% if lb.quote | length > 220 %}…{% endif %}”</a></td>
+      <td>{% if lb.metric %}{{ lb.metric | replace('_', ' ') }} {{ lb.period }}: {{ lb.value_text }}{% else %}<span class="muted">not stored</span>{% endif %}{% if lb.fix %}<div>→ {{ lb.fix }}</div>{% endif %}</td>
+      <td>{% if viewer.is_owner %}<form method="post" action="/labels/{{ lb.label_id }}/undo?back=/c/{{ ticker }}%3Ftab%3Dguidance"><button class="btn" type="submit" title="Remove this label{% if lb.fix %} and its correction{% endif %}{% if lb.verdict == 'wrong' %}; the parser's row comes back{% endif %}">Undo</button></form>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
 {% endif %}
 {% if g.open_reviews %}<p class="note">{{ g.open_reviews }} open review item{{ 's' if g.open_reviews != 1 }} for this company (unparsed sentences, conflicts or rejected Gemini output) — <a href="/review?ticker={{ ticker }}">open the review queue</a>.</p>{% endif %}
 <p class="note">All guidance is a {{ FORECAST_NOTE }}: forward-looking statements the company may change without notice (safe harbor, Exchange Act §21E).

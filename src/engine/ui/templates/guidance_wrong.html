@@ -14,9 +14,11 @@
         {% for k, v in reasons.items() if k != 'missed_guidance' %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
       </select>
     </label>
-    <label class="wide">Note <input name="note" size="60" placeholder="optional: what it should have been"></label>
-    <button class="btn" type="submit">Mark wrong and remove the row</button>
+    <label class="wide">Note <input name="note" size="60" placeholder="optional"></label>
+    {% set fix_default = {'metric': row.metric, 'period': row.period} %}
+    {% include "_correction.html" %}
+    <button class="btn" type="submit">Mark wrong (and store the correction, if given)</button>
   </form>
-  <p class="note">The row is removed and stays out of later scans. Your label is kept: every new parser version is re-checked against it (D-M02-24), and the next build uses it to fix the rule. To store the right value, use the review queue's "enter by hand" on the sentence.</p>
+  <p class="note">The row is removed and stays out of later scans; a correction is stored in its place. Your label is kept: every new parser version is re-checked against it (D-M02-24), and the next build uses it to fix the rule. Changed your mind? Undo it under "Your corrections" on the Guidance tab — the parser's row comes back.</p>
 </main>
 {% endblock %}

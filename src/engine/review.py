@@ -207,6 +207,29 @@ def m02_action(
 LABEL_ACTIONS = ("correct", "wrong", "no_guidance", "missed")
 
 
+def _correct(
+    engine: sqlite3.Connection,
+    corpus: sqlite3.Connection | None,
+    label_id: int,
+    cik: str,
+    accession: str,
+    filename: str,
+    span: tuple[int, int],
+    correction: ManualGuidance | None,
+    now: datetime,
+) -> list[str]:
+    """Store the owner's corrected value for the same sentence, linked to the label."""
+    if correction is None:
+        return []
+    if corpus is None:
+        raise ReviewError("A correction needs the stored document.")
+    gid, warnings = store_owner_row(engine, corpus, cik, accession, filename, *span,
+                                    correction, now)  # fmt: skip
+    engine.execute("UPDATE guidance_label SET correction_id = ? WHERE label_id = ?",
+                   (gid, label_id))  # fmt: skip
+    return warnings
+
+
 def label_action(
     engine: sqlite3.Connection,
     item_id: int,
@@ -215,8 +238,13 @@ def label_action(
     note: str,
     by: str,
     now: datetime,
-) -> str:
-    """Answer a guidance check: the answer becomes a label; 'wrong' removes the row."""
+    *,
+    corpus: sqlite3.Connection | None = None,
+    correction: ManualGuidance | None = None,
+) -> list[str]:
+    """Answer a guidance check: the answer becomes a label; 'wrong' removes the row. With
+    'wrong' or 'missed', an optional correction stores the right value for the sentence.
+    Returns warnings from the correction (e.g. a number not in the sentence)."""
     it = _open(engine, item_id, ("guidance_audit", "guidance_implausible"))
     p = it.payload
     is_row = p.get("sample") == "row"
@@ -226,19 +254,26 @@ def label_action(
         or (not is_row and action in ("correct", "wrong"))
     ):
         raise ReviewError(f"'{action}' does not apply to this check.")
+    if correction is not None and action not in ("wrong", "missed"):
+        raise ReviewError("A corrected value goes with 'wrong' or 'missed'.")
     engine.execute("BEGIN")
     try:
         if is_row:
-            labels.label_row(engine, labels.current_row(engine, p),
-                             "right" if action == "correct" else "wrong",
-                             reason or None, note, p["found_by"], by, now)  # fmt: skip
+            label_id = labels.label_row(engine, labels.current_row(engine, p),
+                                        "right" if action == "correct" else "wrong",
+                                        reason or None, note, p["found_by"], by, now)  # fmt: skip
         else:
             a, b = p["offsets"]
-            labels.label_span(engine, cik=it.cik or "", accession=p["accession"],
-                              filename=p["filename"], start=a, end=b, quote=p.get("text", ""),
-                              verdict="missed" if action == "missed" else "right", note=note,
-                              found_by=p["found_by"], parser_version=p["parser_version"],
-                              by=by, now=now)  # fmt: skip
+            label_id = labels.label_span(
+                engine, cik=it.cik or "", accession=p["accession"], filename=p["filename"],
+                start=a, end=b, quote=p.get("text", ""),
+                verdict="missed" if action == "missed" else "right", note=note,
+                found_by=p["found_by"], parser_version=p["parser_version"], by=by, now=now,
+            )  # fmt: skip
+        engine.execute("UPDATE guidance_label SET item_id = ? WHERE label_id = ?",
+                       (item_id, label_id))  # fmt: skip
+        warnings = _correct(engine, corpus, label_id, it.cik or "", p["accession"],
+                            p["filename"], tuple(p["offsets"]), correction, now)  # fmt: skip
         _close(engine, item_id, action, note, by, now)
         engine.execute("COMMIT")
     except labels.LabelError as e:
@@ -247,16 +282,33 @@ def label_action(
     except Exception:
         engine.execute("ROLLBACK")
         raise
-    return action
+    return warnings
 
 
 def mark_wrong(
-    engine: sqlite3.Connection, guidance_id: int, reason: str, note: str, by: str, now: datetime
-) -> None:
-    """The owner's 'wrong' button on a ledger row (D-M02-24)."""
+    engine: sqlite3.Connection,
+    guidance_id: int,
+    reason: str,
+    note: str,
+    by: str,
+    now: datetime,
+    *,
+    corpus: sqlite3.Connection | None = None,
+    correction: ManualGuidance | None = None,
+) -> list[str]:
+    """The owner's 'wrong' button on a ledger row (D-M02-24), with an optional corrected
+    value stored for the same sentence. Returns warnings from the correction."""
     engine.execute("BEGIN")
     try:
-        labels.label_row(engine, guidance_id, "wrong", reason, note, "owner", by, now)
+        row = engine.execute(
+            "SELECT cik, accession, filename, quote_start, quote_end FROM guidance "
+            "WHERE guidance_id = ?",
+            (guidance_id,),
+        ).fetchone()
+        label_id = labels.label_row(engine, guidance_id, "wrong", reason, note, "owner", by, now)
+        warnings = _correct(engine, corpus, label_id, row["cik"], row["accession"],
+                            row["filename"], (row["quote_start"], row["quote_end"]),
+                            correction, now)  # fmt: skip
         engine.execute("COMMIT")
     except labels.LabelError as e:
         engine.execute("ROLLBACK")
@@ -264,6 +316,49 @@ def mark_wrong(
     except Exception:
         engine.execute("ROLLBACK")
         raise
+    return warnings
+
+
+def undo_label(
+    engine: sqlite3.Connection,
+    corpus: sqlite3.Connection,
+    label_id: int,
+    by: str,
+    now: datetime,
+) -> str:
+    """Take back a label: its correction row is removed, the review item it answered is
+    reopened, and the document is re-scanned so a row marked wrong returns."""
+    from engine.guidance.calls import rescan_document
+
+    lb = engine.execute("SELECT * FROM guidance_label WHERE label_id = ?", (label_id,)).fetchone()
+    if lb is None:
+        raise ReviewError(f"No label {label_id}.")
+    engine.execute("BEGIN")
+    try:
+        if lb["correction_id"] is not None:
+            engine.execute("DELETE FROM guidance WHERE guidance_id = ? AND source = 'owner'",
+                           (lb["correction_id"],))  # fmt: skip
+        engine.execute("DELETE FROM guidance_label WHERE label_id = ?", (label_id,))
+        if lb["item_id"] is not None:
+            engine.execute(
+                "UPDATE review_queue SET resolved_at = NULL, resolution = NULL, "
+                "resolved_by = NULL, note = coalesce(note, '') || ? WHERE item_id = ?",
+                (f" [reopened by {by} {iso(now)[:16]}]", lb["item_id"]),
+            )
+        engine.execute("COMMIT")
+    except Exception:
+        engine.execute("ROLLBACK")
+        raise
+    if lb["verdict"] == "wrong":
+        rescan_document(engine, corpus, lb["accession"], lb["filename"], now)
+    parts = ["label removed"]
+    if lb["correction_id"] is not None:
+        parts.append("correction removed")
+    if lb["verdict"] == "wrong":
+        parts.append("the parser's row restored")
+    if lb["item_id"] is not None:
+        parts.append(f"item {lb['item_id']} reopened")
+    return "; ".join(parts)
 
 
 # --- guidance_unparsed: owner entry ------------------------------------------------------
@@ -299,6 +394,32 @@ def enter_guidance(
     """Store owner-entered guidance for an unparsed sentence. Returns warnings
     (e.g. a number not found in the sentence); the entry is stored regardless."""
     it = _open(engine, item_id, ("guidance_unparsed",))
+    p = it.payload
+    try:
+        engine.execute("BEGIN")
+        _, warnings = store_owner_row(engine, corpus, it.cik or "", p["accession"],
+                                      p["filename"], *p["offsets"], g, now)  # fmt: skip
+        _close(engine, item_id, "entered", note, by, now)
+        engine.execute("COMMIT")
+    except Exception:
+        engine.execute("ROLLBACK")
+        raise
+    return warnings
+
+
+def store_owner_row(
+    engine: sqlite3.Connection,
+    corpus: sqlite3.Connection,
+    cik: str,
+    accession: str,
+    filename: str,
+    start: int,
+    end: int,
+    g: ManualGuidance,
+    now: datetime,
+) -> tuple[int, list[str]]:
+    """Insert an owner-entered row quoting text[start:end] → (guidance_id, warnings).
+    Caller owns the transaction. Owner rows take precedence over the parser on re-scans."""
     if g.metric not in METRIC_NAMES:
         raise ReviewError(f"Unknown metric {g.metric!r}.")
     if g.basis not in ("GAAP", "non-GAAP", "unspecified"):
@@ -313,18 +434,16 @@ def enter_guidance(
     high = _dec(g.high or g.low, "High") * scale
     if low > high:
         raise ReviewError("Low is above high.")
-    p = it.payload
-    start, end = p["offsets"]
     doc = corpus.execute(
         "SELECT text, sha256 FROM document WHERE accession = ? AND filename = ?",
-        (p["accession"], p["filename"]),
+        (accession, filename),
     ).fetchone()
     if doc is None:
         raise ReviewError("The source document is no longer stored.")
     quote = doc["text"][start:end]
     filed = engine.execute(
         "SELECT filed FROM guidance_scan WHERE accession = ? AND filename = ?",
-        (p["accession"], p["filename"]),
+        (accession, filename),
     ).fetchone()
     in_quote = numbers(quote)
     warnings = [
@@ -337,8 +456,7 @@ def enter_guidance(
     if g.metric == "tax_rate" and (low < lo or high > hi):
         flag, reason = "not_meaningful", f"tax rate outside {lo}-{hi}% (owner entry)"
     try:
-        engine.execute("BEGIN")
-        engine.execute(
+        gid = engine.execute(
             "INSERT INTO guidance (cik, accession, filename, metric, basis, period, unit, kind, "
             "low, high, point, stated_on, source, quote, quote_start, quote_end, period_quote, "
             "period_start, period_end, doc_sha256, parser_version, created_at, flag, flag_reason, "
@@ -346,9 +464,9 @@ def enter_guidance(
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'owner', ?, ?, ?, ?, ?, ?, ?, 'owner', ?, "
             "?, ?, ?, ?)",
             (
-                it.cik,
-                p["accession"],
-                p["filename"],
+                cik,
+                accession,
+                filename,
                 g.metric,
                 g.basis,
                 period,
@@ -368,21 +486,16 @@ def enter_guidance(
                 iso(now),
                 flag,
                 reason,
-                origin_of(p["accession"]),
-                default_grade(origin_of(p["accession"])),
+                origin_of(accession),
+                default_grade(origin_of(accession)),
             ),  # fmt: skip
-        )
-        _close(engine, item_id, "entered", note, by, now)
-        engine.execute("COMMIT")
+        ).lastrowid
     except sqlite3.IntegrityError as e:
-        engine.execute("ROLLBACK")
         raise ReviewError(
-            f"{g.metric} {g.basis} {period} is already in the ledger for this release."
+            f"{g.metric} {g.basis} {period} is already in the ledger for this document; "
+            "mark that row wrong first."
         ) from e
-    except Exception:
-        engine.execute("ROLLBACK")
-        raise
-    return warnings
+    return gid, warnings
 
 
 # --- guidance_conflict: keep the other value ---------------------------------------------
@@ -480,7 +593,13 @@ def approve_ticker_hold(
 REOPENABLE = ("entered", "dismiss", "acknowledge", "keep_stored", "keep_map")
 
 
-def reopen(engine: sqlite3.Connection, item_id: int, by: str, now: datetime) -> str:
+def reopen(
+    engine: sqlite3.Connection,
+    item_id: int,
+    by: str,
+    now: datetime,
+    corpus: sqlite3.Connection | None = None,
+) -> str:
     """Return a resolved item to the queue. An 'entered' item also loses the
     owner-entered guidance row it created (matched by release and sentence)."""
     it = get(engine, item_id)
@@ -488,6 +607,12 @@ def reopen(engine: sqlite3.Connection, item_id: int, by: str, now: datetime) -> 
         raise ReviewError(f"No review item {item_id}.")
     if not it.resolved_at:
         raise ReviewError("This item is already open.")
+    if it.resolution in LABEL_ACTIONS:  # a guidance-check answer: undo its label
+        lb = engine.execute("SELECT label_id FROM guidance_label WHERE item_id = ?",
+                            (item_id,)).fetchone()  # fmt: skip
+        if lb is None or corpus is None:
+            raise ReviewError("The label for this answer is no longer stored.")
+        return undo_label(engine, corpus, lb[0], by, now)
     if it.resolution not in REOPENABLE:
         raise ReviewError(f"Items resolved with '{it.resolution}' cannot be reopened here.")
     removed = 0

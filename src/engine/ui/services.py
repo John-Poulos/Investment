@@ -491,6 +491,7 @@ class GuidanceView:
     open_reviews: int
     last_call: dict[str, Any] | None
     calls: list[dict[str, Any]] = field(default_factory=list)  # call documents and fetches
+    labels: list[dict[str, Any]] = field(default_factory=list)  # owner's accuracy labels
 
 
 def _period_key(period: str) -> tuple[int, int]:
@@ -617,7 +618,25 @@ def guidance_view(engine: sqlite3.Connection, cik: str) -> GuidanceView:
             (cik,),
         )
     ]  # fmt: skip
-    return GuidanceView(ordered, none, reviews, last_call, calls)
+    labels = [
+        dict(r)
+        for r in engine.execute(
+            "SELECT l.*, g.metric AS fix_metric, g.period AS fix_period, g.low AS fix_low, "
+            "g.high AS fix_high, g.unit AS fix_unit FROM guidance_label l "
+            "LEFT JOIN guidance g ON g.guidance_id = l.correction_id "
+            "WHERE l.cik = ? ORDER BY l.labelled_at DESC, l.label_id DESC",
+            (cik,),
+        )
+    ]
+    from engine.llm.guidance_reasons import fmt_range
+
+    for lb in labels:
+        if lb["fix_low"] is not None:
+            value = fmt_range(
+                Decimal(str(lb["fix_low"])), Decimal(str(lb["fix_high"])), lb["fix_unit"]
+            )
+            lb["fix"] = f"{lb['fix_metric']} {lb['fix_period']}: {value}"
+    return GuidanceView(ordered, none, reviews, last_call, calls, labels)
 
 
 # --- Runs and costs ------------------------------------------------------------------

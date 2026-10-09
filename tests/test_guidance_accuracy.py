@@ -180,7 +180,7 @@ def test_ui_wrong_button_check_page_and_accuracy(app_client):
     assert "Why is it wrong?" in form and "including finance leases" in form
     r = client.post(f"/c/XCLD/guidance/{gid}/wrong", data={"reason": "wrong_period"},
                     follow_redirects=False)  # fmt: skip
-    assert r.headers["location"].endswith("msg=labelled-wrong")
+    assert "msg=labelled-wrong" in r.headers["location"]
     page = client.get("/c/XCLD/calls/check?acc=AV-XCLD-2026Q4&file=transcript.txt").text
     assert "Run with Gemini" in page and "2 management turns" in page
     r = client.post("/c/XCLD/calls/check?acc=AV-XCLD-2026Q4&file=transcript.txt",
@@ -194,3 +194,66 @@ def test_ui_wrong_button_check_page_and_accuracy(app_client):
     item_id = audit[0].split('"')[0]
     item = client.get(f"/review/{item_id}").text
     assert "weekly random sample" in item and "— why wrong —" in item
+
+
+# --- Corrections and undo (owner request 2026-10-09) ---------------------------------
+
+
+def test_wrong_with_correction_then_undo_restores_the_parser_row(loaded, clock):
+    engine, corpus, _ = loaded
+    row = _cy_row(engine)
+    fix = review.ManualGuidance("capex", "unspecified", "CY2026", "USD", "170", "", "1000000000")
+    warnings = review.mark_wrong(engine, row["guidance_id"], "wrong_value", "", "owner",
+                                 clock.now(), corpus=corpus, correction=fix)  # fmt: skip
+    assert warnings == [
+        "170000000000 does not appear in the sentence (in raw, millions or billions form)"
+    ]
+    owner = _cy_row(engine)
+    assert (owner["source"], owner["low"], owner["quote"]) == ("owner", 170e9, row["quote"])
+    scan_calls(engine, corpus, clock.now(), force=True)
+    assert _cy_row(engine)["source"] == "owner"  # the correction wins over the parser
+    lb = engine.execute("SELECT * FROM guidance_label").fetchone()
+    assert lb["correction_id"] == owner["guidance_id"]
+    done = review.undo_label(engine, corpus, lb["label_id"], "owner", clock.now())
+    assert done == "label removed; correction removed; the parser's row restored"
+    back = _cy_row(engine)
+    assert (back["source"], back["low"]) == ("sentence", 175e9)
+    assert engine.execute("SELECT count(*) FROM guidance_label").fetchone()[0] == 0
+
+
+def test_answered_check_can_be_reopened_and_missed_takes_a_correction(loaded, clock):
+    engine, corpus, _ = loaded
+    [skipped] = [i for i in _items(engine, "guidance_audit") if i["payload"]["sample"] == "skipped"]
+    fix = review.ManualGuidance("gross_margin", "unspecified", "FY2027", "%", "68", "", "1")
+    review.label_action(engine, skipped["item_id"], "missed", "", "", "owner", clock.now(),
+                        corpus=corpus, correction=fix)  # fmt: skip
+    assert engine.execute("SELECT 1 FROM guidance WHERE metric = 'gross_margin' "
+                          "AND source = 'owner'").fetchone()  # fmt: skip
+    with pytest.raises(review.ReviewError, match="'wrong' or 'missed'"):
+        [row] = [i for i in _items(engine, "guidance_audit") if i["payload"]["sample"] == "row"][:1]
+        review.label_action(engine, row["item_id"], "correct", "", "", "owner", clock.now(),
+                            corpus=corpus, correction=fix)  # fmt: skip
+    done = review.reopen(engine, skipped["item_id"], "owner", clock.now(), corpus)
+    assert "correction removed" in done and f"item {skipped['item_id']} reopened" in done
+    assert any(i["item_id"] == skipped["item_id"] for i in _items(engine, "guidance_audit"))
+    assert not engine.execute("SELECT 1 FROM guidance WHERE source = 'owner'").fetchone()
+
+
+def test_ui_correction_and_undo(app_client):
+    client, data = app_client
+    engine = open_db("engine", data)
+    gid = engine.execute("SELECT guidance_id FROM guidance WHERE period = 'CY2026'").fetchone()[0]
+    engine.close()
+    assert "fix_low" in client.get(f"/c/XCLD/guidance/{gid}/wrong").text
+    r = client.post(f"/c/XCLD/guidance/{gid}/wrong", follow_redirects=False, data={
+        "reason": "wrong_value", "fix_metric": "capex", "fix_period": "CY2026",
+        "fix_unit": "USD", "fix_low": "175", "fix_scale": "1000000000"})  # fmt: skip
+    assert "msg=labelled-wrong" in r.headers["location"]
+    html = client.get("/c/XCLD?tab=guidance").text
+    assert "Your corrections and checks" in html and "→ capex CY2026: $175 billion" in html
+    label_id = html.split('action="/labels/')[1].split("/")[0]
+    r = client.post(
+        f"/labels/{label_id}/undo?back=/c/XCLD%3Ftab%3Dguidance", follow_redirects=False
+    )
+    assert r.headers["location"].startswith("/c/XCLD?tab=guidance&msg=undone")
+    assert "Your corrections and checks" not in client.get("/c/XCLD?tab=guidance").text
