@@ -71,7 +71,7 @@ Nightly run reports, guidance scan summary, Gemini call log with tokens and cost
 
 ## Prices (DS8)
 - **Personal use now:** Tiingo free tier (S68, S69): official API, 30+ years of daily history, adjusted OHLCV plus raw dividends and split factors; 50 requests/hour, 1,000/day, 500 symbols/month; **internal use only, no display to other people.**
-- Storage: one `price_bar` row per symbol and day with raw OHLCV, adjusted OHLCV, dividend and split factor, source and fetch time. Backfill = one request per symbol (full history); nightly = one request per symbol for recent days, paced under 50/hour (≈ 1 per 72 s), watchlist and tracked tiers first.
+- Storage: one `price_bar` row per symbol and day with raw OHLCV, adjusted OHLCV, dividend and split factor, source and fetch time. Backfill = one request per symbol (full history); nightly = one request per symbol for recent days, counted under 50/hour (spacing 3 s, D-UI-19), watchlist and tracked tiers first.
 - Behind one adapter (U7). **Sharing requires a display licence:** Tiingo redistribution is sold through Tiingo Sales (no public price on its pricing page; a research note of $250/month for a business plan is unverified, S70); alternatives cost more. Decide only if and when sharing happens.
 - Rejected: yfinance / Stooq (unofficial, unstable, personal-use terms), Alpha Vantage free (adjusted series and full history are premium), Massive free (2 years, split-only adjustment), EODHD free (1 year), Alpaca (no redistribution, history from 2016). Details in S70.
 
@@ -114,6 +114,8 @@ Nightly run reports, guidance scan summary, Gemini call log with tokens and cost
 - D-UI-17 (2026-10-09, M02 part 1): Themes screens built from the reviewed mockup (D-UI-4): top-bar "Themes" link; `/themes`, `/themes/<key>`, `/themes/<key>/filers`; company tab Themes enabled (linked themes + the company's own mentions). Shares show "≥" for lower bounds and "—" for missing windows; every count links to its filings (D-M02-17) (owner).
 
 - D-UI-18 (2026-10-09, M02 part 2): Side panel shows core + promoted (tag "P") under Watchlist and the tracked tier under Tracked; the company Themes tab has the owner's tier box (Track with a reason, Promote, Demote, Stop tracking; core names cannot be tracked). Review queue groups M02 items under "M02 digest — week of …", item pages show the proposal's fields, samples and any earlier decision, and the guide explains each M02 action; the Themes page lists proposals waiting for next week's queue (D-M02-18) (owner).
+
+- D-UI-19 (2026-10-09, owner: the 17-symbol run took ~20 min): Tiingo's free limits are counts (50/hour, 1,000/day, 500 symbols/month), already enforced before every request from `fetch_log` (D-UI-8). The 75 s / 90 s spacing only spread requests out, so it drops to 3 s: ~20–30 symbols now take 1–2 minutes. Caps unchanged: the scheduled run stops at 40/hour (the app keeps 8), 950/day, 480 symbols/month. Tiingo documents no per-minute limit; a 429 is treated as throttled and the rest waits for the next run. `run_refresh.py --skip-prices` runs the SEC step only, for quick development checks. The run report's finish time now records the real end of the SEC step.
 
 ## Open questions
 - Phone-sized layout: not planned while local-only.

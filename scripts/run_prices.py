@@ -4,8 +4,8 @@
     uv run python scripts/run_prices.py --symbols NVDA,MU
     uv run python scripts/run_prices.py --full            # force full history
 
-Requests are spaced 75 s apart and kept under 48/hour (free tier: 50), so the
-16-symbol watchlist takes about 20 minutes. Key: TIINGO_API_KEY in .env (never
+Requests are spaced 3 s apart and kept under 48/hour (free tier: 50) by counting; the
+16-symbol watchlist takes about a minute. Key: TIINGO_API_KEY in .env (never
 printed). Writes logs/prices_<YYYYMMDD-HHMMSS>.txt. The nightly refresh runs the
 same update for the watchlist after the SEC step.
 """
@@ -46,7 +46,7 @@ def main() -> int:
     logs.mkdir(exist_ok=True)
     log = logs / f"prices_{datetime.now():%Y%m%d-%H%M%S}.txt"
     lines = [
-        f"Tiingo prices: {len(symbols)} symbols, ~{len(symbols) * 75 // 60} min at 75 s spacing"
+        f"Tiingo prices: {len(symbols)} symbols (≤ 48 per hour; the rest waits for the next run)"
     ]
     print(lines[0])
     for s in symbols:

@@ -34,6 +34,11 @@ One section per proposed amendment, discussed with the owner in order. Outcome l
 
 Effort: High only if a part raises a new design question; otherwise Medium. Each part: branch → fixture tests → owner live check → PR → merge (DESIGN.md workflow).
 
+## Live checks without slowing development (owner request 2026-10-09)
+- Test the piece, not the whole run: `run_themes.py --themes <key>`, `run_prices.py --symbols A,B`, `run_live.py <label> <test file>`, `run_refresh.py --skip-prices` (SEC step only, seconds when little was filed).
+- One live check per part, at the end of the part, combining everything that part needs into one command where possible; fixture tests cover the rest.
+- The full refresh (with prices) only when a part changes the refresh itself; with 3 s spacing it now takes ~1–2 min for ~30 symbols.
+
 ## Notes per part
 (filled during the review and the builds)
 

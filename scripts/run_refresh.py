@@ -138,6 +138,8 @@ def main() -> int:
                         help="only run if the last scheduled run was missed")  # fmt: skip
     parser.add_argument("--ask", action="store_true", help="ask before running (with --if-missed)")
     parser.add_argument("--config", default=str(ROOT / "config" / "watchlist.toml"))
+    parser.add_argument("--skip-prices", action="store_true",
+                        help="SEC step only (quick checks during development)")  # fmt: skip
     args = parser.parse_args()
 
     os.chdir(ROOT)  # data/ and logs/ are relative to the repo
@@ -190,7 +192,9 @@ def main() -> int:
             "scheduled" if args.scheduled else "manual")  # fmt: skip
         report = run_refresh(client, engine, corpus, load_config(Path(args.config)),
                              datetime.now(UTC), trigger=trigger)  # fmt: skip
-        text = format_report(report) + prices_step(engine, report)
+        skipped = "\nPrices (Tiingo): skipped (--skip-prices)\n"
+        prices = skipped if args.skip_prices else prices_step(engine, report)
+        text = format_report(report) + prices
         logs = ROOT / "logs"
         logs.mkdir(exist_ok=True)
         out = logs / f"refresh_{datetime.now():%Y%m%d-%H%M%S}.txt"

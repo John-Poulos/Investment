@@ -483,7 +483,7 @@ def run_refresh(
 
 
 def _finish(engine: sqlite3.Connection, report: RunReport, now: datetime) -> None:
-    report.finished_at = iso(now)
+    report.finished_at = iso(max(now, datetime.now(now.tzinfo)) if now.tzinfo else now)
     engine.execute(
         "UPDATE refresh_run SET finished_at = ?, status = ?, days = ?, companies = ?, "
         "report = ?, error = ? WHERE run_id = ?",
