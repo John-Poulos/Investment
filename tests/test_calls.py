@@ -609,3 +609,39 @@ def test_one_symbol_per_company_and_relink(dbs, clock):
     _release(engine, corpus, clock, "q3-results", "2026-04-28", RELEASE_TEXT)
     (s,) = scan_calls(engine, corpus, clock.now())
     assert s.doc.stated_on == "2026-04-28" and s.outcome != "no_date"
+
+
+# --- Live check 2 fixes (2026-10-09, D-M02-25) --------------------------------------
+
+
+def test_segment_scoped_sentences_and_analyst_forecasts_are_skipped():
+    r = _parse_turn(
+        "In Intelligent Devices, we expect revenue of $12 to $13 billion. "
+        "In Q1, we expect revenue of $80 billion. "
+        "With analysts now forecasting hyperscale capex to exceed $1 trillion by 2027, demand is strong."
+    )
+    assert [(i.metric, i.period, i.value.low) for i in r.items] == [("revenue", "FY2027 Q1", 80e9)]
+    assert r.unparsed == []
+
+
+def test_two_digit_fiscal_years_and_comparison_periods():
+    r = _parse_turn(
+        "We now expect fiscal 28 revenue to reach $16 billion. "
+        "We expect quarterly capex in fiscal 2027 to be above fiscal Q4 levels. "
+        "We are forecasting 2027 capital expenditures to be significantly above the 2026 levels.",
+        anchor=(2026, 4),
+    )
+    assert [(i.metric, i.period, i.value.low) for i in r.items] == [("revenue", "FY2028", 16e9)]
+    assert [(d.period, d.direction) for d in r.directions] == [("FY2027", "up"), ("FY2027", "up")]
+
+
+def test_no_guidance_statement_and_past_context_not_carried():
+    r = _parse_turn(
+        "We are not providing a specific outlook for 2027 capex at this time. "
+        "Revenue for fiscal 2025 was strong and we will keep investing. "
+        "We expect revenue to be $12 billion.",
+        anchor=(2026, 4),
+    )
+    reasons = [s.reason for s in r.skipped_spans]
+    assert r.items == [] and "not capex (no period)" in reasons  # FY2025 over: no context
+    assert "says no guidance is given" in reasons

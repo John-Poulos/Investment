@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections import Counter
 from datetime import UTC, datetime
@@ -104,6 +105,7 @@ def describe_calls(engine, corpus, scans) -> list[str]:
             value = stated_prefix(g["kind"], g["bound"]) + value
             extra = f"  matched {g['matched_accession']}" if g["matched_accession"] else ""
             extra += f"  clause: {g['clause']}" if g["clause"] else ""
+            extra += f'  [period from "{g["period_quote"][:40]}"]'
             lines.append(f"  {g['period']:<14}{g['metric']:<20}{g['basis']:<12}{g['grade']} "
                          f"{value}{extra}  \"{' '.join(g['quote'].split())[:160]}\"")  # fmt: skip
         for q in engine.execute(
@@ -116,7 +118,54 @@ def describe_calls(engine, corpus, scans) -> list[str]:
             body = p.get("text") or f"release: {p.get('kept')} | call: {p.get('other')}"
             lines.append(f"  REVIEW {q['reason']}")
             lines.append(f"    {' '.join(body.split())[:300]}")
+        if doc:
+            lines += capex_not_stored(engine, corpus, cd, doc[0])
     return lines
+
+
+_SENT = re.compile(r"[^.!?]*(?:capital expenditure|capex|capital spending)[^.!?]*\$\s?\d[^.!?]*"
+                   r"[.!?]?", re.IGNORECASE)  # fmt: skip
+
+
+def capex_not_stored(engine, corpus, cd, doc_id: int) -> list[str]:
+    """Management sentences naming capex with a $ figure that produced no row and no open
+    review item — to see what the parser misses (e.g. Alphabet's call capex)."""
+    text = corpus.execute("SELECT text FROM document WHERE doc_id = ?", (doc_id,)).fetchone()[0]
+    turns = [(r[0], r[1]) for r in corpus.execute(
+        "SELECT start_offset, end_offset FROM section WHERE doc_id = ? "
+        "AND label = 'call management'", (doc_id,))]  # fmt: skip
+    out = []
+    for a, b in turns:
+        for m in _SENT.finditer(text, a, b):
+            s, e = m.start(), m.end()
+            covered = engine.execute(
+                "SELECT 1 FROM guidance WHERE accession = ? AND quote_start < ? AND quote_end > ?",
+                (cd.accession, e, s),
+            ).fetchone() or engine.execute(
+                "SELECT 1 FROM review_queue WHERE resolved_at IS NULL AND "
+                "json_extract(payload, '$.accession') = ? AND "
+                "json_extract(payload, '$.offsets[0]') < ? AND "
+                "json_extract(payload, '$.offsets[1]') > ?",
+                (cd.accession, e, s),
+            ).fetchone()  # fmt: skip
+            if covered:
+                continue
+            skip = engine.execute(
+                "SELECT reason FROM guidance_skip WHERE accession = ? AND start_offset < ? "
+                "AND end_offset > ?", (cd.accession, e, s)).fetchone()  # fmt: skip
+            why = f"skipped: {skip[0]}" if skip else "not a candidate (no forward cue?)"
+            out.append(f"  CAPEX NOT STORED ({why}): {' '.join(text[s:e].split())[:260]}")
+    return out
+
+
+def open_checks(engine) -> list[str]:
+    """Open plausibility flags with their reasons (the queue in one glance)."""
+    rows = engine.execute(
+        "SELECT q.reason, t.ticker FROM review_queue q LEFT JOIN ticker t ON t.cik = q.cik "
+        "AND t.valid_to IS NULL WHERE q.resolved_at IS NULL AND q.kind = 'guidance_implausible' "
+        "GROUP BY q.item_id ORDER BY q.item_id"
+    ).fetchall()
+    return [f"open plausibility flag: {r['ticker'] or '?'} {r['reason']}" for r in rows]
 
 
 def gemini_check(engine, corpus, now, days: int, yes: bool) -> list[str]:
@@ -197,11 +246,14 @@ def main() -> int:
     scans = scan_calls(engine, corpus, now, force=args.force,
                        ciks={r.release.cik for r in releases})  # fmt: skip
     lines.append(f"calls scanned: {len(scans)} {dict(Counter(s.outcome for s in scans))}")
+    stale = labels.close_stale(engine, now)
     lines.append(
-        f"accuracy checks: {labels.check_plausibility(engine, now)} implausible, "
+        f"accuracy checks: {stale} stale check(s) closed, "
+        f"{labels.check_plausibility(engine, now)} implausible, "
         f"{labels.queue_audit(engine, corpus, now)} weekly sample item(s) queued"
     )
     lines += ["accuracy: " + labels.accuracy_line(a) for a in labels.accuracy(engine)]
+    lines += open_checks(engine)
     if args.check_labels:
         lines += labels.check_labels(engine, corpus)
     if args.gemini_check:

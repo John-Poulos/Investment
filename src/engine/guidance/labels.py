@@ -294,32 +294,75 @@ def _doc_text(corpus: sqlite3.Connection, accession: str, filename: str, a: int,
 # --- Plausibility ----------------------------------------------------------------------
 
 
-def _last_fy(engine: sqlite3.Connection, cik: str, metric: str) -> Decimal | None:
+def _baseline(
+    engine: sqlite3.Connection, cik: str, metric: str, quarter: bool
+) -> tuple[Decimal, str] | None:
+    """The latest reported figure to compare with: the last quarter for quarterly guidance,
+    the latest trailing four quarters (or fiscal year) for annual guidance."""
+    types = ("Q",) if quarter else ("TTM", "FY")
+    marks = ", ".join("?" * len(types))
     row = engine.execute(
-        "SELECT latest_value FROM series WHERE cik = ? AND concept = ? AND period_type = 'FY' "
-        "ORDER BY period_end DESC LIMIT 1",
-        (cik, metric),
+        f"SELECT latest_value, period_type, period_end FROM series WHERE cik = ? AND concept = ? "
+        f"AND period_type IN ({marks}) ORDER BY period_end DESC, period_type = 'FY' LIMIT 1",
+        (cik, metric, *types),
     ).fetchone()
-    return abs(Decimal(str(row[0]))) if row and row[0] else None
+    if not row or not row[0]:
+        return None
+    what = {"Q": "the last reported quarter's", "TTM": "the last four reported quarters'",
+            "FY": "the last fiscal year's"}[row[1]]  # fmt: skip
+    return abs(Decimal(str(row[0]))), f"{what} {metric} (to {row[2]})"
 
 
 def plausibility(engine: sqlite3.Connection, r: sqlite3.Row) -> str | None:
-    """Why a capex/revenue row looks implausible against the last reported year, or None."""
+    """Why a capex/revenue row looks implausible against the latest reported figure, or None.
+    Fast growers stay inside the bounds because the comparison is the latest period, not a
+    year-old average (live check 2026-10-09)."""
     if r["metric"] not in PLAUSIBLE or r["kind"] == "direction" or r["unit"] != "USD":
         return None
-    actual = _last_fy(engine, r["cik"], r["metric"])
-    if not actual:
-        return None  # nothing to compare with: unknown, not flagged
     quarter = " Q" in r["period"]
-    base = actual / 4 if quarter else actual
+    base = _baseline(engine, r["cik"], r["metric"], quarter)
+    if base is None:
+        return None  # nothing to compare with: unknown, not flagged
+    actual, what = base
     mid = (Decimal(str(r["low"])) + Decimal(str(r["high"]))) / 2
     lo, hi = PLAUSIBLE[r["metric"]]
-    ratio = mid / base
+    ratio = mid / actual
     if lo <= ratio <= hi:
         return None
-    scope = "a quarter of last fiscal year's" if quarter else "last fiscal year's"
-    return (f"{r['metric']} {r['period']} guidance is {ratio:.2f}× {scope} reported "
-            f"{r['metric']} (expected {lo}–{hi}×)")  # fmt: skip
+    return (f"{r['metric']} {r['period']} guidance is {ratio:.2f}× {what} "
+            f"(expected {lo}–{hi}×)")  # fmt: skip
+
+
+def close_stale(engine: sqlite3.Connection, now: datetime) -> int:
+    """Close open checks that no longer apply after a re-scan: the row is gone (the new
+    parser no longer produces it) or a plausibility flag no longer fires. Recorded as
+    'dismiss' with a note, so the queue shows only live questions."""
+    closed = 0
+    for it in engine.execute(
+        "SELECT item_id, kind, payload FROM review_queue WHERE resolved_at IS NULL "
+        "AND kind IN ('guidance_audit', 'guidance_implausible')"
+    ).fetchall():
+        p = json.loads(it["payload"])
+        if p.get("sample") != "row":
+            continue
+        row = engine.execute(
+            "SELECT * FROM guidance WHERE accession = ? AND filename = ? AND quote_start = ? "
+            "AND metric = ? AND period = ?",
+            (p["accession"], p["filename"], p["offsets"][0], p["metric"], p["period"]),
+        ).fetchone()
+        if row is None:
+            note = f"auto: the parser ({PARSER_VERSION}) no longer stores this row"
+        elif it["kind"] == "guidance_implausible" and plausibility(engine, row) is None:
+            note = "auto: no longer outside the plausible range"
+        else:
+            continue
+        engine.execute(
+            "UPDATE review_queue SET resolved_at = ?, resolution = 'dismiss', resolved_by = "
+            "'engine', note = ? WHERE item_id = ?",
+            (iso(now), note, it["item_id"]),
+        )
+        closed += 1
+    return closed
 
 
 def check_plausibility(engine: sqlite3.Connection, now: datetime) -> int:

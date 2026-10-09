@@ -32,6 +32,8 @@ Updated: 2026-10-09 · Read at the start of every module build. One line each, w
 - A vendor document may carry no date (Alpha Vantage transcripts): anchor it to an SEC record (the quarter's earnings 8-K) and leave it unparsed when none matches, rather than using the fetch date (D-M02-22).
 - Spoken periods are relative ("next quarter", "this year"); resolve them only against the document's own fiscal quarter, and leave the ambiguous ones ("this year" on a Q4 call) for review (D-M02-22).
 - Spoken guidance retells old figures ("earlier this year we said …"), quotes other companies' numbers ("hyperscaler capex"), names segments ("AI revenue") and states bounds ("more than $25 billion"); a release parser applied to calls takes all of these as guidance (D-M02-23).
+- Sanity bounds must compare with the latest period, not a year-old average: fast growers otherwise flood the queue (D-M02-25).
+- When a parser yields nothing for a company that should have data (Alphabet's call capex), log the sentences that mention the target with a figure and why each was set aside, before guessing at rules (D-M02-25).
 - An 8-K item code is not one event type: Tesla's deliveries report and its results both carry Item 2.02; pick the filing by timing, not by item alone (D-M02-23).
 - Mark non-SEC documents in their identifier (accession prefix `AV-`, `IR-`) so every view — reader, search, ledger, Gemini citations — can label the source without a join (D-M02-22).
 

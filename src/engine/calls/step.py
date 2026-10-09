@@ -52,10 +52,13 @@ def run_calls_step(
                 f"capex sentences to review {sum(s.unparsed for s in calls)}, "
                 f"other sentences skipped {sum(s.skipped for s in calls)}"
             )
+        stale = labels.close_stale(engine, now)
         implausible = labels.check_plausibility(engine, now)
         audit = labels.queue_audit(engine, corpus, now)
-        lines.append(f"accuracy checks: {implausible} implausible row(s) queued, "
-                     f"{audit} weekly sample item(s) queued")  # fmt: skip
+        lines.append(
+            f"accuracy checks: {stale} stale check(s) closed, {implausible} implausible "
+            f"row(s) queued, {audit} weekly sample item(s) queued"
+        )
         for a in labels.accuracy(engine)[:2]:
             lines.append("  " + labels.accuracy_line(a))
     except Exception as e:  # the calls step must not break the SEC run report

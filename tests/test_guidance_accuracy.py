@@ -14,6 +14,7 @@ from engine import review
 from engine.calls.step import run_calls_step
 from engine.guidance import labels
 from engine.guidance.calls import scan_calls
+from engine.guidance.parse import PARSER_VERSION
 from engine.llm import call_check
 from engine.llm.provider import FakeProvider, load_settings
 from engine.llm.runs import run as llm_run
@@ -94,22 +95,28 @@ def test_weekly_audit_once_per_week_and_answers_become_labels(loaded, clock):
     assert labels.queue_audit(engine, corpus, next_week) >= 1  # unlabelled rows remain
 
 
-def test_plausibility_flags_capex_far_from_last_year(loaded, clock):
+def _series(engine, ptype, end, value):
+    engine.execute(
+        "INSERT OR REPLACE INTO series (cik, concept, period_end, period_type, period_start, "
+        "unit, first_value, first_accession, first_filed, latest_value, latest_accession, "
+        "latest_filed, method, parser_version) VALUES (?, 'capex', ?, ?, NULL, 'USD', ?, 'a', "
+        "'2026-07-30', ?, 'a', '2026-07-30', 'direct', 't')",
+        (CIK, end, ptype, value, value),
+    )
+
+
+def test_plausibility_compares_with_the_latest_reported_figures(loaded, clock):
     engine, *_ = loaded
     assert _items(engine, "guidance_implausible") == []  # no XBRL actual: unknown, not flagged
-    engine.execute(
-        "INSERT INTO series (cik, concept, period_end, period_type, period_start, unit, "
-        "first_value, first_accession, first_filed, latest_value, latest_accession, latest_filed, "
-        "method, parser_version) VALUES (?, 'capex', '2026-06-30', 'FY', '2025-07-01', 'USD', "
-        "80e9, 'a', '2026-07-30', 80e9, 'a', '2026-07-30', 'direct', 't')",
-        (CIK,),
-    )
-    assert labels.check_plausibility(engine, clock.now()) == 0  # $40B/quarter vs $20B: 2.0x ok
-    engine.execute("UPDATE series SET latest_value = 20e9")
-    # release Q1 $40B, call Q1 $40B and call CY $175B, against $20B a year
-    assert labels.check_plausibility(engine, clock.now()) == 3
+    _series(engine, "FY", "2025-06-30", 20e9)  # a year-old figure alone
+    _series(engine, "TTM", "2026-06-30", 120e9)  # the latest four quarters
+    _series(engine, "Q", "2026-06-30", 38e9)  # the latest quarter
+    # Q1 $40B vs last quarter $38B; CY2026 $175B vs TTM $120B: both fine for a fast grower
+    assert labels.check_plausibility(engine, clock.now()) == 0
+    _series(engine, "Q", "2026-06-30", 5e9)
+    assert labels.check_plausibility(engine, clock.now()) == 2  # release and call Q1 $40B
     first = _items(engine, "guidance_implausible")[0]
-    assert "8.00× a quarter of last fiscal year's" in first["reason"]
+    assert "8.00× the last reported quarter's capex (to 2026-06-30)" in first["reason"]
     assert labels.check_plausibility(engine, clock.now()) == 0  # once per sentence
 
 
@@ -189,7 +196,7 @@ def test_ui_wrong_button_check_page_and_accuracy(app_client):
     review_page = client.get("/review").text
     assert "Gemini read guidance the code did not store" in review_page
     runs = client.get("/runs").text
-    assert "Guidance accuracy" in runs and "guidance-6" in runs
+    assert "Guidance accuracy" in runs and PARSER_VERSION in runs
     audit = [i for i in client.get("/review").text.split('href="/review/') if "Weekly check" in i]
     item_id = audit[0].split('"')[0]
     item = client.get(f"/review/{item_id}").text

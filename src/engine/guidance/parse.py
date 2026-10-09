@@ -55,7 +55,7 @@ import re
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 
-PARSER_VERSION = "guidance-6"
+PARSER_VERSION = "guidance-7"
 
 # --- Metrics -----------------------------------------------------------------
 
@@ -259,6 +259,8 @@ _PERIODS = (
         re.I,
     ),
     re.compile(r"\bFY\s?'?(?P<y>\d{4}|\d{2})\b", re.I),
+    # spoken two-digit fiscal years: "fiscal 28", "fiscal '27", "fiscal year 26"
+    re.compile(r"\bfiscal\s+(?:year\s+)?'?(?P<y>\d{2})\b(?![\d,.%-])", re.I),
 )
 _BARE_YEAR = re.compile(r"(?<![\d,/])\b(?P<y>20\d{2})\b")
 _COMPARISON = re.compile(
@@ -452,9 +454,31 @@ _REVENUE_LEAD = frozenset((
     "lowers", "updates", "initiates", "sets", "outlook", "guidance",
 ))  # fmt: skip
 _PARTY = (
-    r"\b(?:hyperscalers?|customers?'?|industry|cloud providers?|peers|competitors|"
-    r"the market|partners'?|data center operators?)\b"
+    r"\b(?:hyperscale\w*|customers?'?|industry|cloud providers?|peers|competitors|"
+    r"the market|partners'?|data center operators?|analysts?|consensus|the street)\b"
 )
+# "In Productivity and Business Processes, we expect revenue of ..." (Microsoft guides by
+# segment on its call): a sentence opening with a named unit is about that unit
+_SCOPE = re.compile(
+    r"^\s*(?:In|For|Within|At)\s+(?:the\s+)?(?P<name>[A-Z][\w&'-]*(?:\s+(?:and|&|of|[A-Z][\w&'-]*))*)\s*,"
+)
+_NOT_UNIT = re.compile(
+    r"^(?:Q[1-4]|FY|Fiscal|Calendar|Addition|Total|Summary|Aggregate|Closing|Short|Particular|"
+    r"General|Conclusion|Turn|Terms|Constant|January|February|March|April|May|June|July|"
+    r"August|September|October|November|December|First|Second|Third|Fourth|Fiscal|The)\b"
+)
+SEGMENT_METRICS = frozenset({"revenue", "gross_margin", "operating_income", "operating_margin",
+                             "operating_expenses"})  # fmt: skip
+
+
+def segment_scope(sent: str) -> str | None:
+    """The named business unit a sentence opens with ('In Intelligent Cloud, ...'), if any."""
+    m = _SCOPE.match(sent)
+    if m is None or _NOT_UNIT.match(m["name"]) or find_periods(m["name"]):
+        return None
+    return m["name"]
+
+
 _PARTY_BEFORE = re.compile(_PARTY + r"[^.;]{0,25}$", re.IGNORECASE)
 _PARTY_AFTER = re.compile(r"\s+(?:by|of|from|among|across)\b[^.,;]{0,40}?" + _PARTY, re.I)
 
@@ -574,6 +598,7 @@ def _parse_sentence(
         return
     out.candidates += 1
     sent_periods = find_periods(sent, anchor=anchor)
+    scope = segment_scope(sent)
 
     items: list[Item] = []
     no_period = False
@@ -587,6 +612,8 @@ def _parse_sentence(
             seg_start = m.end()
             if metric == "revenue" and segment_revenue(clause, m.start()):
                 continue  # "AI revenue", "Data Center revenue": a segment, not the company total
+            if metric in SEGMENT_METRICS and scope is not None:
+                continue  # "In Intelligent Cloud, we expect revenue of ...": one unit
             if metric == "capex" and third_party(clause, m):
                 continue  # "CapEx by the top five hyperscalers": someone else's spending
             fitted = [
@@ -842,13 +869,24 @@ CAPEX_WORDS = re.compile(
     r"\b(?:capital expenditures?|capex|capital spending|capital investments?)\b", re.IGNORECASE
 )
 _DIRECTIONS = (
-    ("up", re.compile(r"\b(?:grow|grows|growing|increas\w*|ris(?:e|es|ing)|higher|"
-                      r"accelerat\w*|step(?:ping)? up|ramp(?:ing)? up)\b", re.I)),
-    ("down", re.compile(r"\b(?:declin\w*|decreas\w*|lower|reduc\w*|fall|falling)\b", re.I)),
+    ("up", re.compile(r"\b(?:grow|grows|growing|increas\w*|ris(?:e|es|ing)|higher|above|"
+                      r"exceed\w*|accelerat\w*|step(?:ping)? up|ramp(?:ing)? up)\b", re.I)),
+    ("down", re.compile(r"\b(?:declin\w*|decreas\w*|lower|below|reduc\w*|fall|falling)\b",
+                        re.I)),
     ("flat", re.compile(r"\b(?:flat|roughly the same|similar to)\b", re.I)),
 )  # fmt: skip
 _RATE = re.compile(r"\bgrowth rates?\b|\brate of (?:growth|increase)\b|\bpace of\b", re.I)
-_THAN = re.compile(r"\bthan\s+(?:in\s+|for\s+|the\s+)?$", re.IGNORECASE)
+# a period after these words is the comparison ("above fiscal Q4 levels"), not the target
+_THAN = re.compile(
+    r"\b(?:than|above|below|versus|vs\.?|over|from|exceed\w*|compared (?:to|with)|relative to)"
+    r"\s+(?:in\s+|for\s+|the\s+)?$",
+    re.IGNORECASE,
+)
+_NO_GUIDANCE = re.compile(
+    r"\b(?:not|n't|no longer)\s+(?:\w+\s+)?(?:providing|giving|guiding|provide|give)\b"
+    r"|\bno (?:specific |formal )?(?:outlook|guidance)\b",
+    re.IGNORECASE,
+)
 _CLAUSE = re.compile(
     r"\b(?:including|excluding|inclusive of|exclusive of|net of)\b[^,.;:()]{3,120}", re.IGNORECASE
 )
@@ -900,6 +938,19 @@ def clause_of(text: str, item: Item) -> str | None:
     return " ".join(m.group(0).split()) if m else None
 
 
+def _ended(label: str, anchor: tuple[int, int] | None) -> bool:
+    """A period already over at the call (never carried to the next sentence)."""
+    if anchor is None:
+        return False
+    m = re.fullmatch(r"FY(\d{4})(?: Q([1-4]))?", label)
+    if not m:
+        return False
+    fy, q = int(m.group(1)), m.group(2)
+    if q is None:
+        return fy < anchor[0]
+    return (fy, int(q)) <= anchor
+
+
 def _signal(sent: str, anchor: tuple[int, int] | None) -> bool:
     """A capex sentence worth the owner's time: a figure, a direction word or a period."""
     m = CAPEX_WORDS.search(sent)
@@ -938,9 +989,13 @@ def parse_call(
             for s, e in _sentences(text, max(la, a), min(lb, b)):
                 sent = text[s:e]
                 cue_text = _NOT_CUE.sub(lambda m: "_" * len(m.group(0)), sent)
-                forward = bool(CALL_CUE.search(cue_text) or _CONTEXT.search(sent))
+                forward = bool(CALL_CUE.search(cue_text) or _CONTEXT.search(sent)) and not (
+                    _NO_GUIDANCE.search(sent)
+                    or (_RECOUNT.search(sent) and not _UPDATE.search(sent))
+                )  # retold or "no guidance" sentences never set the period for the next one
                 context = next((p for p in reversed(recent[-2:]) if p is not None), None)
-                own = find_periods(sent, anchor=anchor) if forward else []
+                own = [p for p in (find_periods(sent, anchor=anchor) if forward else [])
+                       if not _ended(p.label, anchor)]  # fmt: skip
                 if own:
                     recent.append(Period(own[0].label, s + own[0].start, s + own[0].end))
                 else:  # a forward sentence without its own period carries the context on
@@ -953,6 +1008,9 @@ def parse_call(
                     continue
                 if _RECOUNT.search(sent) and not _UPDATE.search(sent):
                     out.skip(s, e, "retells earlier guidance")
+                    continue
+                if _NO_GUIDANCE.search(sent):
+                    out.skip(s, e, "says no guidance is given")
                     continue
                 capex = CAPEX_WORDS.search(sent)
                 if find_values(sent):
