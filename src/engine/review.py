@@ -23,6 +23,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from engine.guidance import labels
 from engine.guidance.calls import anchor_of, management_turns
 from engine.guidance.ledger import TAX_RATE_SANE, Release, _insert
 from engine.guidance.parse import METRICS, parse_call, parse_release
@@ -37,6 +38,8 @@ KIND_LABELS = {
     "guidance_conflict": "Guidance stated twice with different values",
     "llm_rejected": "Gemini output rejected by the verifier",
     "ticker_map_hold": "Ticker map update held",
+    "guidance_audit": "Guidance check (weekly sample or Gemini)",
+    "guidance_implausible": "Guidance outside the plausible range",
     **proposals.KIND_LABELS,
 }
 ACTIONS = {
@@ -44,6 +47,8 @@ ACTIONS = {
     "guidance_conflict": ("keep_stored", "keep_other", "dismiss"),
     "llm_rejected": ("acknowledge",),
     "ticker_map_hold": ("approve", "keep_map"),
+    "guidance_audit": ("correct", "wrong", "no_guidance", "missed", "dismiss"),
+    "guidance_implausible": ("correct", "wrong", "dismiss"),
     **proposals.ACTIONS,
 }
 METRIC_NAMES = tuple(dict.fromkeys(name for _, name in METRICS))
@@ -190,6 +195,70 @@ def m02_action(
         _close(engine, item_id, action, note, by, now)
         engine.execute("COMMIT")
     except tiers.TierError as e:
+        engine.execute("ROLLBACK")
+        raise ReviewError(str(e)) from e
+    except Exception:
+        engine.execute("ROLLBACK")
+        raise
+
+
+# --- guidance accuracy checks (D-M02-24) ------------------------------------------------
+
+LABEL_ACTIONS = ("correct", "wrong", "no_guidance", "missed")
+
+
+def label_action(
+    engine: sqlite3.Connection,
+    item_id: int,
+    action: str,
+    reason: str,
+    note: str,
+    by: str,
+    now: datetime,
+) -> str:
+    """Answer a guidance check: the answer becomes a label; 'wrong' removes the row."""
+    it = _open(engine, item_id, ("guidance_audit", "guidance_implausible"))
+    p = it.payload
+    is_row = p.get("sample") == "row"
+    if (
+        action not in it.actions
+        or (is_row and action in ("no_guidance", "missed"))
+        or (not is_row and action in ("correct", "wrong"))
+    ):
+        raise ReviewError(f"'{action}' does not apply to this check.")
+    engine.execute("BEGIN")
+    try:
+        if is_row:
+            labels.label_row(engine, labels.current_row(engine, p),
+                             "right" if action == "correct" else "wrong",
+                             reason or None, note, p["found_by"], by, now)  # fmt: skip
+        else:
+            a, b = p["offsets"]
+            labels.label_span(engine, cik=it.cik or "", accession=p["accession"],
+                              filename=p["filename"], start=a, end=b, quote=p.get("text", ""),
+                              verdict="missed" if action == "missed" else "right", note=note,
+                              found_by=p["found_by"], parser_version=p["parser_version"],
+                              by=by, now=now)  # fmt: skip
+        _close(engine, item_id, action, note, by, now)
+        engine.execute("COMMIT")
+    except labels.LabelError as e:
+        engine.execute("ROLLBACK")
+        raise ReviewError(str(e)) from e
+    except Exception:
+        engine.execute("ROLLBACK")
+        raise
+    return action
+
+
+def mark_wrong(
+    engine: sqlite3.Connection, guidance_id: int, reason: str, note: str, by: str, now: datetime
+) -> None:
+    """The owner's 'wrong' button on a ledger row (D-M02-24)."""
+    engine.execute("BEGIN")
+    try:
+        labels.label_row(engine, guidance_id, "wrong", reason, note, "owner", by, now)
+        engine.execute("COMMIT")
+    except labels.LabelError as e:
         engine.execute("ROLLBACK")
         raise ReviewError(str(e)) from e
     except Exception:

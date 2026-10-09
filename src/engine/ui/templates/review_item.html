@@ -16,6 +16,17 @@
     <div><h3 class="sub">Call (not stored)</h3><div class="quote">“{{ it.payload.other }}”</div></div>
   </div>
   <p class="muted">The release wins (D-M02-20). If the call corrects the release, enter the value by hand from the release's review or note it here; otherwise dismiss.</p>
+  {% elif it.kind in ('guidance_audit', 'guidance_implausible') %}
+  {% set p = it.payload %}
+  <div class="quote">“{{ p.text }}”</div>
+  <table class="data">
+    {% if p.sample == 'row' %}<tr><th>The parser stored</th><td>{{ p.stored }} <span class="muted">({{ p.origin }}, grade {{ p.grade }})</span></td></tr>
+    {% elif p.sample == 'skipped' %}<tr><th>The parser set it aside</th><td>{{ p.skipped_because }}</td></tr>
+    {% else %}<tr><th>Gemini read</th><td>{{ p.gemini_read }} <span class="muted">(not stored; the code did not store or queue this sentence)</span></td></tr>{% endif %}
+    {% if p.why %}<tr><th>Why flagged</th><td>{{ p.why }}</td></tr>{% endif %}
+    <tr><th>Found by</th><td>{{ {'audit': 'weekly random sample', 'plausibility': 'plausibility check', 'gemini': 'Gemini cross-check', 'owner': 'owner'}.get(p.found_by, p.found_by) }} · parser {{ p.parser_version }}</td></tr>
+  </table>
+  <p class="muted">Your answer becomes a label: the error rate per parser version is on the Runs page, and each new parser version is re-checked against every label (D-M02-24).</p>
   {% elif it.kind == 'guidance_conflict' %}
   <div class="grid2">
     <div><h3 class="sub">Stored value (kept)</h3><div class="quote">“{{ it.payload.kept }}”</div></div>
@@ -83,10 +94,13 @@
   </form>
   {% endif %}
   <div class="actions">
-  {% for a in it.actions if a != 'enter' and not (a == 'keep_other' and it.payload.cross) %}
+  {% set row_check = it.payload.sample == 'row' %}
+  {% for a in it.actions if a != 'enter' and not (a == 'keep_other' and it.payload.cross)
+       and not (it.kind.startswith('guidance_') and it.payload.sample and ((row_check and a in ('no_guidance', 'missed')) or (not row_check and a in ('correct', 'wrong')))) %}
   <form method="post" action="/review/{{ it.item_id }}/{{ a }}">
+    {% if a == 'wrong' %}<select name="reason" required><option value="">— why wrong —</option>{% for k, v in reasons.items() if k != 'missed_guidance' %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>{% endif %}
     <input name="note" size="40" placeholder="Note (optional)">
-    <button class="btn" type="submit">{{ {'dismiss': 'Dismiss', 'keep_stored': 'Keep stored value', 'keep_other': 'Keep other value', 'acknowledge': 'Acknowledge', 'approve': 'Apply at next nightly run', 'keep_map': 'Keep stored map', 'accept': 'Accept', 'reject': 'Reject', 'confirm': 'Confirm', 'flip': 'Confirm, direction flipped', 'downloaded': 'Downloaded', 'promote': 'Promote to watchlist', 'keep_tracked': 'Keep tracked', 'keep': 'Keep tracking', 'remove': 'Stop tracking'}.get(a, a) }}</button>
+    <button class="btn" type="submit">{{ {'dismiss': 'Dismiss', 'keep_stored': 'Keep stored value', 'keep_other': 'Keep other value', 'acknowledge': 'Acknowledge', 'approve': 'Apply at next nightly run', 'keep_map': 'Keep stored map', 'accept': 'Accept', 'reject': 'Reject', 'confirm': 'Confirm', 'flip': 'Confirm, direction flipped', 'downloaded': 'Downloaded', 'promote': 'Promote to watchlist', 'keep_tracked': 'Keep tracked', 'keep': 'Keep tracking', 'remove': 'Stop tracking', 'correct': 'Correct', 'wrong': 'Wrong — remove the row', 'no_guidance': 'Not guidance (right to skip)', 'missed': 'Missed — it is guidance'}.get(a, a) }}</button>
   </form>
   {% endfor %}
   </div>

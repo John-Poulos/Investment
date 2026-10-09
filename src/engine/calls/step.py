@@ -5,6 +5,7 @@
 3. Scan new call documents, and every call of a company whose releases were just
    re-scanned (release vs call matching depends on both).
 4. Queue download reminders for calls still missing 30 days after the release.
+5. Accuracy checks (D-M02-24): plausibility flags, this week's random sample.
 Never fails the run: errors are reported in its lines.
 """
 
@@ -16,6 +17,7 @@ from datetime import datetime
 
 from engine.calls.alpha_vantage import AlphaVantageClient
 from engine.calls.transcripts import fetch_due, queue_reminders
+from engine.guidance import labels
 from engine.guidance.calls import scan_calls
 from engine.guidance.ledger import scan_all
 
@@ -50,6 +52,12 @@ def run_calls_step(
                 f"capex sentences to review {sum(s.unparsed for s in calls)}, "
                 f"other sentences skipped {sum(s.skipped for s in calls)}"
             )
+        implausible = labels.check_plausibility(engine, now)
+        audit = labels.queue_audit(engine, corpus, now)
+        lines.append(f"accuracy checks: {implausible} implausible row(s) queued, "
+                     f"{audit} weekly sample item(s) queued")  # fmt: skip
+        for a in labels.accuracy(engine)[:2]:
+            lines.append("  " + labels.accuracy_line(a))
     except Exception as e:  # the calls step must not break the SEC run report
         if engine.in_transaction:
             engine.execute("ROLLBACK")

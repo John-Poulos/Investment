@@ -24,8 +24,9 @@ from fastapi.templating import Jinja2Templates
 
 from engine import review
 from engine.calls import ir_inbox
+from engine.guidance import labels
 from engine.guidance.sources import FORECAST_NOTE, is_sec, source_label
-from engine.llm import guidance_reasons
+from engine.llm import call_check, guidance_reasons
 from engine.llm.provider import GeminiProvider, estimate_tokens, load_settings
 from engine.llm.runs import cached_call
 from engine.llm.runs import run as llm_run
@@ -352,8 +353,81 @@ def create_app(settings: UiSettings) -> FastAPI:
     @app.get("/runs", response_class=HTMLResponse)
     def runs_page(request: Request, engine: Engine, viewer: ViewerDep):
         now = datetime.now(UTC).isoformat(timespec="seconds")
-        ctx = frame(engine) | {"viewer": viewer, "rc": services.runs_and_costs(engine, now)}
+        ctx = frame(engine) | {"viewer": viewer, "rc": services.runs_and_costs(engine, now),
+                               "accuracy": labels.accuracy(engine)}  # fmt: skip
         return templates.TemplateResponse(request, "runs.html", ctx)
+
+    # --- guidance accuracy (D-M02-24) ------------------------------------------------
+
+    @app.get("/c/{ticker}/guidance/{guidance_id}/wrong", response_class=HTMLResponse)
+    def wrong_form(request: Request, ticker: str, guidance_id: int, engine: Engine,
+                   owner: OwnerDep, error: str = ""):  # fmt: skip
+        row = engine.execute("SELECT * FROM guidance WHERE guidance_id = ?",
+                             (guidance_id,)).fetchone()  # fmt: skip
+        if row is None:
+            raise HTTPException(404, "That guidance row is no longer stored.")
+        ctx = frame(engine) | {"viewer": owner, "ticker": ticker.upper(), "row": row,
+                               "stored": labels.describe_row(row), "reasons": labels.REASONS,
+                               "error": error}  # fmt: skip
+        return templates.TemplateResponse(request, "guidance_wrong.html", ctx)
+
+    @app.post("/c/{ticker}/guidance/{guidance_id}/wrong")
+    def wrong_submit(
+        ticker: str,
+        guidance_id: int,
+        engine: Engine,
+        owner: OwnerDep,
+        reason: Annotated[str, Form()] = "",
+        note: Annotated[str, Form()] = "",
+    ) -> RedirectResponse:
+        ticker = ticker.upper()
+        try:
+            review.mark_wrong(engine, guidance_id, reason, note, owner.id, datetime.now(UTC))
+        except review.ReviewError as e:
+            return RedirectResponse(
+                f"/c/{ticker}/guidance/{guidance_id}/wrong?error={quote(str(e))}", 303
+            )
+        return RedirectResponse(f"/c/{ticker}?tab=guidance&msg=labelled-wrong", 303)
+
+    @app.get("/c/{ticker}/calls/check", response_class=HTMLResponse)
+    def call_check_page(request: Request, ticker: str, acc: str, file: str, engine: Engine,
+                        corpus: Corpus, viewer: ViewerDep):  # fmt: skip
+        prep = call_check.prepare(engine, corpus, acc, file)
+        if prep is None:
+            raise HTTPException(404, "That call document is not stored.")
+        llm = load_settings()
+        est = None
+        if prep.request is not None:
+            tokens = estimate_tokens(prep.request.system + prep.request.user)
+            est = {"tokens": tokens, "cost": llm.cost(tokens, EXPECTED_OUTPUT_TOKENS),
+                   "model": llm.model,
+                   "cached": cached_call(engine, prep.request, llm.model) is not None}  # fmt: skip
+        ctx = frame(engine) | {"viewer": viewer, "ticker": ticker.upper(), "prep": prep,
+                               "est": est}  # fmt: skip
+        return templates.TemplateResponse(request, "call_check.html", ctx)
+
+    @app.post("/c/{ticker}/calls/check")
+    def call_check_run(ticker: str, acc: str, file: str, engine: Engine, corpus: Corpus,
+                       owner: OwnerDep, rerun: str = "0") -> RedirectResponse:  # fmt: skip
+        """Owner-triggered Gemini cross-check of one call (D-M02-24); cost shown first."""
+        ticker = ticker.upper()
+        prep = call_check.prepare(engine, corpus, acc, file)
+        if prep is None or prep.request is None:
+            raise HTTPException(404, "Nothing to check in that call document.")
+        now = datetime.now(UTC)
+        try:
+            provider = settings.llm_factory() if settings.llm_factory else GeminiProvider()
+            res = llm_run(engine, provider, load_settings(), prep.request, now,
+                          rerun=rerun == "1")  # fmt: skip
+        except Exception as e:  # key missing, network, unreadable reply: say so, store nothing
+            detail = quote(f"{type(e).__name__}: {e}"[:200])
+            return RedirectResponse(f"/c/{ticker}?tab=guidance&msg=llm-error&detail={detail}", 303)
+        text = corpus.execute("SELECT text FROM document WHERE accession = ? AND filename = ?",
+                              (acc, file)).fetchone()[0]  # fmt: skip
+        queued = call_check.queue_missed(engine, prep, res, text, now)
+        msg = quote(f"Gemini check of {acc}: {len(res.observations)} statements read, "
+                    f"{queued} sentence(s) the code missed sent to the review queue")  # fmt: skip
+        return RedirectResponse(f"/c/{ticker}?tab=guidance&msg=checked&detail={msg}", 303)
 
     @app.get("/review", response_class=HTMLResponse)
     def review_page(
@@ -401,6 +475,7 @@ def create_app(settings: UiSettings) -> FastAPI:
             "it": it,
             "context": context,
             "metrics": services.METRIC_ORDER,
+            "reasons": labels.REASONS,
             "error": error,
             "pickup": None,
         }
@@ -417,6 +492,7 @@ def create_app(settings: UiSettings) -> FastAPI:
         found = ir_inbox.newest_pdf(settings.downloads_dir)
         ctx = frame(engine) | {
             "viewer": owner, "it": it, "context": None, "metrics": services.METRIC_ORDER,
+            "reasons": labels.REASONS,
             "error": error or ("" if found else f"No PDF found in {settings.downloads_dir}."),
             "pickup": found, "doc_kinds": tuple(ir_inbox.DOC_KINDS),
         }  # fmt: skip
@@ -471,6 +547,7 @@ def create_app(settings: UiSettings) -> FastAPI:
         low: Annotated[str, Form()] = "",
         high: Annotated[str, Form()] = "",
         scale: Annotated[str, Form()] = "1",
+        reason: Annotated[str, Form()] = "",
     ) -> RedirectResponse:
         """Owner-only review actions (U2); each closes the item with who, when and note (U3)."""
         now = datetime.now(UTC)
@@ -488,6 +565,8 @@ def create_app(settings: UiSettings) -> FastAPI:
                 review.keep_other(engine, corpus, item_id, note, owner.id, now)
             elif action == "reopen":
                 done = review.reopen(engine, item_id, owner.id, now)
+            elif action in review.LABEL_ACTIONS:
+                review.label_action(engine, item_id, action, reason, note, owner.id, now)
             elif action == "approve":
                 review.approve_ticker_hold(engine, item_id, note, owner.id, now)
             elif (it := review.get(engine, item_id)) and it.kind.startswith("m02_"):

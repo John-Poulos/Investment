@@ -255,6 +255,9 @@ def scan_release(
     engine.execute("BEGIN")
     try:
         _clear(engine, release)
+        from engine.guidance.labels import wrong_keys
+
+        wrong = wrong_keys(engine, release.accession, release.filename)
         kept: dict[tuple[str, str, str], Item] = {}
         conflicts = 0
         past = 0
@@ -274,6 +277,8 @@ def scan_release(
                     at,
                 )
                 continue
+            if (item.quote_start, item.metric, item.period) in wrong:
+                continue  # the owner labelled this wrong (D-M02-24)
             key = (item.metric, item.basis, item.period)
             if engine.execute(
                 "SELECT 1 FROM guidance WHERE accession = ? AND filename = ? AND metric = ? "

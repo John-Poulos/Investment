@@ -399,6 +399,11 @@ class ParseResult:
     candidates: int = 0
     directions: list[Direction] = field(default_factory=list)
     skipped: int = 0  # guidance-like sentences not queued (calls: only capex goes to review)
+    skipped_spans: list[Unparsed] = field(default_factory=list)  # sampled by the audit
+
+    def skip(self, start: int, end: int, reason: str) -> None:
+        self.skipped += 1
+        self.skipped_spans.append(Unparsed(start, end, reason))
 
 
 _CUE = re.compile(
@@ -947,7 +952,7 @@ def parse_call(
                 if len(sent) > MAX_SENTENCE or _BOILERPLATE.search(sent):
                     continue
                 if _RECOUNT.search(sent) and not _UPDATE.search(sent):
-                    out.skipped += 1  # earlier guidance retold, not a new statement
+                    out.skip(s, e, "retells earlier guidance")
                     continue
                 capex = CAPEX_WORDS.search(sent)
                 if find_values(sent):
@@ -959,10 +964,12 @@ def parse_call(
                         u_cap = CAPEX_WORDS.search(text[u.start : u.end])
                         if u_cap and not third_party(text[u.start : u.end], u_cap):
                             out.unparsed.append(u)
+                        elif u_cap:
+                            out.skip(u.start, u.end, "another party's capex")
                         else:
-                            out.skipped += 1
+                            out.skip(u.start, u.end, f"not capex ({u.reason})")
                 elif capex and third_party(sent, capex):
-                    out.skipped += 1
+                    out.skip(s, e, "another party's capex")
                 elif capex:
                     out.candidates += 1
                     d = _direction(text, s, e, anchor, context)
@@ -971,5 +978,5 @@ def parse_call(
                     elif _signal(sent, anchor):
                         out.unparsed.append(Unparsed(s, e, d))
                     else:
-                        out.skipped += 1
+                        out.skip(s, e, "capex without figure, direction or period")
     return out

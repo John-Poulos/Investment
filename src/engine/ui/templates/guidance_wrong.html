@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Mark guidance wrong — {{ ticker }}{% endblock %}
+{% block topleft %}<a href="/c/{{ ticker }}?tab=guidance">← {{ ticker }} guidance</a><span class="name">Mark a guidance row wrong</span>{% endblock %}
+{% block body %}
+<main class="detail" style="max-width: 900px">
+  {% if error %}<div class="warnbox">{{ error }}</div>{% endif %}
+  <h2>{{ stored }}</h2>
+  <p class="muted">{{ row.origin }} · grade {{ row.grade }} · {{ row.stated_on }} · parser {{ row.parser_version }}{% if source_label(row.accession, row.grade) %} · {{ source_label(row.accession, row.grade) }}{% endif %}</p>
+  <div class="quote">“{{ row.quote }}”</div>
+  <form method="post" action="/c/{{ ticker }}/guidance/{{ row.guidance_id }}/wrong" class="entry">
+    <label class="wide">Why is it wrong?
+      <select name="reason" required>
+        <option value="">— choose —</option>
+        {% for k, v in reasons.items() if k != 'missed_guidance' %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="wide">Note <input name="note" size="60" placeholder="optional: what it should have been"></label>
+    <button class="btn" type="submit">Mark wrong and remove the row</button>
+  </form>
+  <p class="note">The row is removed and stays out of later scans. Your label is kept: every new parser version is re-checked against it (D-M02-24), and the next build uses it to fix the rule. To store the right value, use the review queue's "enter by hand" on the sentence.</p>
+</main>
+{% endblock %}

@@ -3,6 +3,18 @@
 {% block topleft %}<a href="/">← Engine</a><span class="name">Runs and costs</span>{% endblock %}
 {% block body %}
 <main class="detail" style="max-width: 1100px">
+  <section>
+    <h2>Guidance accuracy (D-M02-24)</h2>
+    {% if accuracy %}
+    <table class="data">
+      <tr><th>Parser</th><th class="num">Sampled rows</th><th class="num">Wrong</th><th class="num">Precision</th><th class="num">Sampled skipped sentences</th><th class="num">Missed</th><th class="num">Other labels</th></tr>
+      {% for a in accuracy %}
+      <tr><td>{{ a.parser_version }}</td><td class="num">{{ a.rows_checked }}</td><td class="num">{{ a.rows_wrong }}</td><td class="num">{{ 'n/a' if a.precision is none else '%.0f%%' | format(a.precision * 100) }}</td><td class="num">{{ a.skipped_checked }}</td><td class="num">{{ a.skipped_missed }}</td><td class="num">{{ a.labels_other }}</td></tr>
+      {% endfor %}
+    </table>
+    <p class="note">Precision comes only from the weekly random sample (unbiased); "other labels" are your wrong-button marks, plausibility flags and Gemini cross-checks. Re-check every label against the current parser: <code>uv run python scripts/run_calls.py --check-labels</code>.</p>
+    {% else %}<p class="empty">No accuracy labels yet. The weekly sample starts with the next refresh.</p>{% endif %}
+  </section>
   <div class="grid2">
     <section>
       <h2>Gemini (owner-initiated only)</h2>

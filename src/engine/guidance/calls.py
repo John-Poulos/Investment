@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
+from engine.guidance.labels import store_skips, wrong_keys
 from engine.guidance.ledger import (
     Release,
     _clear,
@@ -32,7 +33,15 @@ from engine.guidance.ledger import (
     _past_full_year,
     _review,
 )
-from engine.guidance.parse import PARSER_VERSION, Item, Value, parse_call
+from engine.guidance.parse import (
+    PARSER_VERSION,
+    Item,
+    ParseResult,
+    Value,
+    parse_call,
+    parse_release,
+)
+from engine.guidance.sources import origin_of
 from engine.sec.client import iso
 
 MANAGEMENT = "call management"
@@ -87,6 +96,26 @@ def call_documents(engine: sqlite3.Connection, cik: str | None = None) -> list[C
         )  # fmt: skip
         for r in rows
     ]
+
+
+def parse_document(
+    engine: sqlite3.Connection, corpus: sqlite3.Connection, accession: str, filename: str
+) -> ParseResult | None:
+    """The current parser's reading of a stored release or call document (labels re-check)."""
+    doc = corpus.execute(
+        "SELECT doc_id, text FROM document WHERE accession = ? AND filename = ?",
+        (accession, filename),
+    ).fetchone()
+    if doc is None:
+        return None
+    if origin_of(accession) == "release":
+        return parse_release(doc["text"])
+    cd = engine.execute(
+        "SELECT quarter FROM call_document WHERE accession = ? AND filename = ?",
+        (accession, filename),
+    ).fetchone()
+    turns = management_turns(corpus, doc["doc_id"], doc["text"])
+    return parse_call(doc["text"], turns, anchor_of(cd["quarter"]) if cd else None)
 
 
 def anchor_of(quarter: str) -> tuple[int, int] | None:
@@ -150,9 +179,13 @@ def scan_call(
     engine.execute("BEGIN")
     try:
         _clear(engine, rel)
+        store_skips(engine, cd.cik, cd.accession, cd.filename, parsed)
+        wrong = wrong_keys(engine, cd.accession, cd.filename)
         kept: dict[tuple[str, str, str], Item] = {}
         conflicts = matched = past = 0
         for item in parsed.items:
+            if (item.quote_start, item.metric, item.period) in wrong:
+                continue  # the owner labelled this wrong (D-M02-24)
             if _past_full_year(item.period, cd.stated_on):
                 past += 1
                 _review(engine, rel, "guidance_unparsed",
@@ -210,6 +243,8 @@ def scan_call(
         seen_dir: dict[tuple[str, str], str] = {}
         for d in parsed.directions:
             k = (d.metric, d.period)
+            if (d.quote_start, d.metric, d.period) in wrong:
+                continue
             if (d.metric, "unspecified", d.period) in kept or any(
                 (m, per) == k for m, _, per in kept
             ):

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Gemini check — {{ prep.accession }}{% endblock %}
+{% block topleft %}<a href="/c/{{ ticker }}?tab=guidance">← {{ ticker }} guidance</a><span class="name">Gemini cross-check of a call</span>{% endblock %}
+{% block body %}
+<main class="detail" style="max-width: 960px">
+{% if not est %}
+  <p class="empty">This document has no management remarks to check.</p>
+{% else %}
+  <h2>What will be sent to Gemini</h2>
+  <p>The {{ prep.turns | length }} management turn{{ 's' if prep.turns | length != 1 }} of <a href="/doc/{{ prep.accession }}?file={{ prep.filename }}">{{ prep.accession }}</a> (no analyst questions). Gemini lists every statement of the company's own future results or spending, each with an exact quote; quotes are verified against the turn. Sentences the code neither stored nor sent to review become review items ("missed" or "no guidance"). Gemini's list is never stored as guidance.</p>
+  <h2>Cost</h2>
+  <p>Model {{ est.model }} · about {{ '{:,}'.format(est.tokens) }} input tokens · estimated <b>${{ '%.4f' | format(est.cost) }}</b> (local estimate; actual tokens and cost are logged).</p>
+  {% if viewer.is_owner %}
+    {% if est.cached %}
+    <div class="okbox">This exact request was already run — using the stored result costs nothing.</div>
+    <form method="post" action="/c/{{ ticker }}/calls/check?acc={{ prep.accession }}&file={{ prep.filename }}&rerun=0" style="display:inline"><button class="btn" type="submit">Use stored result</button></form>
+    <form method="post" action="/c/{{ ticker }}/calls/check?acc={{ prep.accession }}&file={{ prep.filename }}&rerun=1" style="display:inline"><button class="btn" type="submit">Re-run (~${{ '%.4f' | format(est.cost) }})</button></form>
+    {% else %}
+    <form method="post" action="/c/{{ ticker }}/calls/check?acc={{ prep.accession }}&file={{ prep.filename }}&rerun=0"><button class="btn" type="submit">Run with Gemini (~${{ '%.4f' | format(est.cost) }})</button></form>
+    {% endif %}
+  {% else %}<p class="muted">Only the owner can start a Gemini run.</p>{% endif %}
+{% endif %}
+</main>
+{% endblock %}

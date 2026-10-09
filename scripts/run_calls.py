@@ -4,6 +4,8 @@
     uv run python scripts/run_calls.py --fetch 6               # up to 6 Alpha Vantage requests
     uv run python scripts/run_calls.py                         # scan only (no network)
     uv run python scripts/run_calls.py --force                 # re-scan every release and call
+    uv run python scripts/run_calls.py --check-labels          # re-check accuracy labels
+    uv run python scripts/run_calls.py --gemini-check 100      # cost estimate; --yes to run
 
 Order: import → scan releases → fetch due transcripts (newest releases first,
 watchlist + tracked names) → scan calls → download reminders. Interactive budget:
@@ -38,6 +40,7 @@ from engine.calls.transcripts import (  # noqa: E402
     queue_reminders,
     symbol_cik,
 )
+from engine.guidance import labels  # noqa: E402
 from engine.guidance.calls import scan_calls  # noqa: E402
 from engine.guidance.ledger import scan_all  # noqa: E402
 from engine.refresh import load_config  # noqa: E402
@@ -115,12 +118,60 @@ def describe_calls(engine, corpus, scans) -> list[str]:
     return lines
 
 
+def gemini_check(engine, corpus, now, days: int, yes: bool) -> list[str]:
+    """Owner-triggered per season (D-M02-24): estimate first, call only with --yes."""
+    from datetime import timedelta
+
+    from engine.llm import call_check
+    from engine.llm.provider import GeminiProvider, estimate_tokens, load_settings
+    from engine.llm.runs import cached_call
+    from engine.llm.runs import run as llm_run
+
+    llm = load_settings()
+    since = (now.date() - timedelta(days=days)).isoformat()
+    docs = engine.execute(
+        "SELECT accession, filename FROM call_document WHERE stated_on >= ? ORDER BY stated_on",
+        (since,),
+    ).fetchall()
+    todo, total = [], 0.0
+    for d in docs:
+        prep = call_check.prepare(engine, corpus, d[0], d[1])
+        if prep is None or prep.request is None or cached_call(engine, prep.request, llm.model):
+            continue
+        cost = float(llm.cost(estimate_tokens(prep.request.system + prep.request.user), 1500))
+        todo.append((prep, cost))
+        total += cost
+    out = [f"gemini check: {len(todo)} call(s) since {since} not yet checked, estimated "
+           f"${total:.4f} ({llm.model})"]  # fmt: skip
+    if not yes:
+        return out + ["  estimate only; add --yes to run"]
+    provider = GeminiProvider()
+    for prep, _ in todo:
+        try:
+            res = llm_run(engine, provider, llm, prep.request, now)
+        except Exception as e:  # one call failing must not stop the others
+            out.append(f"  {prep.accession}: error {type(e).__name__}: {e}")
+            continue
+        text = corpus.execute("SELECT text FROM document WHERE accession = ? AND filename = ?",
+                              (prep.accession, prep.filename)).fetchone()[0]  # fmt: skip
+        q = call_check.queue_missed(engine, prep, res, text, now)
+        st = Counter(o.subject.get("status", "rejected") for o in res.observations)
+        out.append(f"  {prep.accession}: {dict(st)}; {q} queued for review; "
+                   f"${res.cost_usd or 0:.4f}")  # fmt: skip
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--import-probe", nargs="?", const=str(ROOT / "data/probe/alpha_vantage"),
                     help="import saved replies (default data/probe/alpha_vantage)")  # fmt: skip
     ap.add_argument("--fetch", type=int, default=0, help="Alpha Vantage requests (max)")
     ap.add_argument("--force", action="store_true", help="re-scan every release and call")
+    ap.add_argument("--check-labels", action="store_true",
+                    help="re-run the parser over every accuracy label (no network)")  # fmt: skip
+    ap.add_argument("--gemini-check", type=int, metavar="DAYS",
+                    help="Gemini cross-check of calls from the last DAYS days")  # fmt: skip
+    ap.add_argument("--yes", action="store_true", help="with --gemini-check: make the calls")
     args = ap.parse_args()
     if (ROOT / "data" / "refresh.lock").exists():
         print("data/refresh.lock exists: the refresh is running; try again later.")
@@ -145,6 +196,15 @@ def main() -> int:
     scans = scan_calls(engine, corpus, now, force=args.force,
                        ciks={r.release.cik for r in releases})  # fmt: skip
     lines.append(f"calls scanned: {len(scans)} {dict(Counter(s.outcome for s in scans))}")
+    lines.append(
+        f"accuracy checks: {labels.check_plausibility(engine, now)} implausible, "
+        f"{labels.queue_audit(engine, corpus, now)} weekly sample item(s) queued"
+    )
+    lines += ["accuracy: " + labels.accuracy_line(a) for a in labels.accuracy(engine)]
+    if args.check_labels:
+        lines += labels.check_labels(engine, corpus)
+    if args.gemini_check:
+        lines += gemini_check(engine, corpus, now, args.gemini_check, args.yes)
     lines += describe_calls(engine, corpus, scans)
     logs = ROOT / "logs"
     logs.mkdir(exist_ok=True)
