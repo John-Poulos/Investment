@@ -19,7 +19,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
-from engine.guidance.parse import PARSER_VERSION, Item, Value, parse_release
+from engine.guidance.parse import PARSER_VERSION, Direction, Item, Value, clause_of, parse_release
+from engine.guidance.sources import default_grade, origin_of
 from engine.sec.client import iso
 
 RELEASE_TYPES = ("EX-99.1", "EX-99.01", "EX-99")
@@ -149,15 +150,24 @@ def _review(
 
 
 def _insert(
-    engine: sqlite3.Connection, release: Release, text: str, sha: str, item: Item, now: str
+    engine: sqlite3.Connection,
+    release: Release,
+    text: str,
+    sha: str,
+    item: Item,
+    now: str,
+    *,
+    grade: str | None = None,
+    matched: str | None = None,
 ) -> None:
     v, p = item.value, item.prior
+    origin = origin_of(release.accession)
     engine.execute(
         "INSERT INTO guidance (cik, accession, filename, metric, basis, period, unit, kind, low, "
         "high, point, spread, spread_kind, prior_low, prior_high, stated_on, source, quote, "
         "quote_start, quote_end, period_quote, period_start, period_end, doc_sha256, "
-        "parser_version, created_at, flag, flag_reason) "
-        f"VALUES ({', '.join('?' * 28)})",
+        "parser_version, created_at, flag, flag_reason, origin, grade, matched_accession, "
+        f"clause) VALUES ({', '.join('?' * 32)})",
         (
             release.cik,
             release.accession,
@@ -186,6 +196,44 @@ def _insert(
             PARSER_VERSION,
             now,
             *quality_flag(item),
+            origin,
+            grade or default_grade(origin),
+            matched,
+            clause_of(text, item),
+        ),
+    )
+
+
+def _insert_direction(
+    engine: sqlite3.Connection, release: Release, text: str, sha: str, d: Direction, now: str
+) -> None:
+    """Direction-only row (D-M02-20): no figure, low/high NULL; scored later by direction."""
+    origin = origin_of(release.accession)
+    engine.execute(
+        "INSERT INTO guidance (cik, accession, filename, metric, basis, period, unit, kind, "
+        "stated_on, source, quote, quote_start, quote_end, period_quote, period_start, "
+        "period_end, doc_sha256, parser_version, created_at, origin, grade, direction) "
+        "VALUES (?, ?, ?, ?, 'unspecified', ?, 'USD', 'direction', ?, 'sentence', ?, ?, ?, ?, ?, "
+        "?, ?, ?, ?, ?, ?, ?)",
+        (
+            release.cik,
+            release.accession,
+            release.filename,
+            d.metric,
+            d.period,
+            release.filed,
+            text[d.quote_start : d.quote_end],
+            d.quote_start,
+            d.quote_end,
+            text[d.period_start : d.period_end],
+            d.period_start,
+            d.period_end,
+            sha,
+            PARSER_VERSION,
+            now,
+            origin,
+            default_grade(origin),
+            d.direction,
         ),
     )
 

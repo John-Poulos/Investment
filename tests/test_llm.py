@@ -141,7 +141,7 @@ def test_verified_reason_is_stored_with_citation(meta, clock):
     assert (row["status"], row["model"], row["prompt_version"]) == (
         "ok",
         "gemini-3.1-flash-lite",
-        "guidance_reasons-1",
+        "guidance_reasons-2",
     )
     assert (
         engine.execute("SELECT count(*) FROM review_queue WHERE kind = 'llm_rejected'").fetchone()[
@@ -218,10 +218,10 @@ def test_prompt_file_is_versioned():
     assert (
         Path(guidance_reasons.__file__)
         .with_name("prompts")
-        .joinpath("guidance_reasons_1.md")
+        .joinpath("guidance_reasons_2.md")
         .exists()
     )
-    assert guidance_reasons.PROMPT_VERSION == "guidance_reasons-1"
+    assert guidance_reasons.PROMPT_VERSION == "guidance_reasons-2"
 
 
 def test_basis_shown_only_when_stated_and_boilerplate_not_sent(meta):

@@ -23,8 +23,10 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from engine.guidance.calls import anchor_of, management_turns
 from engine.guidance.ledger import TAX_RATE_SANE, Release, _insert
-from engine.guidance.parse import METRICS, parse_release
+from engine.guidance.parse import METRICS, parse_call, parse_release
+from engine.guidance.sources import default_grade, origin_of
 from engine.llm.verify import numbers, scaled_forms
 from engine.sec.client import iso
 from engine.sec.identity import APPROVAL_STATE
@@ -45,7 +47,7 @@ ACTIONS = {
     **proposals.ACTIONS,
 }
 METRIC_NAMES = tuple(dict.fromkeys(name for _, name in METRICS))
-PERIOD = re.compile(r"^FY\d{4}( Q[1-4]| remaining)?$")
+PERIOD = re.compile(r"^(?:FY\d{4}( Q[1-4]| remaining)?|CY\d{4})$")
 
 
 class ReviewError(ValueError):
@@ -234,7 +236,7 @@ def enter_guidance(
         raise ReviewError(f"Unknown basis {g.basis!r}.")
     period = " ".join(g.period.split())
     if not PERIOD.match(period):
-        raise ReviewError("Period must look like FY2026, FY2026 Q3 or FY2026 remaining.")
+        raise ReviewError("Period must look like FY2026, FY2026 Q3, FY2026 remaining or CY2026.")
     if g.unit not in ("USD", "%", "count"):
         raise ReviewError(f"Unknown unit {g.unit!r}.")
     scale = Decimal(1) if g.unit == "%" else _dec(g.scale, "Scale")
@@ -270,9 +272,10 @@ def enter_guidance(
         engine.execute(
             "INSERT INTO guidance (cik, accession, filename, metric, basis, period, unit, kind, "
             "low, high, point, stated_on, source, quote, quote_start, quote_end, period_quote, "
-            "period_start, period_end, doc_sha256, parser_version, created_at, flag, flag_reason) "
+            "period_start, period_end, doc_sha256, parser_version, created_at, flag, flag_reason, "
+            "origin, grade) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'owner', ?, ?, ?, ?, ?, ?, ?, 'owner', ?, "
-            "?, ?)",
+            "?, ?, ?, ?)",
             (
                 it.cik,
                 p["accession"],
@@ -296,6 +299,8 @@ def enter_guidance(
                 iso(now),
                 flag,
                 reason,
+                origin_of(p["accession"]),
+                default_grade(origin_of(p["accession"])),
             ),  # fmt: skip
         )
         _close(engine, item_id, "entered", note, by, now)
@@ -332,6 +337,9 @@ def keep_other(
 ) -> None:
     it = _open(engine, item_id, ("guidance_conflict",))
     p = it.payload
+    if p.get("cross"):
+        raise ReviewError("The release value stands when a call differs (D-M02-20); dismiss "
+                          "this item, or note why the call should win.")  # fmt: skip
     key = _conflict_key(it)
     doc = corpus.execute(
         "SELECT doc_id, text, sha256 FROM document WHERE accession = ? AND filename = ?",
@@ -340,9 +348,16 @@ def keep_other(
     if doc is None:
         raise ReviewError("The source document is no longer stored.")
     other_start = p["other_offsets"][0]
+    if origin_of(p["accession"]) == "release":
+        parsed = parse_release(doc["text"])
+    else:
+        cd = engine.execute("SELECT quarter FROM call_document WHERE accession = ? AND "
+                            "filename = ?", (p["accession"], p["filename"])).fetchone()  # fmt: skip
+        turns = management_turns(corpus, doc["doc_id"], doc["text"])
+        parsed = parse_call(doc["text"], turns, anchor_of(cd["quarter"]) if cd else None)
     match = [
         i
-        for i in parse_release(doc["text"]).items
+        for i in parsed.items
         if i.quote_start == other_start and (i.metric, i.basis, i.period) == key
     ]
     if not match:

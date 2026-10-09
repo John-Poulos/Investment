@@ -330,15 +330,24 @@ def _tracked_synced(engine: sqlite3.Connection, cik: str) -> bool:
                           (f"tracked:{cik}",)).fetchone() is not None  # fmt: skip
 
 
+def _releases_synced(engine: sqlite3.Connection, cik: str) -> bool:
+    """Earnings releases of a tracked name collected once (names tracked before part 4)."""
+    return engine.execute("SELECT 1 FROM refresh_state WHERE name = ?",
+                          (f"tracked-releases:{cik}",)).fetchone() is not None  # fmt: skip
+
+
 def _process_tracked(
     client: SecClient,
     engine: sqlite3.Connection,
+    corpus: sqlite3.Connection,
+    config: Config,
     rep: CompanyReport,
     entries: list[IndexEntry],
     now: datetime,
 ) -> None:
-    """Tracked tier (D-M02-4): entity, filing index, events, XBRL facts. No Form 4s,
-    no documents (those start when the owner promotes the company)."""
+    """Tracked tier (D-M02-4): entity, filing index, events, XBRL facts, and earnings
+    releases (8-K Item 2.02 + EX-99.1, ~2 requests a quarter, D-M02-20 (5)) so a
+    spender's guidance arrives without promotion. No Form 4s, no other documents."""
     cik, fails = rep.cik, rep.failures
     entity = _check(load_entity(client, engine, cik, now), "entity", fails)
     rep.name = entity.name if entity else None
@@ -353,12 +362,28 @@ def _process_tracked(
         data = _check(facts, "facts", fails)
         if data is not None:
             rep.facts = "refreshed" if data.refreshed else "up to date"
+    releases = earnings_releases(engine, cik)
+    new_acc = {e.accession for e in entries}
+    wanted = [f.accession for f in releases if f.accession in new_acc]
+    first_releases = not _releases_synced(engine, cik)
+    if rep.backfilled or first_releases:
+        wanted += [f.accession for f in releases][: config.earnings_8k]
+    for accession in dict.fromkeys(wanted):
+        filing = filing_by_accession(engine, accession)
+        if filing is None:
+            continue
+        docs = _check(ingest_filing(client, corpus, filing, now), f"documents {accession}", fails)
+        if docs is not None:
+            rep.documents += sum(1 for d in docs.stored if d.new)
+            fails.extend(f"documents {accession} {f}" for f in docs.failed)
     if not fails:
-        engine.execute(
-            "INSERT INTO refresh_state (name, source_ref, fetched_at, detail) VALUES (?, "
-            "'refresh', ?, NULL) ON CONFLICT (name) DO UPDATE SET fetched_at = excluded.fetched_at",
-            (f"tracked:{cik}", iso(now)),
-        )
+        for name in (f"tracked:{cik}", f"tracked-releases:{cik}"):
+            engine.execute(
+                "INSERT INTO refresh_state (name, source_ref, fetched_at, detail) VALUES (?, "
+                "'refresh', ?, NULL) ON CONFLICT (name) DO UPDATE SET "
+                "fetched_at = excluded.fetched_at",
+                (name, iso(now)),
+            )
 
 
 def run_refresh(
@@ -433,7 +458,9 @@ def run_refresh(
         todo = sorted(
             (set(matched) & set(watch)) | {c for c in watch if not _backfilled(engine, c)}
         )
-        fresh_light = {c for c in light if not _tracked_synced(engine, c)}
+        fresh_light = {
+            c for c in light if not _tracked_synced(engine, c) or not _releases_synced(engine, c)
+        }
         todo += sorted((set(matched) & set(light)) | fresh_light)
         for cik in todo:
             is_light = cik in light and cik not in watch
@@ -445,7 +472,7 @@ def run_refresh(
             entries = list({e.accession: e for e in matched.get(cik, [])}.values())
             try:
                 if is_light:
-                    _process_tracked(client, engine, rep, entries, now)
+                    _process_tracked(client, engine, corpus, config, rep, entries, now)
                 else:
                     _process_company(client, engine, corpus, config, rep, entries, now)
             except Throttled:
@@ -513,7 +540,7 @@ def format_report(report: RunReport) -> str:
     if report.watchlist:
         lines.append("watchlist: " + "; ".join(f"{t} = {n}" for t, n in report.watchlist.items()))
     if report.tracked:
-        lines.append("tracked (filings + XBRL only): " + ", ".join(report.tracked))
+        lines.append("tracked (filings, XBRL, earnings releases): " + ", ".join(report.tracked))
     if report.unresolved:
         lines.append("unresolved tickers (kept on the watchlist):")
         lines += [f"  {t}: {why}" for t, why in report.unresolved.items()]

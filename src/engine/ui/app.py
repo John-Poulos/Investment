@@ -23,6 +23,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from engine import review
+from engine.calls import ir_inbox
+from engine.guidance.sources import FORECAST_NOTE, is_sec, source_label
 from engine.llm import guidance_reasons
 from engine.llm.provider import GeminiProvider, estimate_tokens, load_settings
 from engine.llm.runs import cached_call
@@ -100,6 +102,9 @@ def create_app(settings: UiSettings) -> FastAPI:
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
     templates.env.filters["num"] = fmt_number
+    templates.env.globals["source_label"] = source_label  # D-M02-21 labels
+    templates.env.globals["is_sec"] = is_sec
+    templates.env.globals["FORECAST_NOTE"] = FORECAST_NOTE
 
     for db in ("engine", "corpus"):  # bring schemas up to date once, at start
         conn = connect(settings.data_dir / f"{db}.db")
@@ -397,8 +402,59 @@ def create_app(settings: UiSettings) -> FastAPI:
             "context": context,
             "metrics": services.METRIC_ORDER,
             "error": error,
+            "pickup": None,
         }
         return templates.TemplateResponse(request, "review_item.html", ctx)
+
+    @app.get("/review/{item_id}/pickup", response_class=HTMLResponse)
+    def review_pickup(
+        request: Request, item_id: int, engine: Engine, owner: OwnerDep, error: str = ""
+    ):
+        """'I downloaded it': show the newest PDF in Downloads before storing it (D-M02-21)."""
+        it = review.get(engine, item_id)
+        if it is None or it.kind != "m02_ir_download":
+            raise HTTPException(404, "No such download item.")
+        found = ir_inbox.newest_pdf(settings.downloads_dir)
+        ctx = frame(engine) | {
+            "viewer": owner, "it": it, "context": None, "metrics": services.METRIC_ORDER,
+            "error": error or ("" if found else f"No PDF found in {settings.downloads_dir}."),
+            "pickup": found, "doc_kinds": tuple(ir_inbox.DOC_KINDS),
+        }  # fmt: skip
+        return templates.TemplateResponse(request, "review_item.html", ctx)
+
+    @app.post("/review/{item_id}/ingest")
+    def review_ingest(
+        item_id: int,
+        engine: Engine,
+        corpus: Corpus,
+        owner: OwnerDep,
+        name: Annotated[str, Form()],
+        doc_kind: Annotated[str, Form()] = "transcript",
+        note: Annotated[str, Form()] = "",
+    ) -> RedirectResponse:
+        """Store the confirmed PDF, scan it, and close the download item."""
+        it = review.get(engine, item_id)
+        if it is None or it.kind != "m02_ir_download" or it.resolved_at:
+            raise HTTPException(404, "No open download item.")
+        found = ir_inbox.newest_pdf(settings.downloads_dir)
+        if found is None or found.name != name:
+            msg = "The newest PDF in Downloads changed; check the file again."
+            return RedirectResponse(f"/review/{item_id}/pickup?error={quote(msg)}", 303)
+        p = it.payload
+        try:
+            accession, scan = ir_inbox.ingest_pdf(
+                engine, corpus, path=found.path, cik=it.cik or "", symbol=p["symbol"],
+                av_quarter=p["av_quarter"], doc_kind=doc_kind,
+                release_accession=p.get("release_accession"),
+                release_filed=p.get("release_filed"), now=datetime.now(UTC),
+            )  # fmt: skip
+        except ir_inbox.InboxError as e:
+            return RedirectResponse(f"/review/{item_id}?error={quote(str(e))}", 303)
+        stored = f"stored {found.name} as {accession}: {scan.items} guidance rows, " \
+                 f"{scan.unparsed} sentences to review"  # fmt: skip
+        review.m02_action(engine, item_id, "downloaded", (note + " " if note else "") + stored,
+                          owner.id, datetime.now(UTC))  # fmt: skip
+        return RedirectResponse(f"/review?msg={quote(f'Item {item_id}: {stored}')}", 303)
 
     @app.post("/review/{item_id}/{action}")
     def review_action(
@@ -496,14 +552,20 @@ def create_app(settings: UiSettings) -> FastAPI:
             "AND t.valid_to IS NULL WHERE f.accession = ? LIMIT 1",
             (accession,),
         ).fetchone()
+        call = engine.execute(
+            "SELECT d.quarter, d.stated_on, t.ticker FROM call_document d LEFT JOIN ticker t "
+            "ON t.cik = d.cik AND t.valid_to IS NULL WHERE d.accession = ? LIMIT 1",
+            (accession,),
+        ).fetchone()
         ctx = frame(engine) | {
             "viewer": viewer,
             "view": view,
-            "form": row["form"] if row else None,
-            "filed": row["filed"] if row else None,
-            "ticker": row["ticker"] if row else None,
-            "sec_url": services.filing_index_url(view.cik, accession),
-        }
+            "form": row["form"] if row else (f"Call {call['quarter']}" if call else None),
+            "filed": row["filed"] if row else (call["stated_on"] if call else None),
+            "ticker": row["ticker"] if row else (call["ticker"] if call else None),
+            "sec_url": services.filing_index_url(view.cik, accession) if is_sec(accession)
+            else None,
+        }  # fmt: skip
         return templates.TemplateResponse(request, "doc.html", ctx)
 
     @app.get("/source/{accession}/{filename}", response_class=HTMLResponse)

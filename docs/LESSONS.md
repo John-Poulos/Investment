@@ -29,6 +29,9 @@ Updated: 2026-10-09 · Read at the start of every module build. One line each, w
 - Call transcripts mix analyst questions with management statements; parse management turns only, or analysts' numbers become "guidance" (D-M02-6).
 - An empty vendor response is "not available yet", never "none" (Alpha Vantage returned an empty transcript for a month-old call) (D-M02-6).
 - Run the parser on the real corpus early; each live scan found new wording (guidance-1 → guidance-4).
+- A vendor document may carry no date (Alpha Vantage transcripts): anchor it to an SEC record (the quarter's earnings 8-K) and leave it unparsed when none matches, rather than using the fetch date (D-M02-22).
+- Spoken periods are relative ("next quarter", "this year"); resolve them only against the document's own fiscal quarter, and leave the ambiguous ones ("this year" on a Q4 call) for review (D-M02-22).
+- Mark non-SEC documents in their identifier (accession prefix `AV-`, `IR-`) so every view — reader, search, ledger, Gemini citations — can label the source without a join (D-M02-22).
 
 ## LLM
 - Check model names against the provider's docs before coding ("Gemini 3.1 Flash" did not exist) (D-SRCH-16).
@@ -38,7 +41,7 @@ Updated: 2026-10-09 · Read at the start of every module build. One line each, w
 - Say "no reason stated" rather than inventing one; the first live run did this correctly (D-SRCH-20).
 
 ## UI
-- Jinja resolves `row.items` to the dict method; read clashing keys with `row['key']`; a test fails if any tab renders a Python object (D-UI-7).
+- Jinja resolves `row.items` to the dict method; read clashing keys with `row['key']`; a test fails if any tab renders a Python object (D-UI-7). Hit again in part 4 (`call_document` + `guidance_scan.items`): name SQL columns `n_items` or read with `[]`.
 - Show basis or labels only when the source stated them; store `unspecified` (D-SRCH-20).
 - Review policy: real information the program cannot store yet stays open for its future module (D-UI-15).
 

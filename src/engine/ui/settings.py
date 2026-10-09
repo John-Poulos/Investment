@@ -19,10 +19,12 @@ class UiSettings:
     watchlist: Path = ROOT / "config" / "watchlist.toml"
     tiingo_factory: Callable[[Any], Any] | None = None  # tests inject a fake client
     llm_factory: Callable[[], Any] | None = None  # tests inject a FakeProvider
+    downloads_dir: Path = Path.home() / "Downloads"  # "I downloaded it" pickup (D-M02-21)
 
 
 def from_env() -> UiSettings:
     return UiSettings(
+        downloads_dir=Path(os.getenv("ENGINE_DOWNLOADS_DIR", str(Path.home() / "Downloads"))),
         host=os.getenv("ENGINE_UI_HOST", "127.0.0.1"),
         port=int(os.getenv("ENGINE_UI_PORT", "8765")),
         data_dir=Path(os.getenv("ENGINE_DATA_DIR", str(ROOT / "data"))),

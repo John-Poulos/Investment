@@ -1,9 +1,12 @@
 """Use case 1: stated reasons for guidance changes (R19, M00_SEARCH D-SRCH-17).
 
 Code computes the changes (guidance/changes.py, reaffirmations skipped) and
-selects the passages of each announcing release around the guidance sentence
-(its passage and the next one in the same section). The model may only quote
-those passages, and only from the release that announced the change.
+selects the passages of each announcing document around the guidance sentence
+(its passage and the next one in the same section). For a change announced in a
+release, management passages of the same quarter's call transcript that mention
+the metric with a figure are added (D-M02-21 (2); at most CALL_PASSAGES). The
+model may only quote those passages, and only from the announcing document or its
+paired call; call quotes are labelled grade B wherever they are shown.
 """
 
 from __future__ import annotations
@@ -15,7 +18,10 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from engine.guidance.calls import IR_SECTION, MANAGEMENT
 from engine.guidance.changes import Change, changes_for
+from engine.guidance.parse import METRICS
+from engine.guidance.sources import origin_of
 from engine.llm.runs import Citation, Observation, Request
 from engine.llm.verify import quote_found, unsupported_numbers
 
@@ -23,8 +29,9 @@ from engine.llm.verify import quote_found, unsupported_numbers
 _BOILERPLATE = re.compile(r"\s*(?:\S+\s+){0,12}?(?:contains )?forward-looking statements", re.I)
 
 USE_CASE = "guidance_reasons"
-PROMPT_VERSION = "guidance_reasons-1"
-SYSTEM = (Path(__file__).parent / "prompts" / "guidance_reasons_1.md").read_text(encoding="utf-8")
+PROMPT_VERSION = "guidance_reasons-2"
+SYSTEM = (Path(__file__).parent / "prompts" / "guidance_reasons_2.md").read_text(encoding="utf-8")
+CALL_PASSAGES = 2  # per change, from the paired call transcript
 
 SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -69,6 +76,7 @@ class SourcePassage:
     text: str
     doc_sha256: str
     filed: str
+    origin: str = "release"  # release | call | ir
 
 
 def fmt_value(v: Decimal, unit: str) -> str:
@@ -92,11 +100,15 @@ def fmt_range(lo: Decimal, hi: Decimal, unit: str) -> str:
 def describe(c: Change) -> str:
     prev = fmt_range(c.prev_low, c.prev_high, c.unit)
     new = fmt_range(c.new_low, c.new_high, c.unit)
-    how = "earlier release" if c.source == "releases" else "prior stated in the same sentence"
+    if c.source != "releases":
+        how = "prior stated in the same sentence"
+    else:
+        how = "earlier call" if c.prev_origin == "call" else "earlier release"
     basis = "" if c.basis == "unspecified" else f" ({c.basis})"  # shown only when stated
+    where = {"call": "call transcript", "ir": "company IR document"}.get(c.origin, "release")
     return (
         f"{c.metric}{basis} for {c.period}: {c.kind} from {prev} ({how}) to {new}, "
-        f"announced in release {c.accession} filed {c.stated_on}."
+        f"announced in {where} {c.accession} on {c.stated_on}."
     )
 
 
@@ -155,12 +167,78 @@ def _passages(
                     p["body"],
                     doc["sha256"],
                     c.stated_on,
+                    origin_of(c.accession),
                 )
-    ordered = sorted(out.values(), key=lambda s: (s.filed, s.accession, s.start))
+        if c.origin == "release":
+            for sp in _call_passages(engine, corpus, c):
+                out.setdefault(sp.passage_id, sp)
+    ordered = sorted(out.values(), key=lambda s: (s.filed, s.origin, s.accession, s.start))
     return [replace(s, label=f"P{i}") for i, s in enumerate(ordered, 1)]
 
 
-def _check(changes: dict[str, Change], passages: dict[str, SourcePassage]):
+def _metric_rx(metric: str) -> re.Pattern[str]:
+    aliases = [a for a, name in METRICS if name == metric] or [re.escape(metric)]
+    return re.compile(r"\b(?:" + "|".join(aliases) + r")\b", re.IGNORECASE)
+
+
+def paired_calls(engine: sqlite3.Connection, c: Change) -> list[tuple[str, str]]:
+    """(accession, filename) of the call documents of the release announcing c."""
+    return [
+        (r[0], r[1])
+        for r in engine.execute(
+            "SELECT accession, filename FROM call_document WHERE release_accession = ? "
+            "ORDER BY accession",
+            (c.accession,),
+        )
+    ]
+
+
+def _call_passages(
+    engine: sqlite3.Connection, corpus: sqlite3.Connection, c: Change
+) -> list[SourcePassage]:
+    """Management passages of the paired call that mention the metric with a figure."""
+    rx = _metric_rx(c.metric)
+    found: list[SourcePassage] = []
+    for accession, filename in paired_calls(engine, c):
+        for p in corpus.execute(
+            "SELECT p.passage_id, p.start_offset, p.end_offset, s.label, s.title, d.sha256, "
+            "substr(d.text, p.start_offset + 1, p.end_offset - p.start_offset) AS body "
+            "FROM passage p JOIN section s ON s.section_id = p.section_id "
+            "JOIN document d ON d.doc_id = p.doc_id "
+            "WHERE d.accession = ? AND d.filename = ? AND s.label IN (?, ?) "
+            "ORDER BY p.start_offset",
+            (accession, filename, MANAGEMENT, IR_SECTION),
+        ):
+            if len(found) >= CALL_PASSAGES:
+                return found
+            if rx.search(p["body"]) and re.search(r"\$\s?\d|\d\s?%", p["body"]):
+                section = f"{p['label']} {p['title']}" if p["title"] else p["label"]
+                found.append(
+                    SourcePassage(
+                        "",
+                        p["passage_id"],
+                        accession,
+                        filename,
+                        section,
+                        p["start_offset"],
+                        p["end_offset"],
+                        p["body"],
+                        p["sha256"],
+                        c.stated_on,
+                        origin_of(accession),
+                    )  # fmt: skip
+                )
+    return found
+
+
+def _check(
+    changes: dict[str, Change],
+    passages: dict[str, SourcePassage],
+    allowed: dict[str, set[str]] | None = None,
+):
+    """allowed: change id → accessions it may quote (announcing document + paired call)."""
+    allowed = allowed or {}
+
     def check(reply: Any) -> list[Observation]:
         out: list[Observation] = []
         answered: set[str] = set()
@@ -192,8 +270,8 @@ def _check(changes: dict[str, Change], passages: dict[str, SourcePassage]):
                 if p is None:
                     problems.append(f"unknown passage {q['passage_id']}")
                     continue
-                if c is not None and p.accession != c.accession:
-                    problems.append(f"{p.label} is not from the announcing release")
+                if c is not None and p.accession not in allowed.get(cid, {c.accession}):
+                    problems.append(f"{p.label} is not from the announcing release or its call")
                 if not quote_found(text, p.text):
                     problems.append(f"quote not found in {p.label}: {text[:80]!r}")
                 cites.append(
@@ -245,13 +323,23 @@ def prepare(engine: sqlite3.Connection, corpus: sqlite3.Connection, cik: str) ->
     lines += [change_line(cid, c) for cid, c in asked.items()]
     lines += ["", "Passages:"]
     for p in passages:
+        what = {
+            "call": "call transcript (oral statement, third-party transcript)",
+            "ir": "company IR document",
+        }.get(p.origin, "release")
         lines += [
-            f"[{p.label}] release {p.accession} filed {p.filed}, section {p.section}",
+            f"[{p.label}] {what} {p.accession} of {p.filed}, section {p.section}",
             p.text.strip(),
             "",
         ]
     by_label = {p.label: p for p in passages}
+    allowed = {
+        cid: {c.accession} | ({a for a, _ in paired_calls(engine, c)} if c.origin == "release"
+                              else set())
+        for cid, c in asked.items()
+    }  # fmt: skip
     req = Request(
-        USE_CASE, cik, PROMPT_VERSION, SYSTEM, "\n".join(lines), SCHEMA, _check(asked, by_label)
-    )
+        USE_CASE, cik, PROMPT_VERSION, SYSTEM, "\n".join(lines), SCHEMA,
+        _check(asked, by_label, allowed),
+    )  # fmt: skip
     return Prepared(req, all_changes, asked, passages)

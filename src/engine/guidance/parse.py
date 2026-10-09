@@ -38,6 +38,15 @@ and ignored. No period in the sentence → the nearest outlook heading above.
 Normalized as "FY2027 Q3", "FY2026", "FY2026 remaining".
 
 A % spread on a % value ("74%, plus or minus 1%") is read as percentage points.
+"calendar (year) 2026" / "CY26" → "CY2026" (Microsoft guides capex by calendar year).
+
+Calls (`parse_call`, D-M02-20): only management turns are read; the call's fiscal
+quarter anchors spoken periods ("next quarter", "the fourth quarter", "next fiscal
+year"; "this year"/"full year" except on a Q4 call, where it is ambiguous). Spoken
+cues are wider ("will", "plan to", "going to"). A capex sentence with a forward cue,
+a direction word and no figure becomes a direction-only item ("FY27 capex to grow");
+growth-rate wording, mixed directions or no period go to review. Unparsed sentences
+are queued only when they mention capex; the rest are counted as skipped.
 """
 
 from __future__ import annotations
@@ -46,7 +55,7 @@ import re
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 
-PARSER_VERSION = "guidance-4"
+PARSER_VERSION = "guidance-5"
 
 # --- Metrics -----------------------------------------------------------------
 
@@ -224,6 +233,7 @@ def find_values(text: str) -> list[Value]:
 _ORD = {"first": 1, "second": 2, "third": 3, "fourth": 4}
 _YEAR = r"(?:fiscal\s+(?:year\s+)?)?(?:FY\s?)?'?(?P<y>\d{4}|\d{2})"
 _PERIODS = (
+    re.compile(r"\b(?:calendar(?:\s+year)?\s+|CY\s?'?)(?P<y>\d{4}|\d{2})\b(?P<cy>)", re.I),
     re.compile(rf"\b(?P<q>first|second|third|fourth)[- ]quarter\s+(?:of\s+)?{_YEAR}\b", re.I),
     re.compile(r"\bQ(?P<qn>[1-4])\s*(?:FY|fiscal\s+)?\s*'?(?P<y>\d{4}|\d{2})\b", re.I),
     re.compile(r"\bFQ(?P<qn>[1-4])[- ](?P<y>\d{4}|\d{2})\b", re.I),
@@ -259,8 +269,44 @@ def _year(y: str) -> int:
     return 2000 + n if n < 100 else n
 
 
-def find_periods(text: str, *, bare_years: bool = True) -> list[Period]:
-    """Forward periods in text (comparison periods excluded), in order."""
+# spoken periods, resolved against the call's own fiscal quarter (anchor)
+_NOT_YEAR = r"(?!\s+(?:of\s+)?(?:fiscal\s+)?(?:year\s+)?(?:FY\s?)?'?\d)"
+_RELATIVE = (
+    (re.compile(r"\bnext quarter\b", re.I), "next_q"),
+    (re.compile(rf"\b(?P<q>first|second|third|fourth)[- ]quarter\b{_NOT_YEAR}", re.I), "q"),
+    (re.compile(r"\bQ(?P<qn>[1-4])\b(?!\s*(?:FY|fiscal)?\s*'?\d)", re.I), "q"),
+    (re.compile(r"\bnext (?:fiscal )?year\b", re.I), "next_y"),
+    (
+        re.compile(
+            r"\b(?:this|the current) (?:fiscal )?year\b|\bthe fiscal year\b"
+            rf"|\b(?:the )?full[- ]year\b{_NOT_YEAR}",
+            re.I,
+        ),
+        "this_y",
+    ),
+)
+
+
+def _relative(m: re.Match[str], how: str, anchor: tuple[int, int]) -> str | None:
+    fy, q = anchor
+    if how == "next_q":
+        return f"FY{fy + 1} Q1" if q == 4 else f"FY{fy} Q{q + 1}"
+    if how == "q":
+        t = _ORD[m["q"].lower()] if m.groupdict().get("q") else int(m["qn"])
+        return f"FY{fy if t > q else fy + 1} Q{t}"
+    if how == "next_y":
+        return f"FY{fy + 1}"
+    return None if q == 4 else f"FY{fy}"  # on a Q4 call "this year" may mean either year
+
+
+def find_periods(
+    text: str, *, bare_years: bool = True, anchor: tuple[int, int] | None = None
+) -> list[Period]:
+    """Forward periods in text (comparison periods excluded), in order.
+
+    anchor = (fiscal year, quarter) of a call: spoken relative periods are resolved
+    against it; without an anchor they are not periods.
+    """
     out: list[Period] = []
     for rx in _PERIODS:
         for m in rx.finditer(text):
@@ -268,7 +314,9 @@ def find_periods(text: str, *, bare_years: bool = True) -> list[Period]:
                 continue
             year = _year(m["y"])
             gd = m.groupdict()
-            if gd.get("q"):
+            if gd.get("cy") is not None:
+                label = f"CY{year}"
+            elif gd.get("q"):
                 label = f"FY{year} Q{_ORD[gd['q'].lower()]}"
             elif gd.get("qn"):
                 label = f"FY{year} Q{gd['qn']}"
@@ -277,6 +325,13 @@ def find_periods(text: str, *, bare_years: bool = True) -> list[Period]:
             else:
                 label = f"FY{year}"
             out.append(Period(label, m.start(), m.end()))
+    if anchor is not None:
+        for rx, how in _RELATIVE:
+            for m in rx.finditer(text):
+                if any(p.start < m.end() and m.start() < p.end for p in out):
+                    continue
+                if (label := _relative(m, how, anchor)) is not None:
+                    out.append(Period(label, m.start(), m.end()))
     if bare_years and not out:
         for m in _BARE_YEAR.finditer(text):
             if not _DATE_BEFORE.search(text[: m.start()]):
@@ -309,11 +364,26 @@ class Unparsed:
     reason: str
 
 
+@dataclass(frozen=True)
+class Direction:
+    """Direction-only guidance from a call ("FY27 capex to grow"): no figure (D-M02-20)."""
+
+    metric: str
+    period: str
+    direction: str  # up | down | flat
+    quote_start: int
+    quote_end: int
+    period_start: int
+    period_end: int
+
+
 @dataclass
 class ParseResult:
     items: list[Item] = field(default_factory=list)
     unparsed: list[Unparsed] = field(default_factory=list)
     candidates: int = 0
+    directions: list[Direction] = field(default_factory=list)
+    skipped: int = 0  # guidance-like sentences not queued (calls: only capex goes to review)
 
 
 _CUE = re.compile(
@@ -431,15 +501,24 @@ def _spread_both(seg: str, values: list[Value]) -> list[Value]:
     return out
 
 
-def _parse_sentence(text: str, s: int, e: int, context: Period | None, out: ParseResult) -> None:
+def _parse_sentence(
+    text: str,
+    s: int,
+    e: int,
+    context: Period | None,
+    out: ParseResult,
+    *,
+    cue: re.Pattern[str] = _CUE,
+    anchor: tuple[int, int] | None = None,
+) -> None:
     sent = text[s:e]
     cue_text = _NOT_CUE.sub(lambda m: "_" * len(m.group(0)), sent)
-    if not _CUE.search(cue_text) or not find_values(sent):
+    if not cue.search(cue_text) or not find_values(sent):
         return
     if len(sent) > MAX_SENTENCE or _BOILERPLATE.search(sent):
         return
     out.candidates += 1
-    sent_periods = find_periods(sent)
+    sent_periods = find_periods(sent, anchor=anchor)
 
     items: list[Item] = []
     no_period = False
@@ -466,7 +545,7 @@ def _parse_sentence(text: str, s: int, e: int, context: Period | None, out: Pars
             if not fitted:
                 continue
             # a forward verb must precede the value: past results in the sentence are not guidance
-            if not _CUE.search(cue_text[c0 : c0 + fitted[0].start]):
+            if not cue.search(cue_text[c0 : c0 + fitted[0].start]):
                 continue
             bases = _bases(clause[: m.end()])
             if (
@@ -480,7 +559,7 @@ def _parse_sentence(text: str, s: int, e: int, context: Period | None, out: Pars
             main_end = max(v.end for _, v in pairs)
             main_start = min(v.start for _, v in pairs)
             # period: nearest stated before this value, else anywhere in the sentence, else heading
-            window = find_periods(clause[prev_end:main_start])
+            window = find_periods(clause[prev_end:main_start], anchor=anchor)
             if window:
                 p = window[-1]
                 period = Period(p.label, s + c0 + prev_end + p.start, s + c0 + prev_end + p.end)
@@ -679,3 +758,101 @@ def parse_release(text: str) -> ParseResult:
             _parse_sentence(text, s, e, context, result)
     _parse_tables(text, lines, result)
     return result
+
+
+# --- Calls -------------------------------------------------------------------
+
+CALL_CUE = re.compile(
+    _CUE.pattern + r"|\b(?:will|plan(?:s|ning)? to|going to|guid(?:e|ing))\b", re.IGNORECASE
+)
+CAPEX_WORDS = re.compile(
+    r"\b(?:capital expenditures?|capex|capital spending|capital investments?)\b", re.IGNORECASE
+)
+_DIRECTIONS = (
+    ("up", re.compile(r"\b(?:grow|grows|growing|increas\w*|ris(?:e|es|ing)|higher|"
+                      r"accelerat\w*|step(?:ping)? up|ramp(?:ing)? up)\b", re.I)),
+    ("down", re.compile(r"\b(?:declin\w*|decreas\w*|lower|reduc\w*|fall|falling)\b", re.I)),
+    ("flat", re.compile(r"\b(?:flat|roughly the same|similar to)\b", re.I)),
+)  # fmt: skip
+_RATE = re.compile(r"\bgrowth rates?\b|\brate of (?:growth|increase)\b|\bpace of\b", re.I)
+_THAN = re.compile(r"\bthan\s+(?:in\s+|for\s+|the\s+)?$", re.IGNORECASE)
+_CLAUSE = re.compile(
+    r"\b(?:including|excluding|inclusive of|exclusive of|net of)\b[^,.;:()]{3,120}", re.IGNORECASE
+)
+
+
+def _direction(text: str, s: int, e: int, anchor: tuple[int, int] | None) -> Direction | str:
+    """A direction-only capex item, or the reason it goes to review."""
+    sent = text[s:e]
+    m = CAPEX_WORDS.search(sent)
+    assert m
+    if _RATE.search(sent):
+        return "growth-rate wording (kept for review, D-UI-15)"
+    tail = sent[m.end() :]
+    found = [(d, w) for d, rx in _DIRECTIONS if (w := rx.search(tail))]
+    if len(found) != 1:
+        return "no direction word" if not found else "mixed directions"
+    direction, w = found[0]
+    word_at = m.end() + w.start()
+    periods = [
+        p
+        for p in find_periods(sent, anchor=anchor)
+        if not _THAN.search(sent[max(0, p.start - 20) : p.start])
+    ]
+    if not periods:
+        return "no period"
+    before = [p for p in periods if p.start < word_at]
+    p = before[-1] if before else periods[0]
+    return Direction("capex", p.label, direction, s, e, s + p.start, s + p.end)
+
+
+def clause_of(text: str, item: Item) -> str | None:
+    """The "including/excluding ..." clause stated with a capex value (D-M02-5)."""
+    if item.metric != "capex":
+        return None
+    start = item.quote_start
+    for m in CAPEX_WORDS.finditer(text, item.quote_start, item.value.start):
+        start = m.start()
+    m = _CLAUSE.search(text, start, min(item.quote_end, item.value.end + 120))
+    return " ".join(m.group(0).split()) if m else None
+
+
+def parse_call(
+    text: str, turns: list[tuple[int, int]], anchor: tuple[int, int] | None
+) -> ParseResult:
+    """Guidance in the given management turns of a call document (D-M02-20).
+
+    turns: (start, end) offsets of management speech; analysts and the operator are
+    never read. anchor: the call's (fiscal year, quarter) for spoken periods.
+    """
+    out = ParseResult()
+    lines = _lines(text)
+    for a, b in turns:
+        for la, lb in lines:
+            if lb <= a or la >= b:
+                continue
+            for s, e in _sentences(text, max(la, a), min(lb, b)):
+                sent = text[s:e]
+                cue_text = _NOT_CUE.sub(lambda m: "_" * len(m.group(0)), sent)
+                if not CALL_CUE.search(cue_text):
+                    continue
+                if len(sent) > MAX_SENTENCE or _BOILERPLATE.search(sent):
+                    continue
+                if find_values(sent):
+                    one = ParseResult()
+                    _parse_sentence(text, s, e, None, one, cue=CALL_CUE, anchor=anchor)
+                    out.candidates += one.candidates
+                    out.items.extend(one.items)
+                    for u in one.unparsed:
+                        if CAPEX_WORDS.search(text[u.start : u.end]):
+                            out.unparsed.append(u)
+                        else:
+                            out.skipped += 1
+                elif CAPEX_WORDS.search(sent):
+                    out.candidates += 1
+                    d = _direction(text, s, e, anchor)
+                    if isinstance(d, Direction):
+                        out.directions.append(d)
+                    else:
+                        out.unparsed.append(Unparsed(s, e, d))
+    return out

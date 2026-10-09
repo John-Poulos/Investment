@@ -4,7 +4,7 @@
   <input name="q" value="{{ q }}" placeholder="purchase obligations" autofocus>
   <button type="submit">Search</button>
 </form>
-<p class="note">Searches this company's stored filings and releases. Quote exact phrases ("risk factors"); prefix with * (hbm*); AND / OR / NOT; label:"Item 1A" limits to a section.</p>
+<p class="note">Searches this company's stored filings, releases and call transcripts (calls: oral statements from a third-party transcript, not SEC filings). Quote exact phrases ("risk factors"); prefix with * (hbm*); AND / OR / NOT; label:"Item 1A" limits to a section.</p>
 {% if result %}
   {% if result.note %}<p class="note">{{ result.note }} Query: {{ result.query_used }}</p>{% endif %}
   {% if result.hits %}
@@ -12,7 +12,7 @@
     <tr><th>Document</th><th>Section</th><th>Passage</th></tr>
     {% for h in result.hits %}
     <tr>
-      <td style="white-space:nowrap">{{ h.doc_type or h.filename }}<br><span class="muted">{{ h.accession }}</span></td>
+      <td style="white-space:nowrap">{{ h.doc_type or h.filename }}<br><span class="muted">{{ h.accession }}</span>{% if source_label(h.accession) %}<br><span class="muted" title="{{ source_label(h.accession) }}">{{ 'call · oral, grade B' if h.accession.startswith('AV-') else 'company IR document' }}</span>{% endif %}</td>
       <td class="muted">{{ h.section }}</td>
       <td class="snippet"><a href="/doc/{{ h.accession }}?file={{ h.filename }}&start={{ h.start }}&end={{ h.end }}#hl">{{ h.snippet | replace('[', '«') | replace(']', '»') }}</a></td>
     </tr>
