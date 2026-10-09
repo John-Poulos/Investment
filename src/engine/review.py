@@ -10,6 +10,7 @@ Every action closes the item with who, when, the action and the owner's note
 - llm_rejected: acknowledge (rejected output never becomes fact).
 - ticker_map_hold: approve (the next nightly run applies SEC's ticker files with
   force; approval valid 7 days) or keep the stored map.
+- m02_*: M02 proposals (engine/themes/proposals.py); data changes in `m02_action`.
 """
 
 from __future__ import annotations
@@ -27,18 +28,21 @@ from engine.guidance.parse import METRICS, parse_release
 from engine.llm.verify import numbers, scaled_forms
 from engine.sec.client import iso
 from engine.sec.identity import APPROVAL_STATE
+from engine.themes import proposals, tiers
 
 KIND_LABELS = {
     "guidance_unparsed": "Guidance sentence not parsed",
     "guidance_conflict": "Guidance stated twice with different values",
     "llm_rejected": "Gemini output rejected by the verifier",
     "ticker_map_hold": "Ticker map update held",
+    **proposals.KIND_LABELS,
 }
 ACTIONS = {
     "guidance_unparsed": ("enter", "dismiss"),
     "guidance_conflict": ("keep_stored", "keep_other", "dismiss"),
     "llm_rejected": ("acknowledge",),
     "ticker_map_hold": ("approve", "keep_map"),
+    **proposals.ACTIONS,
 }
 METRIC_NAMES = tuple(dict.fromkeys(name for _, name in METRICS))
 PERIOD = re.compile(r"^FY\d{4}( Q[1-4]| remaining)?$")
@@ -70,6 +74,13 @@ class ReviewItem:
     @property
     def actions(self) -> tuple[str, ...]:
         return ACTIONS.get(self.kind, ("dismiss",))
+
+    @property
+    def week(self) -> str:
+        """Monday of the week an M02 item was queued (digest grouping, D-M02-10)."""
+        if self.module_id != proposals.MODULE:
+            return ""
+        return proposals.week_start(datetime.fromisoformat(self.created_at)).date().isoformat()
 
 
 def _item(engine: sqlite3.Connection, r: sqlite3.Row) -> ReviewItem:
@@ -156,6 +167,32 @@ def resolve(
     if action not in it.actions or action in ("enter", "keep_other", "approve"):
         raise ReviewError(f"'{action}' is not a closing action for {it.label.lower()}.")
     _close(engine, item_id, action, note, by, now)
+
+
+def m02_action(
+    engine: sqlite3.Connection,
+    item_id: int,
+    action: str,
+    note: str,
+    by: str,
+    now: datetime,
+    core: set[str] = frozenset(),
+) -> None:
+    """M02 proposal actions: apply the data change (tracked tier, theme status), then close."""
+    it = _open(engine, item_id, tuple(proposals.ACTIONS))
+    if action not in it.actions:
+        raise ReviewError(f"'{action}' is not an action for {it.label.lower()}.")
+    engine.execute("BEGIN")
+    try:
+        proposals.apply(engine, it.kind, action, it.payload, it.cik, by, now, core)
+        _close(engine, item_id, action, note, by, now)
+        engine.execute("COMMIT")
+    except tiers.TierError as e:
+        engine.execute("ROLLBACK")
+        raise ReviewError(str(e)) from e
+    except Exception:
+        engine.execute("ROLLBACK")
+        raise
 
 
 # --- guidance_unparsed: owner entry ------------------------------------------------------

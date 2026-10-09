@@ -70,3 +70,46 @@ def test_company_themes_tab(themed):
 def test_empty_themes_page(client):  # noqa: F811
     assert "No theme breadth stored yet" in client.get("/themes").text
     assert "Not linked to a theme yet" in client.get("/c/META?tab=themes").text
+
+
+def test_tier_actions_side_panel_and_review_digest(client):  # noqa: F811
+    from datetime import UTC, datetime
+
+    from engine.themes import proposals
+
+    data = client.app.state.settings.data_dir
+    engine = open_db("engine", data)
+    engine.execute("INSERT INTO entity (cik, name, source_ref, fetched_at) VALUES "
+                   "('0000000042', 'Example Semis Inc.', 't', 'n')")  # fmt: skip
+    engine.execute("INSERT INTO ticker (ticker, cik, valid_from, source) VALUES "
+                   "('XSEM', '0000000042', '2020-01-01', 't')")  # fmt: skip
+    now = datetime.now(UTC)
+    for i in range(11):
+        proposals.propose(engine, "m02_theme", f"t{i}", f"theme proposal {i}",
+                          {"companies": 5, "why": "rising"}, now)  # fmt: skip
+    engine.close()
+
+    # Core names cannot be tracked; others can, then promote / remove.
+    r = client.post("/c/META/tier/track", follow_redirects=False)
+    assert (
+        "core%20watchlist" in r.headers["location"]
+        or "Core" in client.get(r.headers["location"]).text
+    )
+    client.post("/c/XSEM/tier/track", data={"reason": "HBM supplier"})
+    page = client.get("/c/META").text
+    assert "XSEM" in page.split("<h3>Tracked</h3>")[1]
+    tab = client.get("/c/XSEM?tab=themes").text
+    assert "Tracked (filings + XBRL)" in tab and "Promote to watchlist" in tab
+    client.post("/c/XSEM/tier/promote")
+    page = client.get("/c/META").text
+    assert 'title="Promoted' in page.split("<h3>Tracked</h3>")[0]
+
+    queue = client.get("/review").text
+    assert "M02 digest — week of" in queue and "theme proposal 9" in queue
+    themes_page = client.get("/themes").text
+    assert "Waiting for next week" in themes_page and "theme proposal 10" in themes_page
+    item_id = queue.split('href="/review/')[1].split('"')[0]
+    item = client.get(f"/review/{item_id}").text
+    assert "M02 proposals (themes, candidates, links)" in item and "Accept" in item
+    r = client.post(f"/review/{item_id}/reject", data={"note": "not now"}, follow_redirects=False)
+    assert r.status_code == 303 and "reject" in r.headers["location"]

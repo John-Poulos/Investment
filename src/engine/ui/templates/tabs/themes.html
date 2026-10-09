@@ -1,3 +1,16 @@
+<div class="tierbox">
+  {% if msg %}<span class="okbox">{{ msg }}</span>{% endif %}
+  {% if is_core %}<span class="muted">Core watchlist (config/watchlist.toml).</span>
+  {% elif member %}<span>{{ 'Promoted to the watchlist' if member.tier == 'promoted' else 'Tracked (filings + XBRL)' }} since {{ member.added_at[:10] }}{% if member.theme_key %} · theme {{ member.theme_key }}{% endif %}{% if member.reason %} · {{ member.reason }}{% endif %}</span>
+    {% if viewer.is_owner %}
+      {% if member.tier == 'tracked' %}<form method="post" action="/c/{{ ticker }}/tier/promote"><button class="btn" type="submit" title="Form 4s, documents, alerts; about 250 SEC requests once">Promote to watchlist</button></form>
+      {% else %}<form method="post" action="/c/{{ ticker }}/tier/demote"><button class="btn" type="submit">Demote to tracked</button></form>{% endif %}
+      <form method="post" action="/c/{{ ticker }}/tier/remove"><button class="btn" type="submit">Stop tracking</button></form>
+    {% endif %}
+  {% else %}<span class="muted">Not on the watchlist or tracked.</span>
+    {% if viewer.is_owner %}<form method="post" action="/c/{{ ticker }}/tier/track"><input name="reason" size="30" placeholder="Reason (optional)"> <button class="btn" type="submit" title="Filings + XBRL only; a few SEC requests per filing">Track</button></form>{% endif %}
+  {% endif %}
+</div>
 {% if ct.linked %}
 <h2>Linked themes</h2>
 <table class="data">

@@ -34,6 +34,8 @@ class ListedCompany:
     cik: str | None  # None: ticker not resolved against SEC's ticker files
     name: str | None
     open_reviews: int = 0
+    tier: str = "core"  # core | promoted | tracked (D-M02-11)
+    theme: str | None = None
 
 
 def watchlist_tickers(path: Path) -> list[str]:
@@ -65,6 +67,27 @@ def watchlist(engine: sqlite3.Connection, tickers: list[str]) -> list[ListedComp
             ).fetchone()[0]
         out.append(ListedCompany(t, cik, name, reviews))
     return out
+
+
+def tiered(
+    engine: sqlite3.Connection, core: list[ListedCompany]
+) -> tuple[list[ListedCompany], list[ListedCompany]]:
+    """Side panel lists: watchlist = core (toml) + promoted; tracked separately (D-M02-11)."""
+    from engine.themes.tiers import members
+
+    core_ciks = {c.cik for c in core if c.cik}
+    promoted, tracked = [], []
+    for m in members(engine):
+        if m.cik in core_ciks:
+            continue
+        row = engine.execute("SELECT name FROM entity WHERE cik = ?", (m.cik,)).fetchone()
+        reviews = engine.execute(
+            "SELECT count(*) FROM review_queue WHERE resolved_at IS NULL AND cik = ?", (m.cik,)
+        ).fetchone()[0]
+        item = ListedCompany(m.ticker, m.cik, row["name"] if row else None, reviews, m.tier,
+                             m.theme_key)  # fmt: skip
+        (promoted if m.tier == "promoted" else tracked).append(item)
+    return core + promoted, tracked
 
 
 @dataclass(frozen=True)

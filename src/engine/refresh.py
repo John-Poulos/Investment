@@ -42,6 +42,7 @@ from engine.sec.submissions import (
     sync_filings,
 )
 from engine.sec.xbrl_facts import sync_facts
+from engine.themes import proposals, tiers
 
 DAILY_INDEX_URL = "https://www.sec.gov/Archives/edgar/daily-index/{year}/QTR{q}/master.{ymd}.idx"
 INDEX_TTL_S = 86400
@@ -188,6 +189,7 @@ class CompanyReport:
     facts: str = "not refreshed"
     documents: int = 0
     failures: list[str] = field(default_factory=list)
+    tier: str = "core"  # core | promoted | tracked (M02 D-M02-11)
 
 
 @dataclass
@@ -202,6 +204,8 @@ class RunReport:
     watchlist: dict[str, str] = field(default_factory=dict)  # ticker → "name (CIK)"
     companies: list[CompanyReport] = field(default_factory=list)
     error: str | None = None
+    tracked: dict[str, str] = field(default_factory=dict)  # ticker → cik (tracked tier)
+    m02: dict[str, int] = field(default_factory=dict)  # still_track queued, overflow moved
 
     def to_json(self) -> str:
         return json.dumps(
@@ -321,6 +325,42 @@ def _process_company(
         _mark_backfilled(engine, cik, now)
 
 
+def _tracked_synced(engine: sqlite3.Connection, cik: str) -> bool:
+    return engine.execute("SELECT 1 FROM refresh_state WHERE name = ?",
+                          (f"tracked:{cik}",)).fetchone() is not None  # fmt: skip
+
+
+def _process_tracked(
+    client: SecClient,
+    engine: sqlite3.Connection,
+    rep: CompanyReport,
+    entries: list[IndexEntry],
+    now: datetime,
+) -> None:
+    """Tracked tier (D-M02-4): entity, filing index, events, XBRL facts. No Form 4s,
+    no documents (those start when the owner promotes the company)."""
+    cik, fails = rep.cik, rep.failures
+    entity = _check(load_entity(client, engine, cik, now), "entity", fails)
+    rep.name = entity.name if entity else None
+    _check(sync_filings(client, engine, cik, now, fresh=bool(entries)), "filings", fails)
+    rep.new_filings = [f"{e.form} {e.accession}" for e in entries]
+    _check(build_events(engine, cik), "events", fails)
+    force = rep.backfilled or any(e.form in FACT_FORMS for e in entries)
+    facts = sync_facts(client, engine, cik, now, force=force)
+    if isinstance(facts, NotFound):
+        rep.facts = "no XBRL company facts"
+    else:
+        data = _check(facts, "facts", fails)
+        if data is not None:
+            rep.facts = "refreshed" if data.refreshed else "up to date"
+    if not fails:
+        engine.execute(
+            "INSERT INTO refresh_state (name, source_ref, fetched_at, detail) VALUES (?, "
+            "'refresh', ?, NULL) ON CONFLICT (name) DO UPDATE SET fetched_at = excluded.fetched_at",
+            (f"tracked:{cik}", iso(now)),
+        )
+
+
 def run_refresh(
     client: SecClient,
     engine: sqlite3.Connection,
@@ -351,6 +391,21 @@ def run_refresh(
                     f"{p.path}: {p.result}" for p in checked
                 ) or str(res)
 
+        core = set(watch)
+        tier_of: dict[str, str] = {c: "core" for c in watch}
+        light: dict[str, str] = {}  # tracked tier: cik → ticker
+        for m in tiers.members(engine):
+            if m.cik in core:
+                continue  # the owner's core list wins
+            if m.tier == "promoted":
+                watch.setdefault(m.cik, m.ticker)
+                tier_of[m.cik] = "promoted"
+                row = engine.execute("SELECT name FROM entity WHERE cik = ?", (m.cik,)).fetchone()
+                report.watchlist[m.ticker] = f"{row[0] if row else 'name not loaded yet'} ({m.cik})"
+            else:
+                light[m.cik] = m.ticker
+                report.tracked[m.ticker] = m.cik
+
         today = market_date(now)
         days = days_to_read(engine, today, config.recheck_days)
         recent = {d for d in days if (today - d).days <= config.recheck_days + 1}
@@ -370,18 +425,29 @@ def run_refresh(
                 day_status[day] = ("pending", None, None)
                 continue
             entries = parse_master_index(text)
-            hits = [e for e in entries if e.cik in watch]
+            hits = [e for e in entries if e.cik in watch or e.cik in light]
             for e in hits:
                 matched.setdefault(e.cik, []).append(e)
             day_status[day] = ("processed", len(entries), len(hits))
 
-        todo = sorted(set(matched) | {c for c in watch if not _backfilled(engine, c)})
+        todo = sorted(
+            (set(matched) & set(watch)) | {c for c in watch if not _backfilled(engine, c)}
+        )
+        fresh_light = {c for c in light if not _tracked_synced(engine, c)}
+        todo += sorted((set(matched) & set(light)) | fresh_light)
         for cik in todo:
-            rep = CompanyReport(watch[cik], cik, backfilled=not _backfilled(engine, cik))
+            is_light = cik in light and cik not in watch
+            first = not (_tracked_synced(engine, cik) if is_light else _backfilled(engine, cik))
+            tier = "tracked" if is_light else tier_of.get(cik, "core")
+            ticker = light[cik] if is_light else watch[cik]
+            rep = CompanyReport(ticker, cik, backfilled=first, tier=tier)
             report.companies.append(rep)
             entries = list({e.accession: e for e in matched.get(cik, [])}.values())
             try:
-                _process_company(client, engine, corpus, config, rep, entries, now)
+                if is_light:
+                    _process_tracked(client, engine, rep, entries, now)
+                else:
+                    _process_company(client, engine, corpus, config, rep, entries, now)
             except Throttled:
                 raise
             except Exception as exc:  # one company's error must not stop the others
@@ -395,6 +461,10 @@ def run_refresh(
                     f"({Path(where.filename).name}:{where.lineno})"
                 )
 
+        report.m02 = {
+            "still_track_queued": proposals.queue_still_track(engine, now),
+            "overflow_moved": proposals.flush_overflow(engine, now),
+        }
         for day, (status, n, m) in day_status.items():
             _mark_day(engine, day, status, n, m, run_id, now)
             report.days[day.isoformat()] = status
@@ -413,7 +483,7 @@ def run_refresh(
 
 
 def _finish(engine: sqlite3.Connection, report: RunReport, now: datetime) -> None:
-    report.finished_at = iso(now)
+    report.finished_at = iso(max(now, datetime.now(now.tzinfo)) if now.tzinfo else now)
     engine.execute(
         "UPDATE refresh_run SET finished_at = ?, status = ?, days = ?, companies = ?, "
         "report = ?, error = ? WHERE run_id = ?",
@@ -442,6 +512,8 @@ def format_report(report: RunReport) -> str:
     lines.append("index days: " + (", ".join(f"{d} {s}" for d, s in report.days.items()) or "none"))
     if report.watchlist:
         lines.append("watchlist: " + "; ".join(f"{t} = {n}" for t, n in report.watchlist.items()))
+    if report.tracked:
+        lines.append("tracked (filings + XBRL only): " + ", ".join(report.tracked))
     if report.unresolved:
         lines.append("unresolved tickers (kept on the watchlist):")
         lines += [f"  {t}: {why}" for t, why in report.unresolved.items()]
@@ -450,6 +522,8 @@ def format_report(report: RunReport) -> str:
     for c in report.companies:
         head = f"{c.ticker} {c.name or ''} (CIK {c.cik})" + (" — first run: backfilled" if
                                                             c.backfilled else "")  # fmt: skip
+        if c.tier != "core":
+            head += f" [{c.tier}]"
         lines.append("")
         lines.append(head)
         if c.new_filings:
@@ -459,4 +533,10 @@ def format_report(report: RunReport) -> str:
         lines.append(f"  form 4 rows parsed: {c.insider_rows}; facts: {c.facts}; "
                      f"documents stored: {c.documents}")  # fmt: skip
         lines += [f"  FAILED {f}" for f in c.failures]
+    if any(report.m02.values()):
+        lines.append("")
+        lines.append(
+            f"M02 review: {report.m02.get('still_track_queued', 0)} still-track items queued; "
+            f"{report.m02.get('overflow_moved', 0)} waiting proposals moved in"
+        )
     return "\n".join(lines) + "\n"

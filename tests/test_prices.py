@@ -5,7 +5,7 @@ import json
 from datetime import UTC, date, datetime, timedelta
 
 from engine.prices.store import bars, refresh_prices, update_symbol
-from engine.prices.tiingo import BASE, HOURLY_BUDGET, TiingoClient, symbol_of
+from engine.prices.tiingo import BASE, HOURLY_BUDGET, MIN_INTERVAL_S, TiingoClient, symbol_of
 from engine.sec.client import iso
 from engine.sec.results import Failed, NotFound, Ok
 
@@ -67,7 +67,7 @@ def test_requests_are_spaced(dbs):
     c, _ = client(engine, [(200, []), (200, [])], sleeps)
     c.daily("A")
     c.daily("B")
-    assert sleeps == [75.0]
+    assert sleeps == [MIN_INTERVAL_S]
 
 
 def test_errors_are_typed_not_empty(dbs):

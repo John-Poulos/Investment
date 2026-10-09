@@ -3,7 +3,7 @@
 - The key is read from `TIINGO_API_KEY` (.env) and sent only in the
   `Authorization: Token …` header, so it never appears in URLs or logs.
 - Free-tier limits (50 requests/hour, 1,000/day, 500 symbols/month) are kept
-  with margins: requests are spaced ≥ 75 s apart within a process, and before
+  with margins: requests are spaced a few seconds apart within a process, and before
   every request the shared `fetch_log` is checked so the nightly job and the UI
   together stay under 48/hour, 950/day and 480 symbols/month.
 - Every request is logged in `fetch_log` (URL without the key).
@@ -28,7 +28,13 @@ BASE = "https://api.tiingo.com/tiingo/daily"
 HOURLY_BUDGET = 48  # Tiingo free: 50
 DAILY_BUDGET = 950  # Tiingo free: 1,000
 MONTHLY_SYMBOLS = 480  # Tiingo free: 500 unique symbols per month
-MIN_INTERVAL_S = 75.0  # 48/hour
+# Tiingo's limits are counts (per hour, per day, symbols per month), enforced by
+# budget_problem() from fetch_log; spacing only avoids bursts (D-M02-19; was 75 s).
+MIN_INTERVAL_S = 3.0
+# The scheduled run stays at 40/hour so the app keeps 8/hour for its own fetches
+# (D-M02-12: runs happen at logon, during the owner's session).
+BATCH_HOURLY_BUDGET = 40
+BATCH_MIN_INTERVAL_S = 3.0
 
 Transport = Callable[[str, Mapping[str, str], Mapping[str, str]], tuple[int, bytes]]
 
@@ -73,7 +79,9 @@ class TiingoClient:
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
         min_interval_s: float = MIN_INTERVAL_S,
+        hourly_budget: int = HOURLY_BUDGET,
     ) -> None:
+        self._hourly = hourly_budget
         self._token = token
         self._engine = engine
         self._transport = transport
@@ -101,8 +109,8 @@ class TiingoClient:
 
     def budget_problem(self, symbol: str) -> str | None:
         now = self._now()
-        if self._count_since(now - timedelta(hours=1)) >= HOURLY_BUDGET:
-            return f"hourly budget reached ({HOURLY_BUDGET} requests in the last hour)"
+        if self._count_since(now - timedelta(hours=1)) >= self._hourly:
+            return f"hourly budget reached ({self._hourly} requests in the last hour)"
         if self._count_since(now - timedelta(days=1)) >= DAILY_BUDGET:
             return f"daily budget reached ({DAILY_BUDGET} requests in 24 hours)"
         month = self.symbols_this_month()

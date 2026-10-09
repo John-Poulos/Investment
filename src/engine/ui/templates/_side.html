@@ -2,8 +2,8 @@
   <h3>Watchlist</h3>
   {% for c in watchlist %}
     {% if c.cik %}
-    <a class="row{% if c.ticker == ticker %} on{% endif %}" href="/c/{{ c.ticker }}" title="{{ c.name or '' }}">
-      <span>{{ c.ticker }}{% if c.open_reviews %} <span class="badge" title="Open review items for {{ c.ticker }}">{{ c.open_reviews }}</span>{% endif %}</span>
+    <a class="row{% if c.ticker == ticker %} on{% endif %}" href="/c/{{ c.ticker }}" title="{{ c.name or '' }}{% if c.tier == 'promoted' %} — promoted from tracked{% endif %}">
+      <span>{{ c.ticker }}{% if c.tier == 'promoted' %} <span class="tag" title="Promoted (stored in the database; core names live in config/watchlist.toml)">P</span>{% endif %}{% if c.open_reviews %} <span class="badge" title="Open review items for {{ c.ticker }}">{{ c.open_reviews }}</span>{% endif %}</span>
       <span class="name">{{ c.name or '—' }}</span>
     </a>
     {% else %}
@@ -11,5 +11,12 @@
     {% endif %}
   {% endfor %}
   <h3>Tracked</h3>
-  <div class="muted" style="padding: 3px 6px">None yet (M02)</div>
+  {% for c in tracked %}
+    <a class="row{% if c.ticker == ticker %} on{% endif %}" href="/c/{{ c.ticker }}?tab=themes" title="{{ c.name or '' }}{% if c.theme %} — theme: {{ c.theme }}{% endif %}">
+      <span>{{ c.ticker }}{% if c.open_reviews %} <span class="badge">{{ c.open_reviews }}</span>{% endif %}</span>
+      <span class="name">{{ c.name or c.theme or '—' }}</span>
+    </a>
+  {% else %}
+  <div class="muted" style="padding: 3px 6px">None yet — accepted candidates appear here</div>
+  {% endfor %}
 </div>

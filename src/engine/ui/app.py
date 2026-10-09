@@ -30,6 +30,7 @@ from engine.llm.runs import run as llm_run
 from engine.prices import store as prices
 from engine.prices.tiingo import MissingKey, TiingoClient, token_from_env
 from engine.store.db import connect, migrate
+from engine.themes import proposals, tiers
 from engine.themes import views as themes
 from engine.ui import services
 from engine.ui.settings import UiSettings
@@ -109,10 +110,8 @@ def create_app(settings: UiSettings) -> FastAPI:
 
     def frame(engine: sqlite3.Connection) -> dict:
         tickers = services.watchlist_tickers(settings.watchlist)
-        return {
-            "status": services.status(engine),
-            "watchlist": services.watchlist(engine, tickers),
-        }
+        listed, tracked = services.tiered(engine, services.watchlist(engine, tickers))
+        return {"status": services.status(engine), "watchlist": listed, "tracked": tracked}
 
     @app.get("/healthz")
     def healthz() -> dict:
@@ -186,6 +185,8 @@ def create_app(settings: UiSettings) -> FastAPI:
             )
         elif tab == "themes":
             ctx["ct"] = themes.company_themes(engine, cik, ticker)
+            ctx["member"] = tiers.member(engine, cik)
+            ctx["is_core"] = cik in core_ciks(engine)
             ctx["readable"] = services.stored_accessions(
                 corpus, [m["accession"] for m in ctx["ct"].mentions]
             )
@@ -255,6 +256,41 @@ def create_app(settings: UiSettings) -> FastAPI:
         msg = "stored-result" if res.cached else "analyzed"
         return RedirectResponse(f"/c/{ticker}?tab=guidance&msg={msg}", 303)
 
+    def core_ciks(engine: sqlite3.Connection) -> set[str]:
+        listed = services.watchlist(engine, services.watchlist_tickers(settings.watchlist))
+        return {c.cik for c in listed if c.cik}
+
+    @app.post("/c/{ticker}/tier/{action}")
+    def tier_action(
+        ticker: str,
+        action: str,
+        engine: Engine,
+        owner: OwnerDep,
+        reason: Annotated[str, Form()] = "",
+    ) -> RedirectResponse:
+        """Owner-only tier changes (U2; D-M02-11): track, promote, demote, remove."""
+        ticker = ticker.upper()
+        cik = services.resolve_ticker(engine, ticker)
+        if cik is None:
+            raise HTTPException(404, f"Unknown ticker {ticker}.")
+        now = datetime.now(UTC)
+        try:
+            if action == "track":
+                tiers.add_tracked(engine, cik, ticker, reason=reason.strip() or "owner",
+                                  theme_key=None, by=owner.id, now=now,
+                                  core=core_ciks(engine))  # fmt: skip
+            elif action == "promote":
+                tiers.promote(engine, cik, owner.id, now)
+            elif action == "demote":
+                tiers.demote(engine, cik, owner.id, now)
+            elif action == "remove":
+                tiers.remove(engine, cik, owner.id, now)
+            else:
+                raise HTTPException(404, f"Unknown action {action}.")
+        except tiers.TierError as e:
+            return RedirectResponse(f"/c/{ticker}?tab=themes&msg={quote(str(e))}", 303)
+        return RedirectResponse(f"/c/{ticker}?tab=themes&msg={quote(action + ': done')}", 303)
+
     def pick_family(engine: sqlite3.Connection, family: str) -> tuple[str, list[str]]:
         fams = themes.families_with_data(engine)
         return (family if family in fams else fams[0]), fams
@@ -267,6 +303,7 @@ def create_app(settings: UiSettings) -> FastAPI:
             "family": family,
             "families": fams,
             "themes": themes.theme_list(engine, family),
+            "overflow": proposals.overflow(engine),
             "through": themes.data_through(engine),
         }
         return templates.TemplateResponse(request, "themes.html", ctx)
@@ -397,6 +434,9 @@ def create_app(settings: UiSettings) -> FastAPI:
                 done = review.reopen(engine, item_id, owner.id, now)
             elif action == "approve":
                 review.approve_ticker_hold(engine, item_id, note, owner.id, now)
+            elif (it := review.get(engine, item_id)) and it.kind.startswith("m02_"):
+                review.m02_action(engine, item_id, action, note, owner.id, now,
+                                  core_ciks(engine))  # fmt: skip
             else:
                 review.resolve(engine, item_id, action, note, owner.id, now)
         except review.ReviewError as e:

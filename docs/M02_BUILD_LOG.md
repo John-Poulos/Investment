@@ -21,11 +21,11 @@ One section per proposed amendment, discussed with the owner in order. Outcome l
 | 7 | Search inputs | modified: 5/s pace; form.idx denominator; 10-page cap with lower bound; section + quantified rule; queued drill-down | D-M02-14 |
 | 8 | Failure modes | approved: 12 rows + capex-funding row added; ★ guards are build requirements | D-M02-15 |
 
-## Build parts (owner approved order 2026-10-09; one conversation each, Medium effort)
+## Build parts (owner approved order 2026-10-09, revised: part 4 before part 3, D-M02-19; one conversation each, Medium effort)
 | Part | Covers | Decisions | Depends on | Live checks (owner runs) | Status |
 |---|---|---|---|---|---|
 | 1 Theme core | `config/themes.toml` seeds + DB themes/phrases with `discovered_at`; EFTS breadth with `form.idx` denominator, 10-page cap, lower bound; Themes tab v1 (share of filers, same window YoY) | D-M02-1, -14, -16, -17 | M00 | done: probe + first run 2026-10-09 | built (branch `m02-theme-core`) |
-| 2 Plumbing | Review kinds m02_theme/phrase/candidate/link/input/ir_download; weekly header, cap 10, suppression; guide panel; tracked tier tables + side panel core/promoted/tracked; promotion suggestion + 12-month review; price rotation (tracked 3-day) + 8/h app reserve; end-of-run summary box | D-M02-10, -11, -12 | 1 | one logon catch-up with tracked names | — |
+| 2 Plumbing | Review kinds m02_theme/phrase/candidate/link/input/ir_download; weekly header, cap 10, suppression; guide panel; tracked tier tables + side panel core/promoted/tracked; promotion suggestion + 12-month review; price rotation (tracked 3-day) + 8/h app reserve; end-of-run summary box | D-M02-10, -11, -12 | 1 | one refresh with a tracked name | built (branch `m02-plumbing`) |
 | 3 Money flow | Capex components (clause tag, "definition changed", stale flag, own-definition actuals incl. finance-lease principal, funding coverage); new XBRL concepts; spender→theme quote link; per-spender view | D-M02-5, -15 | 1, 2 | guidance re-scan; MSFT/META checks | — |
 | 4 Call guidance | Alpha Vantage adapter (probe done 2026-10-09: works, fiscal labels); allowed-site IR fetch (MSFT, MRVL, GFS, MU paced); Downloads pickup + m02_ir_download; PDF/DOCX/PPTX text; parser; grade B → A on match | D-M02-6 | 2, 3 | probe done 2026-10-09 | — |
 | 5 Suppliers L0–L3 | Reverse lookup with alias table; L1 passages; Exhibit 10 ingest for Item 1.01; Gemini 5/5b; labelled precision set (~30); m02_link/m02_input | D-M02-7, -9, -15 | 1, 2 | NVDA reverse lookup; Gemini labels on the labelled set | — |
@@ -33,6 +33,11 @@ One section per proposed amendment, discussed with the owner in order. Outcome l
 | 7 News & feeds | IR RSS; Finnhub + Massive; 11 trade-press feeds; arXiv, USAspending, Federal Register, Congress.gov; dedupe; weekly event digest content | D-M02-13, -15 | 2 | one weekly digest | — |
 
 Effort: High only if a part raises a new design question; otherwise Medium. Each part: branch → fixture tests → owner live check → PR → merge (DESIGN.md workflow).
+
+## Live checks without slowing development (owner request 2026-10-09)
+- Test the piece, not the whole run: `run_themes.py --themes <key>`, `run_prices.py --symbols A,B`, `run_live.py <label> <test file>`, `run_refresh.py --skip-prices` (SEC step only, seconds when little was filed).
+- One live check per part, at the end of the part, combining everything that part needs into one command where possible; fixture tests cover the rest.
+- The full refresh (with prices) only when a part changes the refresh itself; with 3 s spacing it now takes ~1–2 min for ~30 symbols.
 
 ## Notes per part
 (filled during the review and the builds)
@@ -44,6 +49,17 @@ Effort: High only if a part raises a new design question; otherwise Medium. Each
 - Generic phrases seen: "domestic manufacturing" (replaced), "behind-the-meter" (dropped), "HBM" may collide with other acronyms/tickers, "advanced packaging" may include non-semiconductor packaging → part 6 industry-spread test (SIC per hit is stored in `fulltext_hit.sics`).
 - Not done in part 1 (later parts): weekly/seasonal scheduling (part 2/6), 10-Q/8-K families by default (run with `--families`), phrase tests and proposals (part 6).
 - Visual check: scratch data in `.claude/launch.json` config `ui-scratch` (port 8799; data dir = session scratchpad — change the path for a new session).
+
+### Part 2 — Plumbing (built 2026-10-09, D-M02-18, D-UI-18)
+- Code: `themes/proposals.py` (propose, flush_overflow, overflow, apply, queue_still_track, suggest_promotion), `themes/tiers.py`, migration engine 0015, `review.m02_action`, `refresh._process_tracked`, `prices/store.tracked_rotation`, `prices/tiingo` `hourly_budget`, `run_refresh.py` `waiting_summary`/`show_info`; UI `_side.html`, `tabs/themes.html` tier box, `/c/<ticker>/tier/<action>`, review week header + M02 payload view + guide rows, Themes page waiting list; tests `test_m02_plumbing.py`, `test_ui_themes.py`.
+- For generators (parts 3–7): call `proposals.propose(engine, kind, key, reason, payload, now, cik=…)`. Put `companies` (int) and `money_flow` (bool) in the payload so material-change re-raising works; `samples` (list of quotes) and `why` render on the item page; `phrase_id`/`theme_id` let accept/reject set status. Keys must be stable across runs (e.g. `theme:phrase`, `cik`, `accession`).
+- Tracked names are synced on first sight; their prices start in the rotation on the next run.
+- Not built: reopen for M02 items (would need undoing tier/status changes); evidence rules for promotion (parts 3/5/6).
+
+### Part 3 pre-check (2026-10-09, D-M02-19) — read before building part 3
+- Order: build part 4 first. Part 3 then adds: derived spenders from frames (capex tags `PaymentsToAcquirePropertyPlantAndEquipment`, fallback `PaymentsToAcquireProductiveAssets`; ~30 frame requests for 2019→now; `sec/frames.py` exists), candidate proposals for top spenders/growers via `proposals.propose(..., "m02_candidate", cik, ...)`, spender→theme quote link (new review kind needed, e.g. `m02_spender`; the customer–supplier `m02_link` does not fit), Capital allocation block, supplier RPO view, per-spender contributions (D-M02-15).
+- New concepts for `sec/xbrl_facts.py` concept map: finance_lease_principal, debt_issued, debt_repaid, equity_issued, buybacks, tax_withholding, dividends (check tag names against real company facts in the live check; facts parser version bump → re-sync).
+- Funding coverage = OCF ÷ capex (own definition), trailing four quarters; net debt/equity = issued − repaid, same window; labelled association, not cause.
 
 ### Money flow — capex guidance (D-M02-5)
 - Reuse: `guidance/ledger.py` (metric `capex`), `guidance/changes.py` (raised/lowered…), `sec/xbrl_facts.py` concepts `capex` (`PaymentsToAcquirePropertyPlantAndEquipment`, fallback `PaymentsToAcquireProductiveAssets` — the fallback tag must be shown, M00_SEC_DATA open item) and `rpo`.
@@ -109,7 +125,10 @@ Effort: High only if a part raises a new design question; otherwise Medium. Each
 - L2 alias table per customer (legal name, short name, ticker-free aliases) + nearby customer/revenue wording.
 - News dedupe key (normalized URL; else title + date + company).
 
-### Call guidance from IR documents (D-M02-6, DS1)
+### Call guidance from IR documents (D-M02-6, DS1) — next part (built before part 3, D-M02-19)
+- Also owns (moved from part 3): the capex "including/excluding …" clause tag on ledger rows and the "definition changed" label in `guidance/changes.py`.
+- Settled (D-M02-21): lean fallback (reminder + PDF pickup, pypdf); use case 1 may read call passages; transcripts in corpus/search/reader; source label on every call-derived item + "forecast, not a commitment" note on all guidance (Guidance tab, money flow, Gemini output, search hits).
+- Settled (D-M02-20): direction-only rows for directional guidance; release wins over call; all metrics from management turns, capex-only review items; tracked names get releases + transcripts; Alpha Vantage budget ≤ 20/day for runs, ~5 interactive; import probe responses; dev sample of one quarter across ~11 companies (~6 new calls), backfill later in the background. Guidance schema needs a direction-only kind (no low/high) — migration.
 - Main spenders first: Alphabet, Amazon, Microsoft, Oracle (Meta's capex is in its release).
 - Step 1: owner runs `uv run python scripts/probe_alpha_vantage.py` (7 requests; summary in logs/probe_av_*.txt, raw JSON in data/probe/alpha_vantage/). Answers: free-key access, coverage (AMZN, MSFT, ORCL, AAPL, TSLA), calendar vs fiscal `quarter`, capex wording present.
 - **Result (logs/probe_av_20261009-000758.txt):** 7/7 HTTP 200, no premium/limit messages. Response `{symbol, quarter, transcript: [{speaker, title, content, sentiment}]}`; 24–61 turns, 35–57k characters per call. `quarter` = company fiscal label: MSFT 2026Q2 → FY26 Q2 call ("Capital expenditures were $37.5 billion in this quarter…"), MSFT 2026Q4 → July 2026 call ($41 billion), ORCL 2026Q3 → March 2026 call (analyst asks about FY2027 capex). ORCL 2027Q1 (Sept 2026 call) → `transcript: []` (empty = not available yet; missing, never "no guidance"). AAPL 2026Q3: no capex wording (Apple gives none). Raw JSON in data/probe/alpha_vantage/ (owner's machine only).
