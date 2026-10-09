@@ -41,7 +41,14 @@ _CONTRACT = re.compile(
     re.IGNORECASE,
 )
 _COMPETE = re.compile(r"\bcompet\w*\b", re.IGNORECASE)
-_PCT = re.compile(r"(?<![\d.])(\d{1,2}(?:\.\d+)?)\s?%")
+_PCT = re.compile(r"(?<![\d.])(\d{1,2}(?:\.\d+)?)\s?%(?!\s+or\s+(?:more|greater|less))")
+# "suppliers of Arm-based CPUs ... such as Amazon": a market list (NVIDIA's competition
+# section), not the filer's own supply chain (live check 1)
+_GENERIC = re.compile(r"(?:suppliers?|vendors?|providers?)(?:\s+and\s+\w+)?\s+of\b", re.IGNORECASE)
+# a filer's figure about what it buys: "purchases from ... Microsoft accounted for 13%"
+_BUYS = re.compile(r"\b(?:purchases?|purchased|suppliers?|vendors?)\b", re.IGNORECASE)
+_RESPECTIVELY = re.compile(r"\brespectively\b", re.IGNORECASE)
+_LISTED_BEFORE = re.compile(r"(?:,|\band|&)\s*$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -79,7 +86,7 @@ def find_l1(text: str, matcher: Matcher, self_keys: set[str]) -> list[Found]:
     out = []
     for s, e in _sentences_in(text):
         sent = text[s:e]
-        w = _SUPPLIER.search(sent)
+        w = next((x for x in _SUPPLIER.finditer(sent) if not _GENERIC.match(sent, x.start())), None)
         if not w or _COMPETE.search(sent):
             continue
         for m in _others(matcher, text, s, e, self_keys):
@@ -111,18 +118,24 @@ def find_l2(text: str, matcher: Matcher, customer: Company, self_keys: set[str])
         for m in _others(matcher, text, s, e, self_keys):
             if m.company.key != customer.key:
                 continue
-            pct = _PCT.search(text, m.end, e) or _PCT.search(sent)
+            pct = _PCT.search(text, m.end, e)
             share = Decimal(pct.group(1)) if pct else None
+            before = text[max(s, m.start - 8) : m.start]
+            if _RESPECTIVELY.search(sent) and _LISTED_BEFORE.search(before):
+                share = None  # "A, B, and Microsoft accounted for 25%, 21% and 13%, respectively"
+            buys = _BUYS.search(sent)
             out.append(
                 Found(
                     "L2",
                     m.company,
                     m.name,
-                    "a_to_b",
+                    "b_to_a" if buys else "a_to_b",
                     share,
                     s,
                     e,
-                    f"revenue wording: {w.group(0).lower()}",
+                    f"purchase wording: {buys.group(0).lower()}"
+                    if buys
+                    else f"revenue wording: {w.group(0).lower()}",
                 )
             )
             break

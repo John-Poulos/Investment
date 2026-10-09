@@ -300,3 +300,39 @@ def test_label_page_and_money_tab_section(client, tmp_path):  # noqa: F811
     tab = client.get("/c/META?tab=money").text
     assert "Suppliers and customers named in filings" in tab and "supplier to this company" in tab
     assert "precision set: 1 labelled" in client.get("/runs").text
+
+
+# --- live check 1 fixes (2026-10-09) ------------------------------------------------------
+
+
+def test_market_lists_are_not_suppliers(matcher):
+    text = ("suppliers of CPUs and companies with internal platforms, such as Micron and Apple;\n"
+            "suppliers and licensors of hardware for GPUs, such as Micron;\n"
+            "We purchase memory from Micron.\n")  # fmt: skip
+    assert [f.b.key for f in find_l1(text, matcher, {"NVDA"})] == ["MU"]
+
+
+def test_purchases_reverse_direction_and_ambiguous_shares_are_dropped(matcher):
+    nvda = next(c for c in matcher.companies if c.key == "NVDA")
+    text = ("Product purchases from Acme Corp, Beta Inc., and NVIDIA accounted for approximately "
+            "25%, 21%, and 13%, respectively, of our total product purchases.\n"
+            "Other than NVIDIA, no other customer accounted for 5% or more of our revenue.\n")  # fmt: skip
+    first, second = find_l2(text, matcher, nvda, set())
+    assert (first.direction, first.share_pct) == ("b_to_a", None)
+    assert (second.direction, second.share_pct) == ("a_to_b", None)
+
+
+def test_rescan_updates_kept_passages_and_prunes_the_rest(dbs, matcher):
+    engine, _ = dbs
+    text = "We purchase memory from Micron and rely on TSMC.\n"
+    _store(engine, matcher, NVDA, "NVIDIA Corporation", text, find_l1, {"NVDA"}, acc="n1")
+    first = engine.execute(
+        "SELECT discovered_at FROM supply_link WHERE b_name = 'Micron Technology'"
+    ).fetchone()[0]
+    later = datetime(2026, 10, 10, tzinfo=UTC)
+    doc = links.Doc("n1", "doc.htm", "10-K", "2026-03-01", text)
+    only_mu = [f for f in find_l1(text, matcher, {"NVDA"}) if f.b.key == "MU"]
+    links.store(engine, NVDA, "NVIDIA Corporation", matcher.by_cik(NVDA), doc, only_mu, later)
+    assert links.prune(engine, later) == 1  # the TSMC passage was not produced again
+    row = engine.execute("SELECT discovered_at, seen_at FROM supply_link").fetchone()
+    assert row[0] == first and row[1].startswith("2026-10-10")

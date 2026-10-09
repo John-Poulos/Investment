@@ -32,6 +32,7 @@ def run_supply_step(
     customers: set[str] | None = None,
     probe: bool = False,
     force_search: bool = False,
+    rescan: bool = False,
     alias_path: Path = aliases.ALIASES,
 ) -> list[str]:
     lines = ["Suppliers (M02 part 5):"]
@@ -56,6 +57,16 @@ def run_supply_step(
             for c in wanted:
                 scan.search_l2(client, engine, c, now, rep, force=force_search)
         scan.fetch_l2(client, engine, corpus, matcher, now, rep, l2_cap)
+        if rescan:  # re-read every stored L2 document with the current rules, then prune
+            by_key = {c.key: c for c in matcher.companies}
+            for q in engine.execute(
+                "SELECT * FROM supply_fetch WHERE status = 'stored'"
+            ).fetchall():
+                scan.read_l2(engine, corpus, matcher, q, by_key.get(q["customer_key"]), now, rep)
+            lines.append(
+                f"re-read: {links.prune(engine, now)} passage(s) no longer produced "
+                "by the rules were removed"
+            )
         if probe and client is not None:
             for c in wanted:
                 rep.probe += scan.probe_c(client, engine, c, now)

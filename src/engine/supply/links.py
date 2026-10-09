@@ -54,18 +54,33 @@ def store(
     found: list[Found],
     now: datetime,
 ) -> int:
-    """Insert new passages → count of new rows."""
+    """Insert new passages → count of new rows. A passage found again marks `seen_at`; an
+    undecided one also takes the current rules' direction, share and reason."""
     n = 0
     a_side = side(a_cik, a_company, a_name)
     for f in found:
         b_side = side(f.b.cik, f.b, f.b_name)
         if b_side == a_side:
             continue
+        existing = engine.execute(
+            "SELECT link_id FROM supply_link WHERE accession = ? AND filename = ? "
+            "AND quote_start = ? AND a_name = ? AND b_name = ?",
+            (doc.accession, doc.filename, f.start, a_name, f.b.name),
+        ).fetchone()
+        if existing is not None:
+            engine.execute(
+                "UPDATE supply_link SET seen_at = ?, direction = CASE WHEN status = 'candidate' "
+                "THEN ? ELSE direction END, share_pct = CASE WHEN status = 'candidate' THEN ? "
+                "ELSE share_pct END, how = ? WHERE link_id = ?",
+                (iso(now), f.direction,
+                 str(f.share_pct) if f.share_pct is not None else None, f.how, existing[0]),
+            )  # fmt: skip
+            continue
         cur = engine.execute(
             "INSERT OR IGNORE INTO supply_link (rung, grade, a_cik, a_name, b_cik, b_name, "
             "direction, share_pct, accession, filename, form, filed, quote, quote_start, "
-            "quote_end, how, a_side, b_side, pair_key, discovered_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "quote_end, how, a_side, b_side, pair_key, discovered_at, seen_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 f.rung,
                 GRADE[f.rung],
@@ -87,9 +102,25 @@ def store(
                 b_side,
                 pair_key(a_side, b_side),
                 iso(now),
+                iso(now),
             ),
         )
         n += cur.rowcount
+    return n
+
+
+def prune(engine: sqlite3.Connection, since: datetime) -> int:
+    """After a full re-read: undecided passages the current rules did not produce again
+    (not in the precision set) are removed, with their waiting proposals."""
+    n = engine.execute(
+        "DELETE FROM supply_link WHERE status = 'candidate' AND (seen_at IS NULL OR seen_at < ?) "
+        "AND link_id NOT IN (SELECT link_id FROM link_gold)",
+        (iso(since),),
+    ).rowcount
+    engine.execute(
+        "DELETE FROM m02_proposal WHERE kind = 'm02_link' AND status = 'overflow' AND "
+        "substr(prop_key, 10) NOT IN (SELECT pair_key FROM supply_link)"
+    )
     return n
 
 

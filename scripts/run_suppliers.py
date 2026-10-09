@@ -159,6 +159,11 @@ def main() -> int:
     ap.add_argument("--customers", help="L2 customers (aliases keys/tickers), default all")
     ap.add_argument("--probe", action="store_true", help="counts-only probe of option (c)")
     ap.add_argument("--force-search", action="store_true", help="repeat L2 searches now")
+    ap.add_argument(
+        "--rescan",
+        action="store_true",
+        help="re-read stored documents with the current rules (after a rule change)",
+    )
     ap.add_argument("--l2-cap", type=int, default=30, help="L2 hit documents to fetch")
     ap.add_argument("--l3-cap", type=int, default=10, help="new Item 1.01 filings to read")
     ap.add_argument("--label-set", action="store_true", help="pick the precision set once")
@@ -197,6 +202,7 @@ def main() -> int:
             l2_cap=args.l2_cap,
             customers=wanted,
             probe=args.probe,
+            rescan=args.rescan,
             force_search=args.force_search,
         )
         lines += summary(engine)
