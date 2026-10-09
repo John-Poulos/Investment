@@ -14,6 +14,18 @@
     </table>
     <p class="note">Precision comes only from the weekly random sample (unbiased); "other labels" are your wrong-button marks, plausibility flags and Gemini cross-checks. Re-check every label against the current parser: <code>uv run python scripts/run_calls.py --check-labels</code>.</p>
     {% else %}<p class="empty">No accuracy labels yet. The weekly sample starts with the next refresh.</p>{% endif %}
+    <h2 id="tag-maps" style="margin-top:16px">Cash-flow tag mappings (D-M02-31)</h2>
+    {% if tag_maps %}
+    <table class="data">
+      <tr><th>Tag</th><th>Counts as</th><th>Applies to</th><th>Mapped</th><th></th></tr>
+      {% for m in tag_maps %}
+      <tr><td>{{ m['taxonomy'] }}:{{ m['tag'] }}</td><td>{{ m['role'] | replace('_', ' ') }}</td>
+        <td>{{ (m['name'] or m['cik']) if m['cik'] else 'every company' }}</td>
+        <td class="muted">{{ m['mapped_by'] }} · {{ m['mapped_at'][:16] }}</td>
+        <td>{% if viewer.is_owner %}<form method="post" action="/money/tag-map/{{ m['map_id'] }}/undo"><button class="btn" type="submit" title="Remove the mapping; its review item reopens">Undo</button></form>{% endif %}</td></tr>
+      {% endfor %}
+    </table>
+    {% else %}<p class="empty">No owner mappings yet; built-in us-gaap mappings apply (capital-allocation block on each company's Money flow tab).</p>{% endif %}
   </section>
   <div class="grid2">
     <section>

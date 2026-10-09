@@ -34,5 +34,31 @@
   </table>
   {% for n in d.notes %}<p class="note">{{ n }}</p>{% endfor %}
   <p class="note">Each number is distinct filers (companies) whose {{ d.family }} filings in that window contain the phrase; click it for the filings. Mentions measure attention, not money (hypothesis until backtested); generic or boilerplate wording is screened in a later part (D-M02-8, D-M02-14).</p>
+  <h2 style="margin-top:16px">Money flow</h2>
+  <p class="note">Confirmed spenders only (a quoted sentence ties their spending to this theme, D-M02-5). Hypothesis, not backtested · guidance is a {{ FORECAST_NOTE }} · no totals: each spender keeps its own period and shows its own guided increase.{% if mf.open_links %} {{ mf.open_links }} compan{{ 'y' if mf.open_links == 1 else 'ies' }} with link sentences waiting in <a href="/review">review</a>.{% endif %}</p>
+  {% if mf.ranked or mf.unranked %}
+  <table class="data">
+    <tr><th>Spender</th><th>Period</th><th>Guided</th><th>Growth vs last year</th><th class="num">Guided increase</th><th>Source</th><th>Freshness</th></tr>
+    {% for r in mf.ranked %}{% set g = r.line %}
+    <tr><td><a href="/c/{{ r.ticker }}?tab=money" title="{{ r.quote }}">{{ r.ticker }}</a></td><td>{{ g.period }}</td>
+      <td><a href="/source/{{ g.accession }}/{{ g.filename }}" title="{{ g.quote }}">{{ g.value_text }}</a>{% if g.change %} <span class="muted">{{ g.change }}</span>{% endif %}</td>
+      <td>{{ g.growth_text }}</td><td class="num">{{ r.contribution | money }}</td>
+      <td style="white-space:nowrap">{{ g.source_text }}</td><td title="{{ g.freshness.why }}">{{ g.freshness.state }}</td></tr>
+    {% endfor %}
+  </table>
+  {% if mf.unranked %}<p class="note">Not ranked: {% for r in mf.unranked %}<a href="/c/{{ r.ticker }}?tab=money">{{ r.ticker }}</a> {{ r.line.period }} {{ r.line.value_text }} ({{ r.line.growth_text }}, {{ r.line.source_text }}){{ ' · ' if not loop.last }}{% endfor %}</p>{% endif %}
+  {% else %}<p class="empty">No confirmed spender yet.</p>{% endif %}
+  {% if mf.suppliers %}
+  <h2 style="margin-top:16px">Linked companies: RPO vs their own history</h2>
+  <table class="data">
+    <tr><th>Company</th><th>Latest RPO</th><th class="num">vs a year earlier</th><th class="num">vs own median growth</th></tr>
+    {% for t, c, rp in mf.suppliers %}{% set last = rp.rows[-1] if rp.reported else none %}
+    <tr><td><a href="/c/{{ t }}?tab=money">{{ t }}</a></td>
+      <td>{% if last %}{{ last.value | money }} <span class="muted">({{ last.end }})</span>{% else %}<span class="muted">not reported</span>{% endif %}</td>
+      <td class="num">{% if last and last.yoy is not none %}{{ '%+.0f' | format(100 * last.yoy) }}%{% else %}—{% endif %}</td>
+      <td class="num">{% if rp.latest_vs_own is not none %}{{ '%+.0f' | format(100 * rp.latest_vs_own) }} pts{% else %}—{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
 </main>
 {% endblock %}

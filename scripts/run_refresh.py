@@ -87,6 +87,15 @@ def calls_step(engine, corpus, report) -> str:
     return "\n" + "\n".join(lines) + "\n"
 
 
+def money_step(client, engine, corpus, report) -> str:
+    """Money flow after the calls step (M02 part 3): stated actuals, extension facts,
+    allocation coverage, spender links and candidates. Never fails the run."""
+    from engine.moneyflow.step import run_money_step
+
+    lines = run_money_step(client, engine, corpus, companies_of(report), datetime.now(UTC))
+    return "\n".join(lines) + "\n"
+
+
 def last_scheduled_slot(now_local: datetime) -> datetime:
     slot = now_local.replace(hour=SCHEDULED_AT.hour, minute=SCHEDULED_AT.minute, second=0,
                              microsecond=0)  # fmt: skip
@@ -219,6 +228,7 @@ def main() -> int:
         report = run_refresh(client, engine, corpus, load_config(Path(args.config)),
                              datetime.now(UTC), trigger=trigger)  # fmt: skip
         calls = calls_step(engine, corpus, report)
+        calls += money_step(client, engine, corpus, report)
         skipped = "\nPrices (Tiingo): skipped (--skip-prices)\n"
         prices = skipped if args.skip_prices else prices_step(engine, report)
         text = format_report(report) + calls + prices

@@ -26,7 +26,8 @@ from engine.themes import tiers
 
 MODULE = "M02"
 WEEKLY_CAP = 10
-UNCAPPED = frozenset({"m02_ir_download"})
+# operational items (downloads, tag mapping, reconciliation gaps) are not capped
+UNCAPPED = frozenset({"m02_ir_download", "m02_tag", "m02_capex_gap"})
 
 KIND_LABELS = {
     "m02_theme": "M02: new theme proposed",
@@ -37,6 +38,9 @@ KIND_LABELS = {
     "m02_ir_download": "M02: call document to download",
     "m02_promote": "M02: tracked company with new evidence",
     "m02_still_track": "M02: still track this company?",
+    "m02_spender": "M02: does this company's spending count toward a theme?",
+    "m02_tag": "M02: how does this cash-flow tag count?",
+    "m02_capex_gap": "M02: capex recipe does not match the stated figure",
 }
 ACTIONS = {
     "m02_theme": ("accept", "reject"),
@@ -47,8 +51,19 @@ ACTIONS = {
     "m02_ir_download": ("downloaded", "dismiss"),
     "m02_promote": ("promote", "keep_tracked"),
     "m02_still_track": ("keep", "remove"),
+    "m02_spender": ("confirm", "reject"),
+    "m02_tag": (
+        "debt_raised",
+        "debt_repaid",
+        "equity_issued",
+        "buybacks",
+        "dividends",
+        "other",
+        "ignore",
+    ),
+    "m02_capex_gap": ("noted",),
 }
-REJECTING = frozenset({"reject", "remove"})
+REJECTING = frozenset({"reject", "remove", "ignore"})
 
 
 def week_start(now: datetime) -> datetime:
@@ -197,8 +212,16 @@ def apply(
         if kind == "m02_theme" and payload.get("theme_id"):
             engine.execute("UPDATE theme SET status = ?, updated_at = ? WHERE theme_id = ?",
                            (status, iso(now), payload["theme_id"]))  # fmt: skip
-    # m02_link / m02_input / m02_ir_download: the resolution itself is the record; the
-    # parts that create them (5, 4) read it.
+    elif kind == "m02_spender" and cik and payload.get("theme_id"):
+        from engine.moneyflow.links import decide
+
+        decide(engine, cik, int(payload["theme_id"]), action, None, now)
+    elif kind == "m02_tag":
+        from engine.moneyflow.allocation import map_tag
+
+        map_tag(engine, payload, action, None, by, now)
+    # m02_link / m02_input / m02_ir_download / m02_capex_gap: the resolution itself is the
+    # record; the parts that create them (5, 4, 3) read it.
 
 
 def queue_still_track(engine: sqlite3.Connection, now: datetime) -> int:
