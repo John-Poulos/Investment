@@ -27,7 +27,7 @@ from engine.calls.transcripts import (
 from engine.guidance.calls import scan_calls
 from engine.guidance.changes import changes_for
 from engine.guidance.ledger import scan_all
-from engine.guidance.parse import find_periods, parse_call
+from engine.guidance.parse import find_periods, find_values, parse_call
 from engine.llm import guidance_reasons
 from engine.search.query import search
 from engine.sec.sections import resplit
@@ -512,3 +512,100 @@ def test_i_downloaded_it_stores_the_newest_pdf(app_client):
     assert tuple(row) == ("ir", "A", 31e9)
     engine.close()
     assert (downloads / "remarks.pdf").exists()  # the file is not moved
+
+
+# --- Live-check fixes (2026-10-09, D-M02-23); wording modelled on the real cases -------
+
+
+def _parse_turn(turn: str, anchor=(2026, 4)):
+    return parse_call(turn, [(0, len(turn))], anchor)
+
+
+def test_recounted_guidance_is_skipped_and_the_new_figure_kept():
+    r = _parse_turn(
+        "Earlier this year, we said we plan to invest approximately $150 billion in capex in 2026. "
+        "We now believe we will spend approximately $170 billion in capex in 2026."
+    )
+    assert [(i.metric, i.period, i.value.low) for i in r.items] == [("capex", "FY2026", 170e9)]
+    assert r.skipped == 1
+
+
+def test_other_parties_capex_is_not_the_companys():
+    r = _parse_turn(
+        "Capex by the top five cloud hyperscalers is expected to reach nearly $700 billion in 2026 "
+        "and $1.2 trillion in 2027. We expect our own capex of $2 billion next year."
+    )
+    assert [(i.metric, i.period, i.value.low) for i in r.items] == [("capex", "FY2027", 2e9)]
+    assert r.unparsed == []
+    assert find_values("$1.2 trillion")[0].low == 1.2e12
+
+
+def test_segment_revenue_is_not_total_revenue():
+    r = _parse_turn(
+        "We expect Q1 AI revenue to be $20 billion. For Q1, we forecast software revenue of "
+        "approximately $8 billion. We expect consolidated revenue of $33 billion in Q1."
+    )
+    assert [(i.metric, i.period, i.value.low) for i in r.items] == [("revenue", "FY2027 Q1", 33e9)]
+
+
+def test_bounds_and_year_ago_comparisons():
+    r = _parse_turn(
+        "We continue to expect capex for this year will be more than $20 billion. "
+        "We expect Q1 gross margin to be approximately 71%, down from 76% a year ago.",
+        anchor=(2026, 2),
+    )
+    capex, gm = sorted(r.items, key=lambda i: i.metric)
+    assert (capex.period, capex.value.low, capex.value.bound) == ("FY2026", 20e9, "floor")
+    assert gm.prior is None  # a year-ago actual, not prior guidance
+
+
+def test_period_carried_from_the_sentence_before_and_noun_guide():
+    r = _parse_turn(
+        "For Q1, we expect revenue of $80 billion to $81 billion. "
+        "We expect capex spend will be over $45 billion, including finance leases. "
+        "Capital expenditures were $40 billion, as noted in our guide. "
+        "Next, we expect capital expenditures to decrease on a sequential basis."
+    )
+    capex = [i for i in r.items if i.metric == "capex"]
+    assert [(i.period, i.value.low, i.value.bound) for i in capex] == [("FY2027 Q1", 45e9, "floor")]
+    assert [(d.period, d.direction) for d in r.directions] == [("FY2027 Q1", "down")]
+    assert r.unparsed == []
+
+
+def test_multi_year_and_signal_free_capex_sentences():
+    r = _parse_turn(
+        "Capex will grow for the next two to three years as we add capacity. "
+        "This is a big capex year, and I am confident the investments will pay off."
+    )
+    assert r.directions == []
+    assert [u.reason for u in r.unparsed] == ["multi-year wording, no single period"]
+    assert r.skipped == 1
+
+
+def test_results_release_preferred_over_deliveries_report(dbs, clock):
+    engine, corpus = dbs
+    _setup(engine, corpus, clock, fye="1231")
+    # Q3 2026 (calendar): deliveries 8-K two days after quarter end, results three weeks later
+    _release(engine, corpus, clock, "deliveries", "2026-10-02", "Deliveries were 400,000.\n")
+    _release(engine, corpus, clock, "results", "2026-10-22", "Results.\n")
+    _release(engine, corpus, clock, "investor-day", "2026-12-15", "Investor day.\n")
+    from engine.calls.transcripts import company_releases
+
+    assert company_releases(engine, CIK)["2026Q3"] == ("results", "2026-10-22")
+
+
+def test_one_symbol_per_company_and_relink(dbs, clock):
+    engine, corpus = dbs
+    _setup(engine, corpus, clock)
+    due = plan(engine, {"XCLD-WT": CIK, "XCLD": CIK}, clock.now().date())
+    assert {d.symbol for d in due} == {"XCLD"}
+    # a transcript stored before its release was known gets linked later
+    folder_reply = parse_reply(json.dumps(TRANSCRIPT | {"quarter": "2026Q3"}).encode())
+    from engine.calls.transcripts import store_transcript
+
+    store_transcript(engine, corpus, cik=CIK, symbol="XCLD", quarter="2026Q3",
+                     reply=folder_reply, release=None, now=clock.now())  # fmt: skip
+    assert scan_calls(engine, corpus, clock.now())[0].outcome == "no_date"
+    _release(engine, corpus, clock, "q3-results", "2026-04-28", RELEASE_TEXT)
+    (s,) = scan_calls(engine, corpus, clock.now())
+    assert s.doc.stated_on == "2026-04-28" and s.outcome != "no_date"

@@ -97,6 +97,7 @@ def describe_calls(engine, corpus, scans) -> list[str]:
                 value = fmt(g["low"], g["unit"])
             else:
                 value = f"{fmt(g['low'], g['unit'])} – {fmt(g['high'], g['unit'])}"
+            value = {"floor": "more than ", "ceiling": "up to "}.get(g["bound"], "") + value
             extra = f"  matched {g['matched_accession']}" if g["matched_accession"] else ""
             extra += f"  clause: {g['clause']}" if g["clause"] else ""
             lines.append(f"  {g['period']:<14}{g['metric']:<20}{g['basis']:<12}{g['grade']} "

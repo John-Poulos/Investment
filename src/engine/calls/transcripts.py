@@ -42,6 +42,7 @@ RENDERER_VERSION = "av-1"
 DOC_TYPE = "CALL-TRANSCRIPT"
 FILENAME = "transcript.txt"
 LOOKBACK_DAYS = 400  # ~4 quarters of releases (D-M02-20 backfill)
+RESULTS_WINDOW_DAYS = 70  # results releases come within ~10 weeks of quarter end
 REMIND_AFTER_DAYS = 30
 
 _OPERATOR = re.compile(r"\boperator\b", re.IGNORECASE)
@@ -91,6 +92,12 @@ def _fye(fye: str | None) -> tuple[int, int] | None:
 
 def fiscal_quarter(filed: date, fye: str | None) -> tuple[int, int] | None:
     """(fiscal year, quarter) of the last fiscal quarter that ended before `filed`."""
+    last = last_quarter(filed, fye)
+    return last[:2] if last else None
+
+
+def last_quarter(filed: date, fye: str | None) -> tuple[int, int, date] | None:
+    """(fiscal year, quarter, approximate end date) of the last quarter ended before `filed`."""
     f = _fye(fye)
     if f is None:
         return None
@@ -106,7 +113,7 @@ def fiscal_quarter(filed: date, fye: str | None) -> tuple[int, int] | None:
     assert best is not None
     fy = best.year if best.month <= m else best.year + 1
     q = ((best.month - m - 1) % 12) // 3 + 1
-    return fy, q
+    return fy, q, best
 
 
 def av_label(fy: int, q: int) -> str:
@@ -129,14 +136,30 @@ class Due:
 def company_releases(
     engine: sqlite3.Connection, cik: str, since: str | None = None
 ) -> dict[str, tuple[str, str]]:
-    """Fiscal quarter (AV label) → (accession, filed) of its earliest earnings 8-K."""
+    """Fiscal quarter (AV label) → (accession, filed) of its earnings 8-K.
+
+    Several Item 2.02 8-Ks can fall in one quarter (Tesla files its deliveries report
+    under 2.02 two days after quarter end, the results three weeks later): the latest
+    original 8-K filed within RESULTS_WINDOW_DAYS of the quarter end is the results
+    release; one filed later (an investor day) is used only when nothing else exists.
+    """
     row = engine.execute("SELECT fiscal_year_end FROM entity WHERE cik = ?", (cik,)).fetchone()
     fye = row[0] if row else None
+    groups: dict[str, list[tuple[str, str, str, date]]] = {}
+    for f in earnings_releases(engine, cik, since=since):
+        last = last_quarter(date.fromisoformat(f.filed[:10]), fye)
+        if last is not None:
+            groups.setdefault(av_label(*last[:2]), []).append(
+                (f.filed[:10], f.accession, f.form, last[2])
+            )
     out: dict[str, tuple[str, str]] = {}
-    for f in sorted(earnings_releases(engine, cik, since=since), key=lambda f: f.filed):
-        fq = fiscal_quarter(date.fromisoformat(f.filed[:10]), fye)
-        if fq is not None:
-            out.setdefault(av_label(*fq), (f.accession, f.filed[:10]))
+    for quarter, fs in groups.items():
+        fs.sort()
+        end = fs[0][3]
+        near = [x for x in fs if (date.fromisoformat(x[0]) - end).days <= RESULTS_WINDOW_DAYS]
+        originals = [x for x in near if x[2] == "8-K"] or near
+        filed, acc, _, _ = originals[-1] if originals else fs[0]
+        out[quarter] = (acc, filed)
     return out
 
 
@@ -144,7 +167,11 @@ def plan(engine: sqlite3.Connection, companies: dict[str, str], today: date) -> 
     """Transcripts to request now, newest release first. companies: symbol → cik."""
     since = (today - timedelta(days=LOOKBACK_DAYS)).isoformat()
     due: list[Due] = []
-    for symbol, cik in companies.items():
+    seen: set[str] = set()  # one symbol per company (INFQ, not its warrants INFQ-WT)
+    for symbol, cik in sorted(companies.items(), key=lambda x: "-" in x[0] or "." in x[0]):
+        if cik in seen:
+            continue
+        seen.add(cik)
         for quarter, (acc, filed) in company_releases(engine, cik, since).items():
             st = engine.execute(
                 "SELECT outcome, last_at FROM call_fetch WHERE symbol = ? AND quarter = ?",
@@ -354,9 +381,9 @@ def queue_reminders(engine: sqlite3.Connection, now: datetime) -> list[str]:
     cutoff = (now.date() - timedelta(days=REMIND_AFTER_DAYS)).isoformat()
     out = []
     for r in engine.execute(
-        "SELECT f.*, t.ticker FROM call_fetch f LEFT JOIN ticker t ON t.cik = f.cik "
-        "AND t.valid_to IS NULL WHERE f.outcome != 'ok' AND f.reminder_queued = 0 "
-        "AND f.release_filed IS NOT NULL AND f.release_filed < ? ORDER BY f.release_filed",
+        "SELECT f.*, f.symbol AS ticker FROM call_fetch f WHERE f.outcome != 'ok' "
+        "AND f.reminder_queued = 0 AND f.release_filed IS NOT NULL AND f.release_filed < ? "
+        "ORDER BY f.release_filed",
         (cutoff,),
     ).fetchall():
         if engine.execute(
@@ -386,6 +413,26 @@ def queue_reminders(engine: sqlite3.Connection, now: datetime) -> list[str]:
         )
         out.append(f"{payload['ticker']} {quarter}")
     return out
+
+
+def relink(engine: sqlite3.Connection) -> set[tuple[str, str]]:
+    """Point each stored transcript at its quarter's results release (a release can arrive
+    after the transcript, e.g. a newly tracked company); returns the documents changed."""
+    changed = set()
+    for r in engine.execute(
+        "SELECT accession, filename, cik, quarter, release_accession FROM call_document "
+        "WHERE source = 'alpha_vantage'"
+    ).fetchall():
+        av_quarter = r["quarter"][2:6] + "Q" + r["quarter"][-1]
+        rel = company_releases(engine, r["cik"]).get(av_quarter)
+        if rel is not None and rel[0] != r["release_accession"]:
+            engine.execute(
+                "UPDATE call_document SET release_accession = ?, stated_on = ? "
+                "WHERE accession = ? AND filename = ?",
+                (rel[0], rel[1], r["accession"], r["filename"]),
+            )
+            changed.add((r["accession"], r["filename"]))
+    return changed
 
 
 # --- Probe import (D-M02-20: the probe's replies are imported, not re-fetched) ---------

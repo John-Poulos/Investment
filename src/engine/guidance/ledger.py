@@ -107,7 +107,10 @@ def quality_flag(item: Item) -> tuple[str | None, str | None]:
 
 
 def _consistent(a: Value, b: Value) -> bool:
-    """Same value, or a bare point equal to the other's centre ('74.8%' vs '74.8% ± 50 bps')."""
+    """Same value, or a bare point equal to the other's centre ('74.8%' vs '74.8% ± 50 bps').
+    A bound ('more than $25 billion') equals only the same bound."""
+    if a.bound != b.bound:
+        return False
     if (a.low, a.high) == (b.low, b.high):
         return True
     for x, y in ((a, b), (b, a)):
@@ -167,7 +170,7 @@ def _insert(
         "high, point, spread, spread_kind, prior_low, prior_high, stated_on, source, quote, "
         "quote_start, quote_end, period_quote, period_start, period_end, doc_sha256, "
         "parser_version, created_at, flag, flag_reason, origin, grade, matched_accession, "
-        f"clause) VALUES ({', '.join('?' * 32)})",
+        f"clause, bound) VALUES ({', '.join('?' * 33)})",
         (
             release.cik,
             release.accession,
@@ -200,6 +203,7 @@ def _insert(
             grade or default_grade(origin),
             matched,
             clause_of(text, item),
+            v.bound,
         ),
     )
 

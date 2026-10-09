@@ -116,7 +116,7 @@ def management_turns(corpus: sqlite3.Connection, doc_id: int, text: str) -> list
 def _row_value(r: sqlite3.Row) -> Value:
     low, high = Decimal(str(r["low"])), Decimal(str(r["high"]))
     point = Decimal(str(r["point"])) if r["point"] is not None else None
-    return Value(r["kind"], r["unit"], low, high, point, None, None, True, 0, 0)
+    return Value(r["kind"], r["unit"], low, high, point, None, None, True, 0, 0, r["bound"])
 
 
 def _release_rows(engine: sqlite3.Connection, cik: str, item: Item) -> list[sqlite3.Row]:
@@ -265,6 +265,9 @@ def scan_calls(
 ) -> list[CallScan]:
     """Scan call documents not yet scanned with this parser version, plus every call of
     `ciks` (companies whose releases were just re-scanned), or all if force."""
+    from engine.calls.transcripts import relink
+
+    relinked = relink(engine)
     done = {
         (r[0], r[1])
         for r in engine.execute(
@@ -275,5 +278,8 @@ def scan_calls(
     return [
         scan_call(engine, corpus, cd, now)
         for cd in call_documents(engine)
-        if force or (cd.accession, cd.filename) not in done or (ciks and cd.cik in ciks)
+        if force
+        or (cd.accession, cd.filename) not in done
+        or (cd.accession, cd.filename) in relinked
+        or (ciks and cd.cik in ciks)
     ]

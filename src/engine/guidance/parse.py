@@ -55,7 +55,7 @@ import re
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 
-PARSER_VERSION = "guidance-5"
+PARSER_VERSION = "guidance-6"
 
 # --- Metrics -----------------------------------------------------------------
 
@@ -97,8 +97,10 @@ def _metric_name(m: re.Match[str]) -> str:
 # --- Values ------------------------------------------------------------------
 
 _NUM = r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?"
-_SCALE = r"(?:\s*(?i:billion|million|thousand|bn)\b|(?:B|M|K)\b)"  # "Million" in headlines
+_SCALE = r"(?:\s*(?i:trillion|billion|million|thousand|bn|tn)\b|(?:B|M|K)\b)"  # "Million" too
 _SCALES = {
+    "trillion": Decimal(10) ** 12,
+    "tn": Decimal(10) ** 12,
     "billion": Decimal(10) ** 9,
     "bn": Decimal(10) ** 9,
     "b": Decimal(10) ** 9,
@@ -139,7 +141,14 @@ _PCT_NEG = re.compile(rf"\(\s?(?P<a>{_NUM})\s?\)\s?%")
 _COUNT = re.compile(
     rf"(?<![\d.,$])(?P<a>{_NUM})\s*(?P<sa>billion|million|thousand)\b", re.IGNORECASE
 )
-_APPROX = re.compile(r"(?:approximately|about|~)\s*$", re.IGNORECASE)
+_APPROX = re.compile(
+    r"(?:approximately|about|roughly|around|nearly|almost|close to|~)\s*$", re.IGNORECASE
+)
+# "more than $25 billion" is a floor, "up to $5 billion" a ceiling: not a point (live check)
+_FLOOR = re.compile(
+    r"(?:more than|over|at least|greater than|in excess of|north of|above)\s*$", re.IGNORECASE
+)
+_CEILING = re.compile(r"(?:up to|less than|under|below|no more than|at most)\s*$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -154,6 +163,7 @@ class Value:
     scaled: bool  # money/count carried a scale word (or needs none)
     start: int  # offsets of the value expression
     end: int
+    bound: str | None = None  # floor ("more than $X") | ceiling ("up to $X")
 
 
 def _num(s: str) -> Decimal:
@@ -222,8 +232,13 @@ def find_values(text: str) -> list[Value]:
     for v in found:
         if out and v.start < out[-1].end:
             continue
-        if v.kind == "point" and _APPROX.search(text[max(0, v.start - 16) : v.start]):
+        before = text[max(0, v.start - 16) : v.start]
+        if v.kind == "point" and _APPROX.search(before):
             v = replace(v, kind="approx")
+        elif v.kind == "point" and _FLOOR.search(before):
+            v = replace(v, bound="floor")
+        elif v.kind == "point" and _CEILING.search(before):
+            v = replace(v, bound="ceiling")
         out.append(v)
     return out
 
@@ -416,6 +431,41 @@ _CELL = re.compile(r"\t|\s\|\s")
 # value before its metric only in spend phrasing ("invest about $200 billion in capex")
 _SPEND = re.compile(r"\b(?:invest|spend)\w*\b", re.IGNORECASE)
 MAX_SENTENCE = 600  # longer "sentences" are flattened tables or legal boilerplate
+_YEAR_AGO = re.compile(
+    r"\W*(?:a year ago|last year|in the (?:prior|previous|year-ago)|year[- ]over[- ]year|"
+    r"in (?:the )?(?:same|prior) (?:quarter|period)|last quarter)",
+    re.IGNORECASE,
+)
+# words that may stand right before "revenue" when it means the company total
+_REVENUE_LEAD = frozenset((
+    "a", "an", "the", "our", "its", "total", "net", "consolidated", "overall", "company",
+    "quarterly", "annual", "year", "fiscal", "gaap", "expect", "expects", "expected",
+    "anticipate", "anticipates", "forecast", "forecasts", "of", "for", "in", "on", "and", "to",
+    "with", "that", "be", "see", "guide", "guiding", "record", "reported", "q1", "q2", "q3", "q4",
+    "quarter", "first", "second", "third", "fourth", "this", "next", "is", "are", "will",
+    "announces", "announced", "provides", "issues", "reiterates", "reaffirms", "raises",
+    "lowers", "updates", "initiates", "sets", "outlook", "guidance",
+))  # fmt: skip
+_PARTY = (
+    r"\b(?:hyperscalers?|customers?'?|industry|cloud providers?|peers|competitors|"
+    r"the market|partners'?|data center operators?)\b"
+)
+_PARTY_BEFORE = re.compile(_PARTY + r"[^.;]{0,25}$", re.IGNORECASE)
+_PARTY_AFTER = re.compile(r"\s+(?:by|of|from|among|across)\b[^.,;]{0,40}?" + _PARTY, re.I)
+
+
+def segment_revenue(clause: str, start: int) -> bool:
+    """True when the word before 'revenue' names a segment ('AI revenue')."""
+    words = re.findall(r"[A-Za-z][\w-]*", clause[max(0, start - 40) : start])
+    return bool(words) and words[-1].lower().split("-")[-1] not in _REVENUE_LEAD
+
+
+def third_party(clause: str, m: re.Match[str]) -> bool:
+    """A capex mention about someone else's spending ('CapEx by the top five hyperscalers')."""
+    return bool(
+        _PARTY_BEFORE.search(clause[max(0, m.start() - 40) : m.start()])
+        or _PARTY_AFTER.match(clause, m.end())
+    )
 
 
 def _bases(prefix: str) -> tuple[str, ...]:
@@ -530,6 +580,10 @@ def _parse_sentence(
             seg_end = mentions[i + 1].start() if i + 1 < len(mentions) else len(clause)
             metric = _metric_name(m)
             seg_start = m.end()
+            if metric == "revenue" and segment_revenue(clause, m.start()):
+                continue  # "AI revenue", "Data Center revenue": a segment, not the company total
+            if metric == "capex" and third_party(clause, m):
+                continue  # "CapEx by the top five hyperscalers": someone else's spending
             fitted = [
                 _shift(f, seg_start)
                 for v in find_values(clause[seg_start:seg_end])
@@ -580,7 +634,10 @@ def _parse_sentence(
                     for v in find_values(clause[pm.end() : pm.end() + 60])
                     if (f := _fits(metric, v)) is not None
                 ]
-                if after:
+                tail = (
+                    clause[pm.end() + after[0].end : pm.end() + after[0].end + 30] if after else ""
+                )
+                if after and not _YEAR_AGO.match(tail):  # "down from 78% a year ago" = actual
                     prior = _shift(after[0], s + c0 + pm.end())
             for basis, v in pairs:
                 items.append(
@@ -762,8 +819,19 @@ def parse_release(text: str) -> ParseResult:
 
 # --- Calls -------------------------------------------------------------------
 
-CALL_CUE = re.compile(
-    _CUE.pattern + r"|\b(?:will|plan(?:s|ning)? to|going to|guid(?:e|ing))\b", re.IGNORECASE
+CALL_CUE = re.compile(  # not "guide": "as noted in our guide" is a noun (live check)
+    _CUE.pattern + r"|\b(?:will|plan(?:s|ning)? to|going to|guiding)\b", re.IGNORECASE
+)
+_RECOUNT = re.compile(
+    r"\b(?:we (?:had )?(?:said|guided|indicated)|earlier this year|previously|"
+    r"last quarter,? we|on our last call|our (?:prior|previous) (?:guidance|outlook))\b",
+    re.IGNORECASE,
+)
+_UPDATE = re.compile(r"\b(?:now|today|updat\w*|rais\w*|lower\w*|revis\w*)\b", re.IGNORECASE)
+_MULTI_YEAR = re.compile(
+    r"\b(?:next|coming|over the next|for the next)\s+(?:two|three|four|five|few|several|\d+)"
+    r"\b[\w\s-]{0,15}?\byears\b",
+    re.IGNORECASE,
 )
 CAPEX_WORDS = re.compile(
     r"\b(?:capital expenditures?|capex|capital spending|capital investments?)\b", re.IGNORECASE
@@ -781,13 +849,21 @@ _CLAUSE = re.compile(
 )
 
 
-def _direction(text: str, s: int, e: int, anchor: tuple[int, int] | None) -> Direction | str:
+def _direction(
+    text: str,
+    s: int,
+    e: int,
+    anchor: tuple[int, int] | None,
+    context: Period | None = None,
+) -> Direction | str:
     """A direction-only capex item, or the reason it goes to review."""
     sent = text[s:e]
     m = CAPEX_WORDS.search(sent)
     assert m
     if _RATE.search(sent):
         return "growth-rate wording (kept for review, D-UI-15)"
+    if _MULTI_YEAR.search(sent):
+        return "multi-year wording, no single period"
     tail = sent[m.end() :]
     found = [(d, w) for d, rx in _DIRECTIONS if (w := rx.search(tail))]
     if len(found) != 1:
@@ -799,6 +875,8 @@ def _direction(text: str, s: int, e: int, anchor: tuple[int, int] | None) -> Dir
         for p in find_periods(sent, anchor=anchor)
         if not _THAN.search(sent[max(0, p.start - 20) : p.start])
     ]
+    if not periods and context is not None:
+        return Direction("capex", context.label, direction, s, e, context.start, context.end)
     if not periods:
         return "no period"
     before = [p for p in periods if p.start < word_at]
@@ -817,6 +895,17 @@ def clause_of(text: str, item: Item) -> str | None:
     return " ".join(m.group(0).split()) if m else None
 
 
+def _signal(sent: str, anchor: tuple[int, int] | None) -> bool:
+    """A capex sentence worth the owner's time: a figure, a direction word or a period."""
+    m = CAPEX_WORDS.search(sent)
+    tail = sent[m.end() :] if m else sent
+    return bool(
+        find_values(sent)
+        or any(rx.search(tail) for _, rx in _DIRECTIONS)
+        or find_periods(sent, anchor=anchor)
+    )
+
+
 def parse_call(
     text: str, turns: list[tuple[int, int]], anchor: tuple[int, int] | None
 ) -> ParseResult:
@@ -824,35 +913,63 @@ def parse_call(
 
     turns: (start, end) offsets of management speech; analysts and the operator are
     never read. anchor: the call's (fiscal year, quarter) for spoken periods.
+
+    Live check 2026-10-09 (D-M02-23): a sentence without a period takes the period of
+    one of the two sentences before it in the same turn when that one was itself
+    forward-looking ("For Q1, we expect revenue … We expect CapEx spend will be over
+    $50 billion"); multi-year phrasing ("the next two to three years") takes none.
+    Sentences recounting earlier guidance ("Earlier this year, we said we plan to
+    invest ~$200 billion") are skipped unless they also say "now"/"updated"; capex of
+    other parties ("CapEx by the top five hyperscalers") is skipped; a capex sentence
+    with no figure, direction word or period is counted, not queued.
     """
     out = ParseResult()
     lines = _lines(text)
     for a, b in turns:
+        recent: list[Period | None] = []  # forward periods of the last sentences in this turn
         for la, lb in lines:
             if lb <= a or la >= b:
                 continue
             for s, e in _sentences(text, max(la, a), min(lb, b)):
                 sent = text[s:e]
                 cue_text = _NOT_CUE.sub(lambda m: "_" * len(m.group(0)), sent)
+                forward = bool(CALL_CUE.search(cue_text) or _CONTEXT.search(sent))
+                context = next((p for p in reversed(recent[-2:]) if p is not None), None)
+                own = find_periods(sent, anchor=anchor) if forward else []
+                if own:
+                    recent.append(Period(own[0].label, s + own[0].start, s + own[0].end))
+                else:  # a forward sentence without its own period carries the context on
+                    recent.append(context if forward else None)
+                if _MULTI_YEAR.search(sent):
+                    context = None
                 if not CALL_CUE.search(cue_text):
                     continue
                 if len(sent) > MAX_SENTENCE or _BOILERPLATE.search(sent):
                     continue
+                if _RECOUNT.search(sent) and not _UPDATE.search(sent):
+                    out.skipped += 1  # earlier guidance retold, not a new statement
+                    continue
+                capex = CAPEX_WORDS.search(sent)
                 if find_values(sent):
                     one = ParseResult()
-                    _parse_sentence(text, s, e, None, one, cue=CALL_CUE, anchor=anchor)
+                    _parse_sentence(text, s, e, context, one, cue=CALL_CUE, anchor=anchor)
                     out.candidates += one.candidates
                     out.items.extend(one.items)
                     for u in one.unparsed:
-                        if CAPEX_WORDS.search(text[u.start : u.end]):
+                        u_cap = CAPEX_WORDS.search(text[u.start : u.end])
+                        if u_cap and not third_party(text[u.start : u.end], u_cap):
                             out.unparsed.append(u)
                         else:
                             out.skipped += 1
-                elif CAPEX_WORDS.search(sent):
+                elif capex and third_party(sent, capex):
+                    out.skipped += 1
+                elif capex:
                     out.candidates += 1
-                    d = _direction(text, s, e, anchor)
+                    d = _direction(text, s, e, anchor, context)
                     if isinstance(d, Direction):
                         out.directions.append(d)
-                    else:
+                    elif _signal(sent, anchor):
                         out.unparsed.append(Unparsed(s, e, d))
+                    else:
+                        out.skipped += 1
     return out
