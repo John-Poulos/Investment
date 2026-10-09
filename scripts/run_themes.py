@@ -64,13 +64,14 @@ def report_theme(engine, theme, family: str) -> list[str]:
                    f"{'  ' + r.error if r.error else ''}")  # fmt: skip
     out.append("  per phrase (companies per window, oldest → newest):")
     phrases: dict[str, list[str]] = {}
-    for r in (r for r in rows if r.phrase != THEME_ROW):
+    active = set(active_phrases(engine, theme["theme_id"]))
+    for r in (r for r in rows if r.phrase in active):
         cell = "fail" if r.companies is None else f"{'≥' if r.lower_bound else ''}{r.companies}"
         phrases.setdefault(r.phrase, []).append(cell)
     for p, cells in phrases.items():
         out.append(f"    {p:<32} {' '.join(f'{c:>6}' for c in cells)}")
     for r in rows:
-        if r.phrase != THEME_ROW and r.error:
+        if r.phrase in active and r.error:
             out.append(f"    note {r.phrase} {r.start}..{r.end}: {r.error}")
     return out
 
