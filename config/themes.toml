@@ -1,0 +1,53 @@
+# Seed themes for M02 (D-M02-16). Hand-edited by the owner; the app never writes here.
+# A theme = a named set of phrases (one EDGAR full-text query per phrase, merged by
+# accession; D-M02-1). Phrases are matched case-insensitively as exact phrases; no
+# operators. `companies` links watchlist tickers to the theme (optional).
+# Engine-proposed themes and phrases live in the database with the owner's decisions.
+
+[[theme]]
+key = "ai_infrastructure"
+name = "AI infrastructure"
+phrases = ["accelerated computing", "AI infrastructure", "AI data center", "generative AI", "AI accelerator"]
+companies = ["NVDA", "MSFT", "AMZN", "GOOG", "META"]
+
+[[theme]]
+key = "hbm_packaging"
+name = "HBM & advanced packaging"
+phrases = ["high bandwidth memory", "HBM", "advanced packaging", "CoWoS", "hybrid bonding", "chiplet"]
+companies = ["MU", "INTC", "GFS"]
+
+[[theme]]
+key = "custom_silicon_optics"
+name = "Custom silicon & optics"
+phrases = ["custom silicon", "custom ASIC", "co-packaged optics", "silicon photonics", "optical interconnect"]
+companies = ["MRVL"]
+
+[[theme]]
+key = "dc_power_cooling"
+name = "Data-center power & cooling"
+phrases = ["data center power", "small modular reactor", "liquid cooling", "interconnection queue"]
+companies = []
+
+[[theme]]
+key = "space_launch"
+name = "Space launch & satellites"
+phrases = ["launch services", "satellite constellation", "low Earth orbit", "reusable launch"]
+companies = ["SPCX", "BA"]
+
+[[theme]]
+key = "quantum"
+name = "Quantum computing"
+phrases = ["quantum computing", "qubit", "quantum error correction", "post-quantum cryptography"]
+companies = ["INFQ"]
+
+[[theme]]
+key = "robotics_physical_ai"
+name = "Robotics & physical AI"
+phrases = ["humanoid robot", "physical AI", "autonomous mobile robot", "robotaxi"]
+companies = ["TSLA"]
+
+[[theme]]
+key = "foundry_onshoring"
+name = "Foundry & onshoring"
+phrases = ["CHIPS Act", "foundry services", "advanced node", "domestic semiconductor manufacturing"]
+companies = ["INTC", "GFS"]

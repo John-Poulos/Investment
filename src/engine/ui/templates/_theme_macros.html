@@ -1,0 +1,17 @@
+{% macro share(r) -%}
+{%- if r is none or r.share is none %}—{% else %}{{ '≥' if r.lower_bound }}{{ '%.2f' | format(100 * r.share) }}%{% endif -%}
+{%- endmacro %}
+{% macro companies(r) -%}
+{%- if r is none or r.companies is none %}—{% else %}{{ '≥' if r.lower_bound }}{{ '{:,}'.format(r.companies) }}{% endif -%}
+{%- endmacro %}
+{% macro change(r) -%}
+{%- if r is none or r.change_pts is none %}<span class="muted">—</span>{% else %}<span class="{{ 'buy' if r.change_pts > 0 else ('sell' if r.change_pts < 0 else '') }}">{{ '%+.2f' | format(r.change_pts) }} pts</span>{% endif -%}
+{%- endmacro %}
+{% macro spark(series, w=120, h=18) -%}
+{%- set vals = series | map(attribute=1) | select('number') | list -%}
+{%- if vals | length > 1 -%}
+{%- set top = vals | max -%}
+<svg class="spark" width="{{ w }}" height="{{ h }}" role="img" aria-label="Share by year"><polyline fill="none" stroke="currentColor" stroke-width="1.5" points="
+{%- for label, v, lb in series %}{% if v is number %}{{ (loop.index0 * w / (series | length - 1)) | round(1) }},{{ (h - 1 - (v / top if top else 0) * (h - 2)) | round(1) }} {% endif %}{% endfor %}"/></svg>
+{%- else %}<span class="muted">—</span>{% endif -%}
+{%- endmacro %}

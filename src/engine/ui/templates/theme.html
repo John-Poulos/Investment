@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "_theme_macros.html" import share, companies, change %}
+{% block title %}{{ d.name }} — Themes{% endblock %}
+{% block topleft %}<a href="/themes?family={{ d.family }}">← Themes</a><span class="name">{{ d.name }}</span>{% endblock %}
+{% block body %}
+<main class="detail" style="max-width: 1100px">
+  <p class="note">{{ d.source }} theme · {{ d.phrases | length }} phrases · first seen {{ d.discovered_at }}{% if d.tickers %} · linked: {% for t in d.tickers %}<a href="/c/{{ t }}?tab=themes">{{ t }}</a> {% endfor %}{% endif %}· {{ d.family }} filers · data through {{ d.through or '—' }}</p>
+  {% set l = d.latest %}
+  <div class="cards">
+    <div class="card"><div class="muted">Companies{% if l %} {{ l.start[:4] }}{{ '' if l.end.endswith('12-31') else ' YTD' }}{% endif %}</div><div class="big">{{ companies(l) }}</div></div>
+    <div class="card"><div class="muted">Share of {{ d.family }} filers</div><div class="big">{{ share(l) }}</div></div>
+    <div class="card"><div class="muted">Same span a year earlier</div><div class="big">{% if l and l.prior_share is not none %}{{ '%.2f' | format(100 * l.prior_share) }}%{% else %}—{% endif %}</div></div>
+    <div class="card"><div class="muted">Change</div><div class="big">{{ change(l) }}</div></div>
+  </div>
+  {% set vals = d.series | map(attribute=1) | select('number') | list %}
+  {% if vals %}{% set top = vals | max %}
+  <svg class="bars" viewBox="0 0 {{ 80 * (d.series | length) }} 120" role="img" aria-label="Share of filers by year">
+    {% for label, v, lb in d.series %}
+    {% set hgt = ((v / top) * 96) if (v is number and top) else 0 %}
+    <rect x="{{ 80 * loop.index0 + 12 }}" y="{{ 100 - hgt }}" width="56" height="{{ hgt }}" class="{{ 'last' if loop.last }}"><title>{{ label }}: {% if v is number %}{{ '≥' if lb }}{{ '%.2f' | format(100 * v) }}%{% else %}missing{% endif %}</title></rect>
+    {% if v is not number %}<text x="{{ 80 * loop.index0 + 40 }}" y="96" text-anchor="middle" class="lbl">—</text>{% endif %}
+    <text x="{{ 80 * loop.index0 + 40 }}" y="116" text-anchor="middle" class="lbl">{{ label }}</text>
+    {% endfor %}
+  </svg>
+  {% endif %}
+  <h2>Companies per phrase and window</h2>
+  <table class="data">
+    <tr><th>Phrase</th>{% for s, e in d.windows %}<th class="num">{{ s[:4] if (s.endswith('01-01') and e.endswith('12-31')) else (s[:4] ~ ' to ' ~ e[5:]) }}</th>{% endfor %}</tr>
+    <tr><td><b>Theme (any phrase)</b></td>{% for r in d.theme_rows %}<td class="num"><b>{{ companies(r) }}</b></td>{% endfor %}</tr>
+    <tr><td class="muted">share of filers</td>{% for r in d.theme_rows %}<td class="num muted">{{ share(r) }}</td>{% endfor %}</tr>
+    {% for p in d.phrases %}
+    <tr><td>{{ p.phrase }}</td>{% for r in p.cells %}<td class="num">{% if r and r.companies is not none %}<a href="/themes/{{ d.key }}/filers?family={{ d.family }}&phrase={{ p.phrase | urlencode }}&start={{ r.start }}&end={{ r.end }}">{{ companies(r) }}</a>{% else %}{{ companies(r) }}{% endif %}</td>{% endfor %}</tr>
+    {% endfor %}
+  </table>
+  {% for n in d.notes %}<p class="note">{{ n }}</p>{% endfor %}
+  <p class="note">Each number is distinct filers (companies) whose {{ d.family }} filings in that window contain the phrase; click it for the filings. Mentions measure attention, not money (hypothesis until backtested); generic or boilerplate wording is screened in a later part (D-M02-8, D-M02-14).</p>
+</main>
+{% endblock %}

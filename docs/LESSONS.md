@@ -9,6 +9,9 @@ Updated: 2026-10-09 · Read at the start of every module build. One line each, w
 - Same fiscal period can be reported with start dates a day apart; dedupe on (type, end) and name the alternative (D-SEC-17).
 - Market dates are US Eastern; an evening run in UTC is already "tomorrow" (D-SEC-16).
 - A bare 403 from SEC Archives can mean "not published yet", not a block (D-SEC-16).
+- EFTS through the API: `entity_filter` lists only the top 30 filers; `NEAR(n)` returns nothing; some quoted phrases get a persistent 5xx on a long window — retry as two halves before calling it missing (D-M02-17).
+- A share needs a denominator from the same source family and window: EDGAR's quarterly form index gives exact distinct filers per form (D-M02-17).
+- Seed phrases need the same scrutiny as mined ones: a generic phrase ("domestic manufacturing") can dominate a theme (D-M02-17).
 
 ## Rate limits and budgets
 - Sustained bulk near a published limit gets blocked: SEC blocked at 7.5–8/s against a 10/s limit; we pace at 5/s (D-SEC-18).
