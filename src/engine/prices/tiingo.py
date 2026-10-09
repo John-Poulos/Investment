@@ -29,6 +29,10 @@ HOURLY_BUDGET = 48  # Tiingo free: 50
 DAILY_BUDGET = 950  # Tiingo free: 1,000
 MONTHLY_SYMBOLS = 480  # Tiingo free: 500 unique symbols per month
 MIN_INTERVAL_S = 75.0  # 48/hour
+# The scheduled run stays at 40/hour so the app keeps 8/hour for its own fetches
+# (D-M02-12: runs happen at logon, during the owner's session).
+BATCH_HOURLY_BUDGET = 40
+BATCH_MIN_INTERVAL_S = 90.0
 
 Transport = Callable[[str, Mapping[str, str], Mapping[str, str]], tuple[int, bytes]]
 
@@ -73,7 +77,9 @@ class TiingoClient:
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
         min_interval_s: float = MIN_INTERVAL_S,
+        hourly_budget: int = HOURLY_BUDGET,
     ) -> None:
+        self._hourly = hourly_budget
         self._token = token
         self._engine = engine
         self._transport = transport
@@ -101,8 +107,8 @@ class TiingoClient:
 
     def budget_problem(self, symbol: str) -> str | None:
         now = self._now()
-        if self._count_since(now - timedelta(hours=1)) >= HOURLY_BUDGET:
-            return f"hourly budget reached ({HOURLY_BUDGET} requests in the last hour)"
+        if self._count_since(now - timedelta(hours=1)) >= self._hourly:
+            return f"hourly budget reached ({self._hourly} requests in the last hour)"
         if self._count_since(now - timedelta(days=1)) >= DAILY_BUDGET:
             return f"daily budget reached ({DAILY_BUDGET} requests in 24 hours)"
         month = self.symbols_this_month()

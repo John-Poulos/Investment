@@ -20,6 +20,14 @@
   {% elif it.kind == 'ticker_map_hold' %}
   <p>{{ it.payload.added | length }} added · {{ it.payload.dropped | length }} dropped · {{ it.payload.changed | length }} changed tickers.</p>
   {% if it.payload.dropped %}<p class="muted">Dropped: {{ it.payload.dropped[:60] | join(', ') }}{% if it.payload.dropped | length > 60 %} …{% endif %}</p>{% endif %}
+  {% elif it.kind.startswith('m02_') %}
+  {% if it.payload.earlier %}<div class="warnbox">Shown before and {{ it.payload.earlier.resolution }}ed{% if it.payload.earlier.note %} — your note: “{{ it.payload.earlier.note }}”{% endif %}. Back because it changed materially (distinct filers doubled or money-flow evidence appeared).</div>{% endif %}
+  <table class="data">
+    {% for k, v in it.payload.items() if k not in ('earlier', 'samples') %}
+    <tr><th>{{ k | replace('_', ' ') }}</th><td>{% if v is string and v.startswith('http') %}<a href="{{ v }}" target="_blank" rel="noopener">{{ v }}</a>{% else %}{{ v }}{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+  {% for s in it.payload.samples or [] %}<div class="quote">“{{ s }}”</div>{% endfor %}
   {% endif %}
 
   {% if context %}
@@ -56,7 +64,7 @@
   {% for a in it.actions if a != 'enter' %}
   <form method="post" action="/review/{{ it.item_id }}/{{ a }}">
     <input name="note" size="40" placeholder="Note (optional)">
-    <button class="btn" type="submit">{{ {'dismiss': 'Dismiss', 'keep_stored': 'Keep stored value', 'keep_other': 'Keep other value', 'acknowledge': 'Acknowledge', 'approve': 'Apply at next nightly run', 'keep_map': 'Keep stored map'}[a] }}</button>
+    <button class="btn" type="submit">{{ {'dismiss': 'Dismiss', 'keep_stored': 'Keep stored value', 'keep_other': 'Keep other value', 'acknowledge': 'Acknowledge', 'approve': 'Apply at next nightly run', 'keep_map': 'Keep stored map', 'accept': 'Accept', 'reject': 'Reject', 'confirm': 'Confirm', 'flip': 'Confirm, direction flipped', 'downloaded': 'Downloaded', 'promote': 'Promote to watchlist', 'keep_tracked': 'Keep tracked', 'keep': 'Keep tracking', 'remove': 'Stop tracking'}.get(a, a) }}</button>
   </form>
   {% endfor %}
   </div>

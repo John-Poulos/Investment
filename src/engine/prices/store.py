@@ -188,6 +188,26 @@ def refresh_prices(
     return report
 
 
+TRACKED_ROTATION_DAYS = 3  # D-M02-12: each tracked name about every third run
+TRACKED_SOFT_CAP = 150
+
+
+def tracked_rotation(
+    engine: sqlite3.Connection, tracked: dict[str, str | None]
+) -> tuple[dict[str, str | None], list[str]]:
+    """Today's share of the tracked tier: never-fetched first, then the oldest fetch.
+    Returns (symbols to fetch today, symbols over the soft cap)."""
+    names = sorted(tracked)
+    over = names[TRACKED_SOFT_CAP:]
+    names = names[:TRACKED_SOFT_CAP]
+    last = {r["symbol"]: r["last_fetched_at"] or "" for r in engine.execute(
+        "SELECT symbol, last_fetched_at FROM price_fetch")}  # fmt: skip
+    order = sorted(names, key=lambda s: (last.get(s, ""), s))
+    take = -(-len(names) // TRACKED_ROTATION_DAYS)  # ceiling
+    today = order[:take]
+    return {s: tracked[s] for s in today}, over
+
+
 # --- Reading -----------------------------------------------------------------------
 
 

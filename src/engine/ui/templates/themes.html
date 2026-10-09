@@ -24,5 +24,13 @@
   {% else %}
   <p class="empty">No theme breadth stored yet. Run <code>uv run python scripts/run_themes.py</code>.</p>
   {% endif %}
+  {% if overflow %}
+  <h2 style="margin-top:16px">Waiting for next week's review queue ({{ overflow | length }})</h2>
+  <table class="data">
+    <tr><th>First seen</th><th>Kind</th><th>Proposal</th></tr>
+    {% for o in overflow %}<tr><td>{{ o.first_seen_at[:10] }}</td><td class="muted">{{ o.label }}</td><td>{{ o.reason }}</td></tr>{% endfor %}
+  </table>
+  <p class="note">At most 10 new M02 review items a week (D-M02-10); these enter the queue oldest first as room frees up.</p>
+  {% endif %}
 </main>
 {% endblock %}

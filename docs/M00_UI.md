@@ -113,5 +113,7 @@ Nightly run reports, guidance scan summary, Gemini call log with tokens and cost
 
 - D-UI-17 (2026-10-09, M02 part 1): Themes screens built from the reviewed mockup (D-UI-4): top-bar "Themes" link; `/themes`, `/themes/<key>`, `/themes/<key>/filers`; company tab Themes enabled (linked themes + the company's own mentions). Shares show "≥" for lower bounds and "—" for missing windows; every count links to its filings (D-M02-17) (owner).
 
+- D-UI-18 (2026-10-09, M02 part 2): Side panel shows core + promoted (tag "P") under Watchlist and the tracked tier under Tracked; the company Themes tab has the owner's tier box (Track with a reason, Promote, Demote, Stop tracking; core names cannot be tracked). Review queue groups M02 items under "M02 digest — week of …", item pages show the proposal's fields, samples and any earlier decision, and the guide explains each M02 action; the Themes page lists proposals waiting for next week's queue (D-M02-18) (owner).
+
 ## Open questions
 - Phone-sized layout: not planned while local-only.

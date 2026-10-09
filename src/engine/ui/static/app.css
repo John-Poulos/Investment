@@ -112,3 +112,6 @@ svg.bars rect { fill: var(--accent-bg); stroke: var(--accent); stroke-width: 0.5
 svg.bars rect.last { fill: var(--accent); }
 svg.bars .lbl { font-size: 11px; fill: var(--text-2); }
 .note a.on { font-weight: 600; }
+.weekhead { background: var(--panel-2); color: var(--text-2); }
+.tag { font-size: 10px; padding: 0 4px; border: 1px solid var(--line-2); border-radius: var(--radius); color: var(--text-2); }
+.tierbox { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }

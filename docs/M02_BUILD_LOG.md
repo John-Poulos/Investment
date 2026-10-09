@@ -25,7 +25,7 @@ One section per proposed amendment, discussed with the owner in order. Outcome l
 | Part | Covers | Decisions | Depends on | Live checks (owner runs) | Status |
 |---|---|---|---|---|---|
 | 1 Theme core | `config/themes.toml` seeds + DB themes/phrases with `discovered_at`; EFTS breadth with `form.idx` denominator, 10-page cap, lower bound; Themes tab v1 (share of filers, same window YoY) | D-M02-1, -14, -16, -17 | M00 | done: probe + first run 2026-10-09 | built (branch `m02-theme-core`) |
-| 2 Plumbing | Review kinds m02_theme/phrase/candidate/link/input/ir_download; weekly header, cap 10, suppression; guide panel; tracked tier tables + side panel core/promoted/tracked; promotion suggestion + 12-month review; price rotation (tracked 3-day) + 8/h app reserve; end-of-run summary box | D-M02-10, -11, -12 | 1 | one logon catch-up with tracked names | — |
+| 2 Plumbing | Review kinds m02_theme/phrase/candidate/link/input/ir_download; weekly header, cap 10, suppression; guide panel; tracked tier tables + side panel core/promoted/tracked; promotion suggestion + 12-month review; price rotation (tracked 3-day) + 8/h app reserve; end-of-run summary box | D-M02-10, -11, -12 | 1 | one refresh with a tracked name | built (branch `m02-plumbing`) |
 | 3 Money flow | Capex components (clause tag, "definition changed", stale flag, own-definition actuals incl. finance-lease principal, funding coverage); new XBRL concepts; spender→theme quote link; per-spender view | D-M02-5, -15 | 1, 2 | guidance re-scan; MSFT/META checks | — |
 | 4 Call guidance | Alpha Vantage adapter (probe done 2026-10-09: works, fiscal labels); allowed-site IR fetch (MSFT, MRVL, GFS, MU paced); Downloads pickup + m02_ir_download; PDF/DOCX/PPTX text; parser; grade B → A on match | D-M02-6 | 2, 3 | probe done 2026-10-09 | — |
 | 5 Suppliers L0–L3 | Reverse lookup with alias table; L1 passages; Exhibit 10 ingest for Item 1.01; Gemini 5/5b; labelled precision set (~30); m02_link/m02_input | D-M02-7, -9, -15 | 1, 2 | NVDA reverse lookup; Gemini labels on the labelled set | — |
@@ -44,6 +44,12 @@ Effort: High only if a part raises a new design question; otherwise Medium. Each
 - Generic phrases seen: "domestic manufacturing" (replaced), "behind-the-meter" (dropped), "HBM" may collide with other acronyms/tickers, "advanced packaging" may include non-semiconductor packaging → part 6 industry-spread test (SIC per hit is stored in `fulltext_hit.sics`).
 - Not done in part 1 (later parts): weekly/seasonal scheduling (part 2/6), 10-Q/8-K families by default (run with `--families`), phrase tests and proposals (part 6).
 - Visual check: scratch data in `.claude/launch.json` config `ui-scratch` (port 8799; data dir = session scratchpad — change the path for a new session).
+
+### Part 2 — Plumbing (built 2026-10-09, D-M02-18, D-UI-18)
+- Code: `themes/proposals.py` (propose, flush_overflow, overflow, apply, queue_still_track, suggest_promotion), `themes/tiers.py`, migration engine 0015, `review.m02_action`, `refresh._process_tracked`, `prices/store.tracked_rotation`, `prices/tiingo` `hourly_budget`, `run_refresh.py` `waiting_summary`/`show_info`; UI `_side.html`, `tabs/themes.html` tier box, `/c/<ticker>/tier/<action>`, review week header + M02 payload view + guide rows, Themes page waiting list; tests `test_m02_plumbing.py`, `test_ui_themes.py`.
+- For generators (parts 3–7): call `proposals.propose(engine, kind, key, reason, payload, now, cik=…)`. Put `companies` (int) and `money_flow` (bool) in the payload so material-change re-raising works; `samples` (list of quotes) and `why` render on the item page; `phrase_id`/`theme_id` let accept/reject set status. Keys must be stable across runs (e.g. `theme:phrase`, `cik`, `accession`).
+- Tracked names are synced on first sight; their prices start in the rotation on the next run.
+- Not built: reopen for M02 items (would need undoing tier/status changes); evidence rules for promotion (parts 3/5/6).
 
 ### Money flow — capex guidance (D-M02-5)
 - Reuse: `guidance/ledger.py` (metric `capex`), `guidance/changes.py` (raised/lowered…), `sec/xbrl_facts.py` concepts `capex` (`PaymentsToAcquirePropertyPlantAndEquipment`, fallback `PaymentsToAcquireProductiveAssets` — the fallback tag must be shown, M00_SEC_DATA open item) and `rpo`.

@@ -24,23 +24,41 @@ LOCK_STALE = timedelta(hours=6)
 
 
 def prices_step(engine, report) -> str:
-    """Daily prices for the resolved watchlist after the SEC step (D-UI-2). Never fails the run."""
-    from engine.prices.store import refresh_prices
-    from engine.prices.tiingo import MissingKey, TiingoClient, token_from_env
+    """Daily prices after the SEC step (D-UI-2): core + promoted every run, tracked names in
+    a 3-day rotation; at most 40 requests/hour so the app keeps 8 (D-M02-12). Never fails
+    the run."""
+    from engine.prices.store import refresh_prices, tracked_rotation
+    from engine.prices.tiingo import (
+        BATCH_HOURLY_BUDGET,
+        BATCH_MIN_INTERVAL_S,
+        MissingKey,
+        TiingoClient,
+        token_from_env,
+    )
 
     try:
-        client = TiingoClient(token_from_env(), engine)
+        client = TiingoClient(token_from_env(), engine, hourly_budget=BATCH_HOURLY_BUDGET,
+                              min_interval_s=BATCH_MIN_INTERVAL_S)  # fmt: skip
     except MissingKey as e:
         return f"\nPrices (Tiingo): skipped — {e}\n"
     symbols: dict[str, str | None] = {}
     for ticker, label in report.watchlist.items():
         cik = label.rsplit("(", 1)[-1].rstrip(")") if label.endswith(")") else None
         symbols[ticker] = cik if cik and len(cik) == 10 else None
+    tracked = {t: c for t, c in report.tracked.items() if t not in symbols}
+    today, over = tracked_rotation(engine, tracked)
+    symbols |= today
     try:
         res = refresh_prices(engine, client, symbols, datetime.now(UTC))
     except Exception as e:  # prices must not break the SEC run report
         return f"\nPrices (Tiingo): error — {type(e).__name__}: {e}\n"
-    return "\n".join(res.lines()) + "\n"
+    lines = res.lines()
+    if tracked:
+        lines.append(
+            f"tracked rotation: {len(today)} of {len(tracked)} tracked names today"
+            + (f"; over the soft cap (not priced): {', '.join(over)}" if over else "")
+        )
+    return "\n".join(lines) + "\n"
 
 
 def last_scheduled_slot(now_local: datetime) -> datetime:
@@ -61,6 +79,40 @@ def ask_yes_no(title: str, text: str) -> bool:
         return ctypes.windll.user32.MessageBoxW(None, text, title, flags) == idyes
     except Exception:
         return False
+
+
+def show_info(title: str, text: str) -> None:
+    """Windows OK box (stdlib ctypes); silently skipped elsewhere or on failure."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        flags = 0x0 | 0x40 | 0x40000  # MB_OK | MB_ICONINFORMATION | MB_TOPMOST
+        ctypes.windll.user32.MessageBoxW(None, text, title, flags)
+    except Exception:
+        return
+
+
+def waiting_summary(engine) -> str | None:
+    """What waits for the owner after a run (D-M02-12): review items, downloads, overflow."""
+    from engine.themes.proposals import overflow
+
+    rows = dict(engine.execute(
+        "SELECT kind = 'm02_ir_download', count(*) FROM review_queue WHERE resolved_at IS NULL "
+        "GROUP BY kind = 'm02_ir_download'").fetchall())  # fmt: skip
+    downloads, reviews, waiting = rows.get(1, 0), rows.get(0, 0), len(overflow(engine))
+    if not (downloads or reviews or waiting):
+        return None
+    parts = []
+    if downloads:
+        parts.append(f"{downloads} call document(s) to download")
+    if reviews:
+        parts.append(f"{reviews} review item(s) open")
+    if waiting:
+        parts.append(f"{waiting} M02 proposal(s) waiting for next week's queue")
+    lines = "\n".join(parts)
+    return f"The refresh finished.\n\n{lines}\n\nOpen the app: Review queue."
 
 
 def acquire_lock(path: Path) -> bool:
@@ -145,6 +197,10 @@ def main() -> int:
         out.write_text(text, encoding="utf-8")
         print(text)
         print(f"Report written to: {out}")
+        if args.scheduled or args.if_missed:  # background runs: tell the owner what waits
+            summary = waiting_summary(engine)
+            if summary:
+                show_info("Investment engine", summary)
         return 0 if report.status == "ok" else 1
     finally:
         lock.unlink(missing_ok=True)

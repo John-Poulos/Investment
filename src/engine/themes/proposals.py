@@ -1,0 +1,227 @@
+"""M02 proposals in the review queue (D-M02-10, D-M02-11).
+
+Every engine suggestion goes through `propose()`:
+- one review item per proposal key (kind:key); a repeat while it is open, or after it
+  was accepted, is suppressed;
+- a rejected proposal returns only on material change (distinct filers doubled, or
+  hard money-flow evidence appeared), carrying the earlier decision and note;
+- at most 10 new M02 items per week (Monday–Sunday, UTC); the rest wait as overflow
+  (listed on the Themes page) and enter the queue, oldest first, as room frees up.
+  Download reminders (`m02_ir_download`) are operational and not capped.
+
+Generators arrive in later parts (money flow, call guidance, suppliers, seasonal pass,
+news); this module is the shared plumbing. Actions that change data are applied by
+`apply()`; the rest only close the item with the owner's note.
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from engine.sec.client import iso
+from engine.themes import tiers
+
+MODULE = "M02"
+WEEKLY_CAP = 10
+UNCAPPED = frozenset({"m02_ir_download"})
+
+KIND_LABELS = {
+    "m02_theme": "M02: new theme proposed",
+    "m02_phrase": "M02: new phrase for a theme",
+    "m02_candidate": "M02: company proposed for the tracked tier",
+    "m02_link": "M02: customer–supplier link to confirm",
+    "m02_input": "M02: input category to confirm",
+    "m02_ir_download": "M02: call document to download",
+    "m02_promote": "M02: tracked company with new evidence",
+    "m02_still_track": "M02: still track this company?",
+}
+ACTIONS = {
+    "m02_theme": ("accept", "reject"),
+    "m02_phrase": ("accept", "reject"),
+    "m02_candidate": ("accept", "reject"),
+    "m02_link": ("confirm", "flip", "reject"),
+    "m02_input": ("confirm", "reject"),
+    "m02_ir_download": ("downloaded", "dismiss"),
+    "m02_promote": ("promote", "keep_tracked"),
+    "m02_still_track": ("keep", "remove"),
+}
+REJECTING = frozenset({"reject", "remove"})
+
+
+def week_start(now: datetime) -> datetime:
+    day = now.astimezone(UTC).date() if now.tzinfo else now.date()
+    monday = day - timedelta(days=day.weekday())
+    return datetime(monday.year, monday.month, monday.day, tzinfo=UTC if now.tzinfo else None)
+
+
+def queued_this_week(engine: sqlite3.Connection, now: datetime) -> int:
+    marks = ",".join("?" * len(UNCAPPED))
+    return engine.execute(
+        f"SELECT count(*) FROM review_queue WHERE module_id = ? AND created_at >= ? "
+        f"AND kind NOT IN ({marks})",
+        (MODULE, iso(week_start(now)), *UNCAPPED),
+    ).fetchone()[0]
+
+
+def material_change(old: dict[str, Any], new: dict[str, Any]) -> bool:
+    """D-M02-10: distinct filers at least doubled, or hard money-flow evidence appeared."""
+    o, n = old.get("companies"), new.get("companies")
+    doubled = isinstance(o, int) and isinstance(n, int) and o > 0 and n >= 2 * o
+    money = bool(new.get("money_flow")) and not old.get("money_flow")
+    return doubled or money
+
+
+def _enqueue(
+    engine: sqlite3.Connection,
+    kind: str,
+    cik: str | None,
+    reason: str,
+    payload: dict[str, Any],
+    now: datetime,
+) -> int:
+    return engine.execute(
+        "INSERT INTO review_queue (module_id, kind, cik, reason, payload, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (MODULE, kind, cik, reason, json.dumps(payload), iso(now)),
+    ).lastrowid
+
+
+def propose(
+    engine: sqlite3.Connection,
+    kind: str,
+    key: str,
+    reason: str,
+    payload: dict[str, Any],
+    now: datetime,
+    *,
+    cik: str | None = None,
+) -> str:
+    """Queue a proposal → 'queued' | 'overflow' | 'suppressed' | 'requeued'."""
+    if kind not in KIND_LABELS:
+        raise ValueError(f"unknown M02 kind {kind}")
+    pk = f"{kind}:{key}"
+    ts = iso(now)
+    row = engine.execute("SELECT * FROM m02_proposal WHERE prop_key = ?", (pk,)).fetchone()
+    outcome = "queued"
+    if row is not None:
+        if row["status"] == "overflow":
+            engine.execute("UPDATE m02_proposal SET reason = ?, payload = ?, last_seen_at = ? "
+                           "WHERE prop_key = ?", (reason, json.dumps(payload), ts, pk))  # fmt: skip
+            return "overflow"
+        item = engine.execute("SELECT resolved_at, resolution, note FROM review_queue "
+                              "WHERE item_id = ?", (row["item_id"],)).fetchone()  # fmt: skip
+        engine.execute("UPDATE m02_proposal SET last_seen_at = ? WHERE prop_key = ?", (ts, pk))
+        if item is None or item["resolved_at"] is None:
+            return "suppressed"
+        old = json.loads(row["payload"] or "{}")
+        if item["resolution"] not in REJECTING or not material_change(old, payload):
+            return "suppressed"
+        payload = payload | {"earlier": {"resolution": item["resolution"], "note": item["note"],
+                                         "shown": old}}  # fmt: skip
+        outcome = "requeued"
+    capped = kind not in UNCAPPED and queued_this_week(engine, now) >= WEEKLY_CAP
+    status = "overflow" if capped else "queued"
+    item_id = None if capped else _enqueue(engine, kind, cik, reason, payload, now)
+    engine.execute(
+        "INSERT INTO m02_proposal (prop_key, kind, cik, reason, payload, status, item_id, "
+        "first_seen_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT (prop_key) DO UPDATE SET reason = excluded.reason, payload = "
+        "excluded.payload, status = excluded.status, item_id = excluded.item_id, "
+        "last_seen_at = excluded.last_seen_at",
+        (pk, kind, cik, reason, json.dumps(payload), status, item_id, ts, ts),
+    )
+    return "overflow" if capped else outcome
+
+
+def flush_overflow(engine: sqlite3.Connection, now: datetime) -> int:
+    """Move waiting proposals into the queue, oldest first, while this week has room."""
+    moved = 0
+    rows = engine.execute(
+        "SELECT * FROM m02_proposal WHERE status = 'overflow' ORDER BY first_seen_at, prop_key"
+    ).fetchall()
+    for r in rows:
+        if queued_this_week(engine, now) >= WEEKLY_CAP:
+            break
+        item_id = _enqueue(engine, r["kind"], r["cik"], r["reason"],
+                           json.loads(r["payload"] or "{}"), now)  # fmt: skip
+        engine.execute("UPDATE m02_proposal SET status = 'queued', item_id = ? WHERE prop_key = ?",
+                       (item_id, r["prop_key"]))  # fmt: skip
+        moved += 1
+    return moved
+
+
+def overflow(engine: sqlite3.Connection) -> list[dict[str, Any]]:
+    return [
+        dict(r) | {"label": KIND_LABELS.get(r["kind"], r["kind"])}
+        for r in engine.execute(
+            "SELECT prop_key, kind, cik, reason, first_seen_at FROM m02_proposal "
+            "WHERE status = 'overflow' ORDER BY first_seen_at"
+        )
+    ]
+
+
+def apply(
+    engine: sqlite3.Connection,
+    kind: str,
+    action: str,
+    payload: dict[str, Any],
+    cik: str | None,
+    by: str,
+    now: datetime,
+    core: set[str] = frozenset(),
+) -> None:
+    """Data changes behind an M02 action (the caller closes the item)."""
+    if kind == "m02_candidate" and action == "accept":
+        if not cik:
+            raise tiers.TierError("This proposal names no company.")
+        tiers.add_tracked(
+            engine, cik, payload.get("ticker") or cik,
+            reason=payload.get("why") or "accepted candidate",
+            theme_key=payload.get("theme_key"), by=by, now=now, core=core,
+        )  # fmt: skip
+    elif kind == "m02_promote" and action == "promote" and cik:
+        tiers.promote(engine, cik, by, now)
+    elif kind == "m02_still_track" and cik:
+        if action == "remove":
+            tiers.remove(engine, cik, by, now)
+        elif action == "keep":
+            tiers.touch_evidence(engine, cik, now)
+    elif kind in ("m02_theme", "m02_phrase") and action in ("accept", "reject"):
+        status = "active" if action == "accept" else "rejected"
+        if payload.get("phrase_id"):
+            engine.execute("UPDATE theme_phrase SET status = ?, updated_at = ? WHERE phrase_id = ?",
+                           (status, iso(now), payload["phrase_id"]))  # fmt: skip
+        if kind == "m02_theme" and payload.get("theme_id"):
+            engine.execute("UPDATE theme SET status = ?, updated_at = ? WHERE theme_id = ?",
+                           (status, iso(now), payload["theme_id"]))  # fmt: skip
+    # m02_link / m02_input / m02_ir_download: the resolution itself is the record; the
+    # parts that create them (5, 4) read it.
+
+
+def queue_still_track(engine: sqlite3.Connection, now: datetime) -> int:
+    """'Still track?' for tracked names without new evidence for 12 months (D-M02-11)."""
+    n = 0
+    for m in tiers.stale_tracked(engine, now):
+        key = f"{m.cik}:{m.last_evidence_at[:10]}"  # a new cycle after each 'keep'
+        reason = (f"{m.ticker}: no new theme evidence since {m.last_evidence_at[:10]} "
+                  f"(tracked since {m.added_at[:10]})")  # fmt: skip
+        payload = {"ticker": m.ticker, "theme_key": m.theme_key, "since": m.last_evidence_at}
+        if propose(engine, "m02_still_track", key, reason, payload, now, cik=m.cik) != "suppressed":
+            n += 1
+    return n
+
+
+def suggest_promotion(
+    engine: sqlite3.Connection, cik: str, evidence: str, kind_of_evidence: str, now: datetime
+) -> str:
+    """Called by later parts when a tracked name gains hard evidence (D-M02-11)."""
+    m = tiers.member(engine, cik)
+    if m is None or m.tier != "tracked":
+        return "suppressed"
+    tiers.touch_evidence(engine, cik, now)
+    payload = {"ticker": m.ticker, "evidence": evidence, "type": kind_of_evidence}
+    return propose(engine, "m02_promote", f"{cik}:{kind_of_evidence}",
+                   f"{m.ticker}: {evidence}", payload, now, cik=cik)  # fmt: skip
