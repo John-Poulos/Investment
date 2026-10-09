@@ -127,6 +127,7 @@ Effort: High only if a part raises a new design question; otherwise Medium. Each
 
 ### Call guidance from IR documents (D-M02-6, DS1) — next part (built before part 3, D-M02-19)
 - Also owns (moved from part 3): the capex "including/excluding …" clause tag on ledger rows and the "definition changed" label in `guidance/changes.py`.
+- Settled (D-M02-21): lean fallback (reminder + PDF pickup, pypdf); use case 1 may read call passages; transcripts in corpus/search/reader; source label on every call-derived item + "forecast, not a commitment" note on all guidance (Guidance tab, money flow, Gemini output, search hits).
 - Settled (D-M02-20): direction-only rows for directional guidance; release wins over call; all metrics from management turns, capex-only review items; tracked names get releases + transcripts; Alpha Vantage budget ≤ 20/day for runs, ~5 interactive; import probe responses; dev sample of one quarter across ~11 companies (~6 new calls), backfill later in the background. Guidance schema needs a direction-only kind (no low/high) — migration.
 - Main spenders first: Alphabet, Amazon, Microsoft, Oracle (Meta's capex is in its release).
 - Step 1: owner runs `uv run python scripts/probe_alpha_vantage.py` (7 requests; summary in logs/probe_av_*.txt, raw JSON in data/probe/alpha_vantage/). Answers: free-key access, coverage (AMZN, MSFT, ORCL, AAPL, TSLA), calendar vs fiscal `quarter`, capex wording present.
