@@ -55,7 +55,7 @@ import re
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 
-PARSER_VERSION = "guidance-7"
+PARSER_VERSION = "guidance-8"
 
 # --- Metrics -----------------------------------------------------------------
 
@@ -73,7 +73,10 @@ METRICS: tuple[tuple[str, str], ...] = (  # (alias regex, canonical), longest fi
     (r"total expenses|costs and expenses", "total_expenses"),
     (r"operating income", "operating_income"),
     (r"operating margin", "operating_margin"),
-    (r"capital expenditures|capex(?: investments)?|capital investments?", "capex"),
+    (
+        r"capital expenditures|capex(?: investments)?|capital investments?|capital spending",
+        "capex",
+    ),  # fmt: skip
     (r"(?:effective )?tax rates?", "tax_rate"),
     (r"other income(?:,? net)?", "other_income"),
     (r"(?:total |net )?revenues?|net sales", "revenue"),
@@ -260,7 +263,7 @@ _PERIODS = (
     ),
     re.compile(r"\bFY\s?'?(?P<y>\d{4}|\d{2})\b", re.I),
     # spoken two-digit fiscal years: "fiscal 28", "fiscal '27", "fiscal year 26"
-    re.compile(r"\bfiscal\s+(?:year\s+)?'?(?P<y>\d{2})\b(?![\d,.%-])", re.I),
+    re.compile(r"\bfiscal\s+(?:year\s+)?'?(?P<y>\d{2})\b(?![\d%-]|[.,]\d)", re.I),
 )
 _BARE_YEAR = re.compile(r"(?<![\d,/])\b(?P<y>20\d{2})\b")
 _COMPARISON = re.compile(
@@ -410,7 +413,9 @@ class ParseResult:
 
 _CUE = re.compile(
     r"\b(?:expect(?:s|ed|ing)?|anticipat(?:e|es|ed|ing)|forecast(?:s|ed|ing)?)\b"
-    r"|\b(?:outlook|guidance)\s+(?:to|of|is|for)\b",
+    r"|\b(?:outlook|guidance)(?:\s+range)?\s+(?:to|of|is|for)\b"
+    # "we project CapEx of around $10 billion" (Micron), not the noun "projects"
+    r"|\b(?:we|I)\s+project\b|\bproject(?:ed|ing)\b",
     re.IGNORECASE,
 )
 _NOT_CUE = re.compile(
@@ -628,6 +633,9 @@ def _parse_sentence(
                     for v in find_values(clause[: m.start()])
                     if (f := _fits(metric, v)) is not None
                 ][-1:]
+            fitted = [
+                f for f in fitted if not _DELTA.search(clause[max(0, f.start - 30) : f.start])
+            ]
             if not fitted:
                 continue
             # a forward verb must precede the value: past results in the sentence are not guidance
@@ -859,7 +867,24 @@ _RECOUNT = re.compile(
     r"last quarter,? we|on our last call|our (?:prior|previous) (?:guidance|outlook))\b",
     re.IGNORECASE,
 )
-_UPDATE = re.compile(r"\b(?:now|today|updat\w*|rais\w*|lower\w*|revis\w*)\b", re.IGNORECASE)
+_UPDATE = re.compile(
+    r"\b(?:now|today|updat\w*|rais\w*|lower\w*|revis\w*|narrow\w*|widen\w*|tighten\w*|"
+    r"reaffirm\w*|reiterat\w*)\b",
+    re.IGNORECASE,
+)
+
+
+def retold(sent: str) -> bool:
+    """Earlier guidance retold as history: the earlier-guidance phrase comes before the first
+    figure and nothing says it is updated. "… $130–145B, narrowed from our prior outlook of
+    $125–145B" is a new statement with its prior (Meta, live check 3)."""
+    m = _RECOUNT.search(sent)
+    if m is None or _UPDATE.search(sent):
+        return False
+    values = find_values(sent)
+    return not values or m.start() < values[0].start
+
+
 _MULTI_YEAR = re.compile(
     r"\b(?:next|coming|over the next|for the next)\s+(?:two|three|four|five|few|several|\d+)"
     r"\b[\w\s-]{0,15}?\byears\b",
@@ -884,7 +909,13 @@ _THAN = re.compile(
 )
 _NO_GUIDANCE = re.compile(
     r"\b(?:not|n't|no longer)\s+(?:\w+\s+)?(?:providing|giving|guiding|provide|give)\b"
-    r"|\bno (?:specific |formal )?(?:outlook|guidance)\b",
+    r"|\bno (?:specific |formal )?(?:outlook|guidance)\b"
+    r"|\bget back to (?:you|everyone|all of you)\b",
+    re.IGNORECASE,
+)
+# "increasing our forecast by more than $5 billion": the size of a change, not a level
+_DELTA = re.compile(
+    r"\bby\s+(?:more than |over |about |approximately |roughly |nearly |another )?$",
     re.IGNORECASE,
 )
 _CLAUSE = re.compile(
@@ -990,8 +1021,7 @@ def parse_call(
                 sent = text[s:e]
                 cue_text = _NOT_CUE.sub(lambda m: "_" * len(m.group(0)), sent)
                 forward = bool(CALL_CUE.search(cue_text) or _CONTEXT.search(sent)) and not (
-                    _NO_GUIDANCE.search(sent)
-                    or (_RECOUNT.search(sent) and not _UPDATE.search(sent))
+                    _NO_GUIDANCE.search(sent) or retold(sent)
                 )  # retold or "no guidance" sentences never set the period for the next one
                 context = next((p for p in reversed(recent[-2:]) if p is not None), None)
                 own = [p for p in (find_periods(sent, anchor=anchor) if forward else [])
@@ -1006,7 +1036,7 @@ def parse_call(
                     continue
                 if len(sent) > MAX_SENTENCE or _BOILERPLATE.search(sent):
                     continue
-                if _RECOUNT.search(sent) and not _UPDATE.search(sent):
+                if retold(sent):
                     out.skip(s, e, "retells earlier guidance")
                     continue
                 if _NO_GUIDANCE.search(sent):

@@ -105,7 +105,8 @@ def describe_calls(engine, corpus, scans) -> list[str]:
             value = stated_prefix(g["kind"], g["bound"]) + value
             extra = f"  matched {g['matched_accession']}" if g["matched_accession"] else ""
             extra += f"  clause: {g['clause']}" if g["clause"] else ""
-            extra += f'  [period from "{g["period_quote"][:40]}"]'
+            src = g["period_quote"][:40] or "the same quarter's release"
+            extra += f"  [period from {src!r}]"
             lines.append(f"  {g['period']:<14}{g['metric']:<20}{g['basis']:<12}{g['grade']} "
                          f"{value}{extra}  \"{' '.join(g['quote'].split())[:160]}\"")  # fmt: skip
         for q in engine.execute(
@@ -123,8 +124,8 @@ def describe_calls(engine, corpus, scans) -> list[str]:
     return lines
 
 
-_SENT = re.compile(r"[^.!?]*(?:capital expenditure|capex|capital spending)[^.!?]*\$\s?\d[^.!?]*"
-                   r"[.!?]?", re.IGNORECASE)  # fmt: skip
+_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"“(])")
+_CAPEX_FIGURE = re.compile(r"(?:capital expenditure|capex|capital spending).*\$\s?\d", re.I)
 
 
 def capex_not_stored(engine, corpus, cd, doc_id: int) -> list[str]:
@@ -136,8 +137,15 @@ def capex_not_stored(engine, corpus, cd, doc_id: int) -> list[str]:
         "AND label = 'call management'", (doc_id,))]  # fmt: skip
     out = []
     for a, b in turns:
-        for m in _SENT.finditer(text, a, b):
-            s, e = m.start(), m.end()
+        pos = a
+        bounds = []
+        for m in _SPLIT.finditer(text, a, b):
+            bounds.append((pos, m.start()))
+            pos = m.end()
+        bounds.append((pos, b))
+        for s, e in bounds:
+            if not _CAPEX_FIGURE.search(text, s, e):
+                continue
             covered = engine.execute(
                 "SELECT 1 FROM guidance WHERE accession = ? AND quote_start < ? AND quote_end > ?",
                 (cd.accession, e, s),

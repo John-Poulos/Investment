@@ -295,16 +295,19 @@ def _doc_text(corpus: sqlite3.Connection, accession: str, filename: str, a: int,
 
 
 def _baseline(
-    engine: sqlite3.Connection, cik: str, metric: str, quarter: bool
+    engine: sqlite3.Connection, cik: str, metric: str, quarter: bool, stated_on: str
 ) -> tuple[Decimal, str] | None:
-    """The latest reported figure to compare with: the last quarter for quarterly guidance,
-    the latest trailing four quarters (or fiscal year) for annual guidance."""
+    """The latest figure reported before the guidance was given: the last quarter for
+    quarterly guidance, the latest trailing four quarters (or fiscal year) for annual
+    guidance. Later actuals are not the comparison (a fast grower's next quarters would
+    make old guidance look implausible, live check 3)."""
     types = ("Q",) if quarter else ("TTM", "FY")
     marks = ", ".join("?" * len(types))
     row = engine.execute(
         f"SELECT latest_value, period_type, period_end FROM series WHERE cik = ? AND concept = ? "
-        f"AND period_type IN ({marks}) ORDER BY period_end DESC, period_type = 'FY' LIMIT 1",
-        (cik, metric, *types),
+        f"AND period_type IN ({marks}) AND period_end < ? "
+        "ORDER BY period_end DESC, period_type = 'FY' LIMIT 1",
+        (cik, metric, *types, stated_on),
     ).fetchone()
     if not row or not row[0]:
         return None
@@ -320,7 +323,7 @@ def plausibility(engine: sqlite3.Connection, r: sqlite3.Row) -> str | None:
     if r["metric"] not in PLAUSIBLE or r["kind"] == "direction" or r["unit"] != "USD":
         return None
     quarter = " Q" in r["period"]
-    base = _baseline(engine, r["cik"], r["metric"], quarter)
+    base = _baseline(engine, r["cik"], r["metric"], quarter, r["stated_on"])
     if base is None:
         return None  # nothing to compare with: unknown, not flagged
     actual, what = base

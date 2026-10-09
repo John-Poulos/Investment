@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal
 
@@ -180,6 +180,29 @@ def _release_rows(engine: sqlite3.Connection, cik: str, item: Item) -> list[sqli
     ]
 
 
+def release_period(engine: sqlite3.Connection, cd: CallDoc, item: Item) -> Item:
+    """A call figure whose period was carried from an earlier sentence takes the period of
+    the same quarter's release when that release states the same figure for exactly one
+    period (NVIDIA's quarterly opex had taken "the full year" from the sentence before).
+    The period offsets then point at the figure's own sentence start (no period text)."""
+    if item.quote_start <= item.period_start < item.quote_end or not cd.release_accession:
+        return item
+    periods = {
+        r["period"]
+        for r in engine.execute(
+            "SELECT * FROM guidance WHERE accession = ? AND metric = ? AND origin = 'release' "
+            "AND kind != 'direction'",
+            (cd.release_accession, item.metric),
+        )
+        if (item.basis == r["basis"] or "unspecified" in (item.basis, r["basis"]))
+        and _consistent(_row_value(r), item.value)
+    }
+    if len(periods) != 1:
+        return item
+    return replace(item, period=periods.pop(), period_start=item.quote_start,
+                   period_end=item.quote_start)  # fmt: skip
+
+
 def scan_call(
     engine: sqlite3.Connection, corpus: sqlite3.Connection, cd: CallDoc, now: datetime
 ) -> CallScan:
@@ -204,6 +227,7 @@ def scan_call(
         kept: dict[tuple[str, str, str], Item] = {}
         conflicts = matched = past = 0
         for item in parsed.items:
+            item = release_period(engine, cd, item)
             if (item.quote_start, item.metric, item.period) in wrong:
                 continue  # the owner labelled this wrong (D-M02-24)
             if _past_full_year(item.period, cd.stated_on):

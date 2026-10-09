@@ -645,3 +645,54 @@ def test_no_guidance_statement_and_past_context_not_carried():
     reasons = [s.reason for s in r.skipped_spans]
     assert r.items == [] and "not capex (no period)" in reasons  # FY2025 over: no context
     assert "says no guidance is given" in reasons
+
+
+# --- Live check 3 fixes (2026-10-09, D-M02-26) --------------------------------------
+
+
+def test_guidance_range_update_and_prior_after_the_figure():
+    r = _parse_turn(
+        "We are updating our full year 2026 capex guidance range to $95 billion to $105 billion, "
+        "up from our previous estimate of $80 billion to $90 billion. "
+        "We anticipate 2026 capital expenditures to be in the range of $30 billion to $45 billion, "
+        "narrowed from our prior outlook of $25 billion to $45 billion.",
+        anchor=(2026, 2),
+    )
+    got = [(i.period, i.value.low, i.value.high, i.prior.low if i.prior else None) for i in r.items]
+    assert got == [("FY2026", 95e9, 105e9, 80e9), ("FY2026", 30e9, 45e9, 25e9)]
+
+
+def test_project_verb_capital_spending_and_change_amounts():
+    r = _parse_turn(
+        "In fiscal Q4, we project capex of around $5 billion, bringing full-year fiscal 2026 "
+        "capital spending to approximately $17 billion. "
+        "We are increasing our fiscal 27 revenue forecast by more than $5 billion. "
+        "We expect to reach our target operating margin of 38% to 40% as we progress through fiscal 28. "
+        "On capex, we will get back to everyone after the fiscal year with next year's plan.",
+        anchor=(2026, 3),
+    )
+    got = [(i.metric, i.period, i.value.low, i.value.kind) for i in r.items]
+    assert got == [
+        ("capex", "FY2026 Q4", 5e9, "approx"),
+        ("capex", "FY2026", 17e9, "approx"),
+        ("operating_margin", "FY2028", 38, "range"),
+    ]  # the $5 billion change is not a revenue level
+    assert "says no guidance is given" in [s.reason for s in r.skipped_spans]
+
+
+def test_carried_period_replaced_by_the_release_period(dbs, clock):
+    engine, corpus = dbs
+    _setup(engine, corpus, clock)
+    scan_all(engine, corpus, clock.now())
+    from engine.calls.transcripts import store_transcript
+
+    reply = parse_reply(json.dumps({"symbol": "XCLD", "quarter": "2026Q4", "transcript": [
+        {"speaker": "Amy Example", "title": "Chief Financial Officer",
+         "content": "For next fiscal year, we expect strong demand across the business. "
+                    "We expect capital expenditures of $40 billion."}]}).encode())  # fmt: skip
+    store_transcript(engine, corpus, cik=CIK, symbol="XCLD", quarter="2026Q4", reply=reply,
+                     release=(RELEASE, "2026-07-29"), now=clock.now())  # fmt: skip
+    scan_calls(engine, corpus, clock.now())
+    row = engine.execute("SELECT * FROM guidance WHERE origin = 'call'").fetchone()
+    # the carried "next fiscal year" (FY2027) gives way to the release's FY2027 Q1 for $40B
+    assert (row["period"], row["grade"], row["period_quote"]) == ("FY2027 Q1", "A", "")
