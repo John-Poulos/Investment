@@ -47,14 +47,15 @@ def summary(engine) -> list[str]:
     lines = ["", "Passages by rung and status:"]
     for r in engine.execute(
         "SELECT rung, status, count(*) n, count(DISTINCT pair_key) p FROM "
-        "supply_link GROUP BY rung, status ORDER BY rung, status"
+        "supply_link WHERE stale = 0 GROUP BY rung, status ORDER BY rung, status"
     ):
         lines.append(f"  {r['rung']} {r['status']}: {r['n']} passage(s), {r['p']} pair(s)")
     lines.append("")
     lines.append("Pairs (strongest passage, up to 40):")
     rows = engine.execute(
         "SELECT pair_key, rung, a_name, b_name, direction, share_pct, quote, form, filed "
-        "FROM supply_link ORDER BY CASE rung WHEN 'L2' THEN 0 WHEN 'L1' THEN 1 ELSE 2 END, "
+        "FROM supply_link WHERE stale = 0 "
+        "ORDER BY CASE rung WHEN 'L2' THEN 0 WHEN 'L1' THEN 1 ELSE 2 END, "
         "share_pct IS NULL, filed DESC"
     ).fetchall()
     seen = set()

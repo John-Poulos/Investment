@@ -69,9 +69,9 @@ def store(
         ).fetchone()
         if existing is not None:
             engine.execute(
-                "UPDATE supply_link SET seen_at = ?, direction = CASE WHEN status = 'candidate' "
-                "THEN ? ELSE direction END, share_pct = CASE WHEN status = 'candidate' THEN ? "
-                "ELSE share_pct END, how = ? WHERE link_id = ?",
+                "UPDATE supply_link SET seen_at = ?, stale = 0, direction = CASE WHEN "
+                "status = 'candidate' THEN ? ELSE direction END, share_pct = CASE WHEN "
+                "status = 'candidate' THEN ? ELSE share_pct END, how = ? WHERE link_id = ?",
                 (iso(now), f.direction,
                  str(f.share_pct) if f.share_pct is not None else None, f.how, existing[0]),
             )  # fmt: skip
@@ -110,16 +110,21 @@ def store(
 
 
 def prune(engine: sqlite3.Connection, since: datetime) -> int:
-    """After a full re-read: undecided passages the current rules did not produce again
-    (not in the precision set) are removed, with their waiting proposals."""
+    """After a full re-read: undecided passages the current rules did not produce again are
+    removed; precision-set passages stay (the answer key) but are marked stale (D-M02-40).
+    Waiting proposals of pairs with no live passage go too."""
+    old = "status = 'candidate' AND (seen_at IS NULL OR seen_at < ?)"
+    engine.execute(
+        f"UPDATE supply_link SET stale = ({old}) WHERE link_id IN (SELECT link_id FROM link_gold)",
+        (iso(since),),
+    )
     n = engine.execute(
-        "DELETE FROM supply_link WHERE status = 'candidate' AND (seen_at IS NULL OR seen_at < ?) "
-        "AND link_id NOT IN (SELECT link_id FROM link_gold)",
+        f"DELETE FROM supply_link WHERE {old} AND link_id NOT IN (SELECT link_id FROM link_gold)",
         (iso(since),),
     ).rowcount
     engine.execute(
         "DELETE FROM m02_proposal WHERE kind = 'm02_link' AND status = 'overflow' AND "
-        "substr(prop_key, 10) NOT IN (SELECT pair_key FROM supply_link)"
+        "substr(prop_key, 10) NOT IN (SELECT pair_key FROM supply_link WHERE stale = 0)"
     )
     return n
 
@@ -158,7 +163,8 @@ def claimed(rows: list[sqlite3.Row]) -> tuple[str, str, str, str, str] | None:
 
 def _rows(engine: sqlite3.Connection, key: str) -> list[sqlite3.Row]:
     return engine.execute(
-        "SELECT * FROM supply_link WHERE pair_key = ? ORDER BY rung, filed DESC", (key,)
+        "SELECT * FROM supply_link WHERE pair_key = ? AND stale = 0 ORDER BY rung, filed DESC",
+        (key,),
     ).fetchall()
 
 
@@ -170,7 +176,7 @@ def propose_pairs(engine: sqlite3.Connection, now: datetime) -> dict[str, int]:
         r[0]
         for r in engine.execute(
             "SELECT pair_key, min(CASE rung WHEN 'L2' THEN 0 WHEN 'L1' THEN 1 ELSE 2 END) AS o, "
-            "max(share_pct IS NOT NULL) AS s FROM supply_link GROUP BY pair_key "
+            "max(share_pct IS NOT NULL) AS s FROM supply_link WHERE stale = 0 GROUP BY pair_key "
             "HAVING sum(status != 'candidate') = 0 ORDER BY s DESC, o, pair_key"
         )
     ]
@@ -303,7 +309,7 @@ def _follow_up(
 def company_links(engine: sqlite3.Connection, cik: str) -> list[sqlite3.Row]:
     """Every passage involving the company, confirmed first."""
     return engine.execute(
-        "SELECT * FROM supply_link WHERE a_cik = ? OR b_cik = ? "
+        "SELECT * FROM supply_link WHERE (a_cik = ? OR b_cik = ?) AND stale = 0 "
         "ORDER BY status = 'confirmed' DESC, status = 'rejected', rung, filed DESC",
         (cik, cik),
     ).fetchall()

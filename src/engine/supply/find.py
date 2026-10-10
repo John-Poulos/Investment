@@ -99,12 +99,34 @@ def _noise(text: str, s: int, e: int, matcher: Matcher) -> bool:
     sent = text[s:e]
     if _COMPETE.search(sent) or _SECURITIES.search(sent):
         return True
-    # a market list under a competition heading (NVIDIA's own 10-K)
-    return bool(
-        len(matcher.find(text, s, e)) >= 3
-        and not _BUYING_VERB.search(sent)
-        and _COMPETE.search(text[max(0, s - CONTEXT_CHARS) : s])
-    )
+    if _BUYING_VERB.search(sent):
+        return False
+    names = len(matcher.find(text, s, e))
+    # a market list under a competition heading (NVIDIA's own 10-K): nearby wording, or the
+    # line that introduces the bullet list the sentence belongs to (live check 3)
+    if names >= 3 and _COMPETE.search(text[max(0, s - CONTEXT_CHARS) : s]):
+        return True
+    intro = _list_intro(text, s)
+    return bool(names >= 2 and intro is not None and _COMPETE.search(intro))
+
+
+_BULLET_LINE = re.compile(r"^\s*[•▪◦●\-–]\s*")
+
+
+def _list_intro(text: str, s: int, max_lines: int = 80) -> str | None:
+    """The non-bullet line above the bullet list holding offset `s`, or None."""
+    start = text.rfind("\n", 0, s) + 1
+    if not _BULLET_LINE.match(text, start):
+        return None
+    for _ in range(max_lines):
+        if start == 0:
+            return None
+        prev = text.rfind("\n", 0, start - 1) + 1
+        line = text[prev : start - 1]
+        if line.strip() and not _BULLET_LINE.match(line):
+            return line
+        start = prev
+    return None
 
 
 _BUYING_VERB = re.compile(

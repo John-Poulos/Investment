@@ -370,3 +370,28 @@ def test_share_sales_products_and_competition_lists_are_noise(matcher):
                    "Memory products from Micron, Samsung Electronics and Apple are offered widely by vendors.\n"
                    "We purchase memory from Micron, Samsung Electronics and Apple.\n")  # fmt: skip
     assert len(find_l1(competition, matcher, {"NVDA"})) == 3  # only the purchase sentence
+
+
+# --- live check 3 (2026-10-10) ------------------------------------------------------------
+
+
+def test_bullet_list_under_a_competitor_heading_is_a_market_list(matcher):
+    filler = "\n".join(f"•segment {i} products offered by many vendors" for i in range(40))
+    text = ("Our current competitors include:\n" + filler + "\n"
+            "•memory products for servers, such as Micron and Samsung Electronics;\n"
+            "Supply Chain\n"
+            "We purchase memory from Micron and Samsung Electronics.\n")  # fmt: skip
+    assert len(text.split("Our current")[1]) > 1500  # beyond the plain distance check
+    found = find_l1(text, matcher, {"NVDA"})
+    assert {f.how for f in found} == {"supplier wording: purchase memory from"} and len(found) == 2
+
+
+def test_precision_set_passages_no_longer_produced_are_stale_not_proposed(dbs, matcher):
+    engine, _ = dbs
+    text = "We purchase memory from Micron.\n"
+    _store(engine, matcher, NVDA, "NVIDIA Corporation", text, find_l1, {"NVDA"}, acc="n1")
+    gold.build(engine)
+    later = datetime(2026, 10, 11, tzinfo=UTC)
+    assert links.prune(engine, later) == 0  # kept: it is in the set
+    assert engine.execute("SELECT stale FROM supply_link").fetchone()[0] == 1
+    assert links.propose_pairs(engine, later) == {}
