@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Link labels — Investment engine{% endblock %}
+{% block topleft %}<a href="/runs#link-precision">← Runs</a><span class="name">Supplier-link precision set</span>{% endblock %}
+{% block body %}
+<main class="detail" style="max-width: 900px">
+  <p class="note">Judge each passage from its text only — no research needed, and "unclear" is a valid answer. Your answers are the key against which Gemini's labels are measured (D-M02-9, D-M02-35). No suggestion is shown.</p>
+  {% if error %}<div class="warnbox">{{ error }}</div>{% endif %}
+  {% if size == 0 %}
+  <p class="empty">The set is not built yet: it is picked from found passages by <code>uv run python scripts/run_suppliers.py --label-set</code>.</p>
+  {% elif card is none %}
+  <div class="okbox">All {{ size }} passages are labelled. {{ acc.line() }}</div>
+  <p class="note">Gemini's labels on the same passages: <code>uv run python scripts/run_suppliers.py --gemini-labels --gold</code> (estimate; add <code>--yes</code> to run). Change an answer: <a href="/m02/labels?pos=1">start from passage 1</a>.</p>
+  {% else %}
+  <p class="muted">Passage {{ card.position }} of {{ card.total }} · {{ card.labelled }} labelled · {{ card.source }}</p>
+  <div class="quote" style="font-size: 1.05em">“{{ card.quote }}”</div>
+  <form method="post" action="/m02/labels/{{ card.gold_id }}" class="labelform">
+    <input type="hidden" name="pos" value="{{ card.position }}">
+    <p><b>A</b> = {{ card.a_name }} (filed the document) · <b>B</b> = {{ card.b_name }}</p>
+    <fieldset><legend>Relationship the passage states</legend>
+      {% for v, t in [('supply', 'one sells to the other (supplier / customer)'), ('partner', 'partner (collaboration, licence, alliance)'), ('competitor', 'competitor'), ('none', 'none stated'), ('unclear', 'unclear from the text')] %}
+      <label style="display:block"><input type="radio" name="gold_type" value="{{ v }}" {% if card.gold_type == v %}checked{% endif %} required> {{ t }}</label>
+      {% endfor %}
+    </fieldset>
+    <fieldset><legend>If supplier / customer: who supplies whom?</legend>
+      {% for v, t in [('a_to_b', card.a_name ~ ' supplies ' ~ card.b_name), ('b_to_a', card.b_name ~ ' supplies ' ~ card.a_name), ('unclear', 'unclear from the text')] %}
+      <label style="display:block"><input type="radio" name="direction" value="{{ v }}" {% if card.gold_direction == v %}checked{% endif %}> {{ t }}</label>
+      {% endfor %}
+    </fieldset>
+    <p><button class="btn" type="submit">Save and next</button>
+      {% if card.position > 1 %}<a class="muted" href="/m02/labels?pos={{ card.position - 1 }}">← previous</a>{% endif %}
+      {% if card.position < card.total %}<a class="muted" href="/m02/labels?pos={{ card.position + 1 }}">skip →</a>{% endif %}</p>
+  </form>
+  {% endif %}
+</main>
+{% endblock %}

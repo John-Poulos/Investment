@@ -1,0 +1,166 @@
+# Company names as other filers write them (M02 part 5, D-M02-7, D-M02-35). Hand-edited;
+# the app never edits this file. Used to find companies in filing text:
+# - L1: a customer's own 10-K names a supplier ("we rely on TSMC to manufacture ...");
+# - L2: full-text search for a customer's names in suppliers' filings, with the targeted
+#   phrases "<name> accounted for", "sales to <name>", "revenue from <name>",
+#   "<name> represented";
+# - L3: contracts (8-K Item 1.01 exhibits) naming both parties.
+#
+# [KEY]                     # the ticker when the company has one; any short key otherwise
+# ticker = "NVDA"           # optional; links resolve to the SEC company when given
+# names = ["NVIDIA Corporation", "NVIDIA"]   # longest first; matched case-sensitively in
+#                                            # text, case-insensitively by full-text search
+# customer = true           # search suppliers' filings for this name (L2)
+# bare = true               # also search the bare name in hardware/semiconductor filers
+#                           # (option (c), trial for NVIDIA, D-M02-38)
+#
+# Avoid names that are common words or parts of other names ("Meta" in "metadata",
+# "Apple" alone is fine with word boundaries but "Oracle" also names a database).
+
+# --- Watchlist and large spenders (L2 customers) ---------------------------------------
+[NVDA]
+ticker = "NVDA"
+names = ["NVIDIA Corporation", "NVIDIA Corp", "NVIDIA"]
+customer = true
+bare = true
+
+[META]
+ticker = "META"
+names = ["Meta Platforms, Inc.", "Meta Platforms", "Facebook"]
+customer = true
+
+[MSFT]
+ticker = "MSFT"
+names = ["Microsoft Corporation", "Microsoft"]
+customer = true
+
+[AMZN]
+ticker = "AMZN"
+names = ["Amazon.com, Inc.", "Amazon Web Services", "Amazon.com", "Amazon", "AWS"]
+customer = true
+
+[GOOG]
+ticker = "GOOG"
+names = ["Alphabet Inc.", "Alphabet", "Google"]
+customer = true
+
+[AAPL]
+ticker = "AAPL"
+names = ["Apple Inc.", "Apple"]
+customer = true
+
+[TSLA]
+ticker = "TSLA"
+names = ["Tesla, Inc.", "Tesla"]
+customer = true
+
+[ORCL]
+ticker = "ORCL"
+names = ["Oracle Corporation", "Oracle"]
+customer = true
+
+[INTC]
+ticker = "INTC"
+names = ["Intel Corporation", "Intel"]
+customer = true
+
+[BA]
+ticker = "BA"
+names = ["The Boeing Company", "Boeing"]
+customer = true
+
+[MU]
+ticker = "MU"
+names = ["Micron Technology", "Micron"]
+customer = true
+
+[MRVL]
+ticker = "MRVL"
+names = ["Marvell Technology", "Marvell"]
+
+[GFS]
+ticker = "GFS"
+names = ["GlobalFoundries"]
+
+[AVGO]
+ticker = "AVGO"
+names = ["Broadcom Inc.", "Broadcom"]
+
+[SPCX]
+ticker = "SPCX"
+names = ["Space Exploration Technologies", "SpaceX"]
+customer = true
+
+# --- Suppliers often named in filings (L1, L3) -------------------------------------------
+[TSM]
+ticker = "TSM"
+names = ["Taiwan Semiconductor Manufacturing Company", "Taiwan Semiconductor Manufacturing", "TSMC"]
+
+[SAMSUNG]
+names = ["Samsung Electronics", "Samsung"]
+
+[SKHYNIX]
+names = ["SK hynix", "SK Hynix"]
+
+[HONHAI]
+names = ["Hon Hai Precision Industry", "Hon Hai", "Foxconn"]
+
+[WISTRON]
+names = ["Wistron"]
+
+[FN]
+ticker = "FN"
+names = ["Fabrinet"]
+
+[AMD]
+ticker = "AMD"
+names = ["Advanced Micro Devices", "AMD"]
+
+[ASML]
+ticker = "ASML"
+names = ["ASML Holding", "ASML"]
+
+[AMKR]
+ticker = "AMKR"
+names = ["Amkor Technology", "Amkor"]
+
+[ASX]
+ticker = "ASX"
+names = ["ASE Technology", "Advanced Semiconductor Engineering"]
+
+[CLS]
+ticker = "CLS"
+names = ["Celestica"]
+
+[JBL]
+ticker = "JBL"
+names = ["Jabil"]
+
+[FLEX]
+ticker = "FLEX"
+names = ["Flex Ltd."]
+
+[VRT]
+ticker = "VRT"
+names = ["Vertiv"]
+
+[ANET]
+ticker = "ANET"
+names = ["Arista Networks", "Arista"]
+
+[CRWV]
+ticker = "CRWV"
+names = ["CoreWeave"]
+customer = true
+
+[SMCI]
+ticker = "SMCI"
+names = ["Super Micro Computer", "Supermicro"]
+
+[DELL]
+ticker = "DELL"
+names = ["Dell Technologies", "Dell"]
+
+[HPE]
+ticker = "HPE"
+names = ["Hewlett Packard Enterprise"]

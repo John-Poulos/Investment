@@ -14,6 +14,13 @@
     </table>
     <p class="note">Precision comes only from the weekly random sample (unbiased); "other labels" are your wrong-button marks, plausibility flags and Gemini cross-checks. Re-check every label against the current parser: <code>uv run python scripts/run_calls.py --check-labels</code>.</p>
     {% else %}<p class="empty">No accuracy labels yet. The weekly sample starts with the next refresh.</p>{% endif %}
+    <h2 id="link-precision" style="margin-top:16px">Supplier-link precision set (D-M02-9, D-M02-35)</h2>
+    {% if gold_size %}
+    <p>{{ gold.line() }}</p>
+    {% if gold_trial %}<p>{{ gold_trial }}</p>{% endif %}
+    {% if viewer.is_owner and gold.labelled < gold_size %}<p><a class="btn" href="/m02/labels">Label passages ({{ gold_size - gold.labelled }} left)</a></p>{% endif %}
+    <p class="note">Link counts feed nothing until Gemini's labels have been measured here. Precision = of the passages Gemini called supplier/customer, the share you did too; direction = where both of you said supplier/customer and you named who supplies whom.</p>
+    {% else %}<p class="empty">Not built yet (<code>scripts/run_suppliers.py --label-set</code>).</p>{% endif %}
     <h2 id="tag-maps" style="margin-top:16px">Cash-flow tag mappings (D-M02-31)</h2>
     {% if tag_maps %}
     <table class="data">

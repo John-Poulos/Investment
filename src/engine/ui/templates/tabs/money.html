@@ -74,6 +74,20 @@
 </table>
 {% else %}<p class="empty">No sentence found yet tying this company's spending to a theme phrase.</p>{% endif %}
 
+<h2 style="margin-top:16px">Suppliers and customers named in filings</h2>
+{% if m.supply %}
+<table class="data">
+  <tr><th>Company</th><th>Role</th><th>Evidence</th><th>Status</th><th>Passage</th></tr>
+  {% for s in m.supply[:20] %}
+  <tr><td>{{ s.other }}</td><td>{{ s.role }}{% if s.share_pct is not none %}<div class="muted">{{ s.share_pct }}% of revenue</div>{% endif %}</td>
+    <td class="muted" style="white-space:nowrap">{{ {'L1': 'L1 · customer names supplier', 'L2': 'L2 · supplier names customer', 'L3': 'L3 · contract'}[s.rung] }} · A{% if s.llm %}<div>{{ s.llm }}</div>{% endif %}</td>
+    <td>{{ 'to review' if s.status == 'candidate' else s.status }}</td>
+    <td><a href="/doc/{{ s.accession }}?file={{ s.filename }}&start={{ s.quote_start }}#hl">“{{ s.quote[:240] }}{{ '…' if s.quote | length > 240 }}”</a> <span class="muted">{{ s.filed or '' }}</span></td></tr>
+  {% endfor %}
+</table>
+<p class="note">Code finds these passages; you confirm each company pair in Review (m02_link). A missing link means unknown, not "no link". Unnamed customers ("Customer A") are never guessed (D-M02-7).</p>
+{% else %}<p class="empty">No passage found yet naming a supplier or customer of this company.</p>{% endif %}
+
 <h2 style="margin-top:16px">Remaining performance obligations (RPO)</h2>
 {% if m.rpo.reported %}
 <table class="data">
