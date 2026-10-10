@@ -58,7 +58,19 @@ _PCT = re.compile(r"(?<![\d.])(\d{1,2}(?:\.\d+)?)\s?%(?!\s+or\s+(?:more|greater|
 # section), not the filer's own supply chain (live check 1)
 _GENERIC = re.compile(r"(?:suppliers?|vendors?|providers?)(?:\s+and\s+\w+)?\s+of\b", re.IGNORECASE)
 # a filer's figure about what it buys: "purchases from ... Microsoft accounted for 13%"
-_BUYS = re.compile(r"\b(?:purchases?|purchased|suppliers?|vendors?)\b", re.IGNORECASE)
+# a deal between the two that does not say who buys: kept, direction "not stated"
+_DEAL = re.compile(
+    r"\b(?:purchase (?:commitments?|obligations?|agreements?|orders?)|supply agreements?|"
+    r"capacity (?:rights|reservations?|agreements?))\b",
+    re.IGNORECASE,
+)
+# "a purchase commitment with NVIDIA" does not say who buys (Coherent: NVIDIA buys) → not
+# buying wording; the direction stays "not stated" unless other wording says (live check 4)
+_BUYS = re.compile(
+    r"\b(?:purchases?(?!\s+(?:commitments?|obligations?|agreements?|orders?|price))|"
+    r"purchased|suppliers?|vendors?)\b",
+    re.IGNORECASE,
+)
 _RESPECTIVELY = re.compile(r"\brespectively\b", re.IGNORECASE)
 _LISTED_BEFORE = re.compile(r"(?:,|\band|&)\s*$", re.IGNORECASE)
 
@@ -221,14 +233,15 @@ def find_bare(text: str, matcher: Matcher, customer: Company, self_keys: set[str
         buys = _BUYS.search(sent) or next(
             (x for x in _SUPPLIER.finditer(sent) if not _GENERIC.match(sent, x.start())), None
         )
-        if not (sells or buys):
+        deal = _DEAL.search(sent)
+        if not (sells or buys or deal):
             continue
         for m in _others(matcher, text, s, e, self_keys):
             if m.company.key != customer.key or _product(text, m):
                 continue
             pct = _PCT.search(text, m.end, e) if sells else None
             direction = "a_to_b" if sells and not buys else "b_to_a" if buys and not sells else None
-            w = (sells or buys).group(0).lower()
+            w = (sells or buys or deal).group(0).lower()
             share = Decimal(pct.group(1)) if pct else None
             out.append(
                 Found("L2", m.company, m.name, direction, share, s, e, f"(c) bare name: {w}")

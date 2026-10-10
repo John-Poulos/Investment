@@ -395,3 +395,12 @@ def test_precision_set_passages_no_longer_produced_are_stale_not_proposed(dbs, m
     assert links.prune(engine, later) == 0  # kept: it is in the set
     assert engine.execute("SELECT stale FROM supply_link").fetchone()[0] == 1
     assert links.propose_pairs(engine, later) == {}
+
+
+def test_purchase_commitment_does_not_say_who_buys(matcher):
+    from engine.supply.find import find_bare
+
+    nvda = next(c for c in matcher.companies if c.key == "NVDA")
+    text = "The agreement includes a multi-billion-dollar purchase commitment with NVIDIA.\n"
+    [f] = find_bare(text, matcher, nvda, set())
+    assert f.direction is None  # not stated: the owner (or Gemini's hint) sets it in review
