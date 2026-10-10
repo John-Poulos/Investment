@@ -40,6 +40,7 @@ Updated: 2026-10-09 · Read at the start of every module build. One line each, w
 - Mark non-SEC documents in their identifier (accession prefix `AV-`, `IR-`) so every view — reader, search, ledger, Gemini citations — can label the source without a join (D-M02-22).
 
 ## LLM
+- Measure an LLM labeller against the owner's blind labels before its output feeds anything; show it as a hint, keep the owner's confirmation (D-M02-9, D-M02-40: precision 82%, direction 77%).
 - Check model names against the provider's docs before coding ("Gemini 3.1 Flash" did not exist) (D-SRCH-16).
 - Verify every quote and every number mechanically; reject, store the rejection, queue it (D-SRCH-19).
 - Cache identical requests; show the prompt, tokens and cost before any call (D-SRCH-19, D-UI-11).
@@ -52,5 +53,7 @@ Updated: 2026-10-09 · Read at the start of every module build. One line each, w
 - Review policy: real information the program cannot store yet stays open for its future module (D-UI-15).
 
 ## Process
+- A store of code-found passages needs a re-read path from day one: rules change after every live log; keep first-seen dates and never delete an answer key (D-M02-37, D-M02-40).
+- Company names in filing text: competitor lists, share sales and product names look like relationships; filter them and let the owner confirm each link (D-M02-37…40).
 - Mock up each screen with real stored data before building it (D-UI-4).
 - Owner runs live tests and sends a short log; keep live output to summaries (context cost).
