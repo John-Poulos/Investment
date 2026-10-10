@@ -107,6 +107,7 @@ Spot emerging themes in filings and news, follow the money (who spends, who rece
 - ~~Seed themes~~ → D-M02-16.
 - Weighting of capex as a buy signal for the spender (D-M02-5) — revisit with signal weights.
 - ~~Directional call guidance~~ → direction-only rows for capex (D-M02-20 (4), built D-M02-22); "heavy CapEx the next few years" (no direction word or period) stays in review.
+- **Equity and financing links (owner, 2026-10-10):** share sales, equity stakes and vendor financing between companies (e.g. NVIDIA buying preferred stock of Marvell, Lumentum, Intel; possible circular funding where an investor's money returns as purchases of its products) are money flow and a revenue-quality question, not supply. Today they are labelled "partner" in the precision set and dropped by the supply finder (D-M02-39). Design later: a separate `investment` relationship (amount, instrument, date, quote) feeding M02 money flow and M04 red flags (customer funded by its supplier); ask at that build (D7).
 - Micro-cap line for first-mention flags; N distinct companies for the phrase test (set at build, parts 1 and 6).
 - ~~Phase 2 trade-press feed list~~ → D-M02-13.
 - ~~Promotion rules~~ → engine suggests on hard evidence, owner decides (D-M02-11).
