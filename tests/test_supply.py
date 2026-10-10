@@ -351,3 +351,22 @@ def test_bare_name_trial_reads_customer_lists_and_marks_them(matcher):
         ("a_to_b", True),
         ("b_to_a", True),
     ]
+
+
+# --- live check 2 fixes (2026-10-10) ------------------------------------------------------
+
+
+def test_share_sales_products_and_competition_lists_are_noise(matcher):
+    nvda = next(c for c in matcher.companies if c.key == "NVDA")
+    from engine.supply.find import find_bare
+
+    text = ("We completed the sale of preferred stock to NVIDIA Corporation for $2.0 billion.\n"
+            "Our transceivers are a leading supplier option supporting NVIDIA NVLink.\n"
+            "We sell our modules to NVIDIA Corporation.\n")  # fmt: skip
+    assert [f.how for f in find_bare(text, matcher, nvda, set())] == [
+        "(c) bare name: sell our modules to"
+    ]
+    competition = ("Competition. Our competitors include several companies.\n"
+                   "Memory products from Micron, Samsung Electronics and Apple are offered widely by vendors.\n"
+                   "We purchase memory from Micron, Samsung Electronics and Apple.\n")  # fmt: skip
+    assert len(find_l1(competition, matcher, {"NVDA"})) == 3  # only the purchase sentence

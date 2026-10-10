@@ -41,6 +41,18 @@ _CONTRACT = re.compile(
     re.IGNORECASE,
 )
 _COMPETE = re.compile(r"\bcompet\w*\b", re.IGNORECASE)
+# live check 2 (D-M02-39): share sales to a company are investments, not supply
+_SECURITIES = re.compile(
+    r"\b(?:shares|common stock|preferred stock|warrants?|convertible|private placement|"
+    r"securities purchase|equity investment|American Depositary)\b",
+    re.IGNORECASE,
+)
+# "NVIDIA NVLink", "NVIDIA GPUs": a product named after the company, not the company
+_PRODUCT_AFTER = re.compile(
+    r"\s+(?!(?:Corporation|Corp|Inc|Co|Ltd|Limited|Technology|Technologies|Holdings|"
+    r"Electronics|Industry)\b)[A-Z][A-Za-z0-9-]+"
+)
+CONTEXT_CHARS = 1500  # how far back a competition heading or sentence is looked for
 _PCT = re.compile(r"(?<![\d.])(\d{1,2}(?:\.\d+)?)\s?%(?!\s+or\s+(?:more|greater|less))")
 # "suppliers of Arm-based CPUs ... such as Amazon": a market list (NVIDIA's competition
 # section), not the filer's own supply chain (live check 1)
@@ -82,12 +94,36 @@ def _others(matcher: Matcher, text: str, s: int, e: int, self_keys: set[str]):
         yield m
 
 
+def _noise(text: str, s: int, e: int, matcher: Matcher) -> bool:
+    """Share sales, and lists of three or more companies inside a competition passage."""
+    sent = text[s:e]
+    if _COMPETE.search(sent) or _SECURITIES.search(sent):
+        return True
+    # a market list under a competition heading (NVIDIA's own 10-K)
+    return bool(
+        len(matcher.find(text, s, e)) >= 3
+        and not _BUYING_VERB.search(sent)
+        and _COMPETE.search(text[max(0, s - CONTEXT_CHARS) : s])
+    )
+
+
+_BUYING_VERB = re.compile(
+    r"\b(?:purchas\w*|rel(?:y|ies|ied) on|utiliz\w*|engag\w*|manufactured by|supplied by|"
+    r"sourc\w*|procur\w*|buy\w*|bought)\b",
+    re.IGNORECASE,
+)
+
+
+def _product(text: str, m) -> bool:
+    return bool(_PRODUCT_AFTER.match(text, m.end))
+
+
 def find_l1(text: str, matcher: Matcher, self_keys: set[str]) -> list[Found]:
     out = []
     for s, e in _sentences_in(text):
         sent = text[s:e]
         w = next((x for x in _SUPPLIER.finditer(sent) if not _GENERIC.match(sent, x.start())), None)
-        if not w or _COMPETE.search(sent):
+        if not w or _noise(text, s, e, matcher):
             continue
         for m in _others(matcher, text, s, e, self_keys):
             out.append(
@@ -110,13 +146,13 @@ def find_l2(text: str, matcher: Matcher, customer: Company, self_keys: set[str])
     out = []
     for s, e in _sentences_in(text):
         sent = text[s:e]
-        if _COMPETE.search(sent):
+        if _noise(text, s, e, matcher):
             continue
         w = _REVENUE.search(sent)
         if not w:
             continue
         for m in _others(matcher, text, s, e, self_keys):
-            if m.company.key != customer.key:
+            if m.company.key != customer.key or _product(text, m):
                 continue
             pct = _PCT.search(text, m.end, e)
             share = Decimal(pct.group(1)) if pct else None
@@ -157,7 +193,7 @@ def find_bare(text: str, matcher: Matcher, customer: Company, self_keys: set[str
     out = []
     for s, e in _sentences_in(text):
         sent = text[s:e]
-        if _COMPETE.search(sent):
+        if _noise(text, s, e, matcher):
             continue
         sells = _REVENUE.search(sent) or _CUSTOMER_LIST.search(sent)
         buys = _BUYS.search(sent) or next(
@@ -166,7 +202,7 @@ def find_bare(text: str, matcher: Matcher, customer: Company, self_keys: set[str
         if not (sells or buys):
             continue
         for m in _others(matcher, text, s, e, self_keys):
-            if m.company.key != customer.key:
+            if m.company.key != customer.key or _product(text, m):
                 continue
             pct = _PCT.search(text, m.end, e) if sells else None
             direction = "a_to_b" if sells and not buys else "b_to_a" if buys and not sells else None
