@@ -33,6 +33,16 @@
       {% endfor %}
     </table>
     {% else %}<p class="empty">No owner mappings yet; built-in us-gaap mappings apply (capital-allocation block on each company's Money flow tab).</p>{% endif %}
+    <h2 id="fin-wrong" style="margin-top:16px">Financing records marked wrong (D-M02-42)</h2>
+    {% if fin_wrong %}
+    <table class="data">
+      <tr><th>Record</th><th>Marked</th><th></th></tr>
+      {% for w in fin_wrong %}
+      <tr><td>{{ w['reason'] or w['key'] }}</td><td class="muted">{{ w['by_owner'] or '' }} · {{ w['at'][:16] }}</td>
+        <td>{% if viewer.is_owner %}<form method="post" action="/fin/suppress/undo"><input type="hidden" name="key" value="{{ w['key'] }}"><button class="btn" type="submit" title="Restore the record; later runs store it again">Undo</button></form>{% endif %}</td></tr>
+      {% endfor %}
+    </table>
+    {% else %}<p class="empty">None. "wrong?" on a 13F or 13D/13G record (Money flow tab) removes it and lists it here.</p>{% endif %}
   </section>
   <div class="grid2">
     <section>

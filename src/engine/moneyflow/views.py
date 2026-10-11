@@ -275,7 +275,9 @@ def dollars(x: float | int) -> str:
 
 
 # Payload keys shown as dollars or as percentages on review items (M02 proposals).
-DOLLAR_KEYS = frozenset({"value", "capex", "recipe", "stated", "prior", "base", "contribution"})
+DOLLAR_KEYS = frozenset(
+    {"value", "capex", "recipe", "stated", "prior", "base", "contribution", "amount"}
+)
 RATIO_KEYS = frozenset({"coverage", "share"})
 SIGNED_RATIO_KEYS = frozenset({"growth", "gap"})
 

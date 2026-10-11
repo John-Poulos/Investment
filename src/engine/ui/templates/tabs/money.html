@@ -88,6 +88,49 @@
 <p class="note">Code finds these passages; you confirm each company pair in Review (m02_link). A missing link means unknown, not "no link". Unnamed customers ("Customer A") are never guessed (D-M02-7).</p>
 {% else %}<p class="empty">No passage found yet naming a supplier or customer of this company.</p>{% endif %}
 
+{% if fin %}
+<h2 style="margin-top:16px">Financing and equity links</h2>
+{% if fin.rows or fin.grouped %}
+<table class="data">
+  <tr><th>Counterparty</th><th>Kind · direction</th><th class="num">Amount</th><th>Detail</th><th>Source · grade</th><th>Status</th></tr>
+  {% for r in fin.rows %}
+  <tr><td>{{ r.other }}</td>
+    <td>{{ r.kind }} {{ fin_kinds[r.kind] }}<div class="muted">{{ r.direction }}</div></td>
+    <td class="num">{% if r.amount is not none %}{{ r.amount | money }}{% else %}<span class="muted">not stated</span>{% endif %}</td>
+    <td>{{ r.detail }}{% if r.quote %}<div><a href="/doc/{{ r.accession }}?file={{ r.filename }}&start={{ r.quote_start }}#hl">“{{ r.quote[:200] }}{{ '…' if r.quote | length > 200 }}”</a></div>{% endif %}</td>
+    <td class="muted" style="white-space:nowrap">{{ r.source }}</td>
+    <td>{{ r.status }}{% if r.flag %} <span class="warn" title="Hypothesis, not scored (D-M02-43)">{{ r.flag }}</span>{% endif %}
+      {% if r.holding_id and viewer.is_owner %}<form method="post" action="/fin/holding/{{ r.holding_id }}/wrong" style="display:inline"><input type="hidden" name="back" value="/c/{{ ticker }}?tab=money"><button class="linkbtn" type="submit" title="Remove this record and keep it out of later runs (undo on the Runs page)">wrong?</button></form>{% endif %}</td></tr>
+  {% endfor %}
+  {% if fin.grouped %}
+  <tr><td colspan="2">{{ fin.grouped.names | length }} more holdings</td>
+    <td colspan="3" class="muted">{% for n, v in fin.grouped.names %}{{ n }} {{ v | money }}{{ ' · ' if not loop.last }}{% endfor %}</td>
+    <td class="muted">{{ fin.grouped.source }} · automatic</td></tr>
+  {% endif %}
+</table>
+<p class="note">Hypothesis, not scored (D-M02-41). Loop flags only on confirmed supply links: 1 invests in a customer it supplies · 2 backstops a customer's revenue · 3 grants equity to a customer · 4 finances a customer (D-M02-43); a customer funding its supplier is shown, not flagged. 13F lists common shares and ADRs only: preferred stock, warrants and private stakes are not in it — private stakes appear only as totals in the investment book below. Text links wait for you in Review (m02_finlink).</p>
+{% else %}<p class="empty">No financing or equity link found yet — unknown, not "none".</p>{% endif %}
+
+<h2 style="margin-top:16px">Credit quality and investment book (XBRL, per quarter)</h2>
+<table class="data">
+  <tr><th>Series</th><th class="num">Latest</th><th class="num">Prior quarters</th><th>Alert</th></tr>
+  {% for s in fin.series %}
+  <tr><td>{{ s.label }}{% if s.tags %}<div class="muted">{{ s.tags }}</div>{% endif %}</td>
+    {% if s.obs and not s.stale(fin.today) %}
+    <td class="num">{% if s.unit == 'days' %}{{ '%.0f' | format(s.latest.value) }} days{% elif s.unit == 'usd' %}{{ s.latest.value | money }}{% else %}{{ '%.2f' | format(100 * s.latest.value) }}%{% endif %}
+      <div class="muted">{{ s.latest.end }}{% if s.latest.parts %} · {{ s.latest.parts }}{% endif %}</div></td>
+    <td class="num muted">{% for o in s.obs[-4:-1] | reverse %}{% if s.unit == 'days' %}{{ '%.0f' | format(o.value) }}{% elif s.unit == 'usd' %}{{ o.value | money }}{% else %}{{ '%.2f' | format(100 * o.value) }}%{% endif %}{{ ' · ' if not loop.last }}{% endfor %}</td>
+    <td>{% if s.alert %}<span class="warn">{{ s.alert }}</span>{% elif not s.alerting %}<span class="muted">shown only</span>{% endif %}</td>
+    {% elif s.last_tagged %}
+    <td class="num muted" colspan="3">not tagged since {{ s.last_tagged }}</td>
+    {% else %}
+    <td class="num muted" colspan="3">not tagged</td>
+    {% endif %}</tr>
+  {% endfor %}
+</table>
+<p class="note">Each ratio is compared with the company's own history only; no thresholds across companies. Alerts (weekly digest): allowance, financing-allowance or guarantee ratio rising two quarters in a row; days sales in receivables rising two quarters in a row by more than 10% (against the same quarter a year earlier when revenue is seasonal; Beneish DSRI, S105). Missing tags stay missing, never zero (D-M02-45).</p>
+{% endif %}
+
 <h2 style="margin-top:16px">Remaining performance obligations (RPO)</h2>
 {% if m.rpo.reported %}
 <table class="data">

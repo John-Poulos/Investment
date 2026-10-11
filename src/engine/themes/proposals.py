@@ -27,7 +27,9 @@ from engine.themes import tiers
 MODULE = "M02"
 WEEKLY_CAP = 10
 # operational items (downloads, tag mapping, reconciliation gaps) are not capped
-UNCAPPED = frozenset({"m02_ir_download", "m02_tag", "m02_capex_gap"})
+UNCAPPED = frozenset(
+    {"m02_ir_download", "m02_tag", "m02_capex_gap", "m02_13f_issuer", "m02_fin_check"}
+)
 
 KIND_LABELS = {
     "m02_theme": "M02: new theme proposed",
@@ -41,6 +43,10 @@ KIND_LABELS = {
     "m02_spender": "M02: does this company's spending count toward a theme?",
     "m02_tag": "M02: how does this cash-flow tag count?",
     "m02_capex_gap": "M02: capex recipe does not match the stated figure",
+    "m02_finlink": "M02: financing or equity link to confirm",
+    "m02_13f_issuer": "M02: 13F issuer to map",
+    "m02_fin_check": "M02: financing record failed a check",
+    "m02_fin_alert": "M02: financing alert (weekly digest)",
 }
 ACTIONS = {
     "m02_theme": ("accept", "reject"),
@@ -62,6 +68,10 @@ ACTIONS = {
         "ignore",
     ),
     "m02_capex_gap": ("noted",),
+    "m02_finlink": ("confirm", "flip", "reject"),
+    "m02_13f_issuer": ("map", "dismiss"),
+    "m02_fin_check": ("keep_record", "wrong_record"),
+    "m02_fin_alert": ("noted",),
 }
 REJECTING = frozenset({"reject", "remove", "ignore"})
 
@@ -187,8 +197,10 @@ def apply(
     by: str,
     now: datetime,
     core: set[str] = frozenset(),
+    target: str = "",
 ) -> None:
-    """Data changes behind an M02 action (the caller closes the item)."""
+    """Data changes behind an M02 action (the caller closes the item). `target`: the
+    owner's input where an action takes one (13F issuer ticker/CIK, financing kind)."""
     if kind == "m02_candidate" and action == "accept":
         if not cik:
             raise tiers.TierError("This proposal names no company.")
@@ -228,7 +240,30 @@ def apply(
         from engine.llm.supply_labels import decide_input
 
         decide_input(engine, cik, payload, action)
-    # m02_ir_download / m02_capex_gap: the resolution itself is the
+    elif kind == "m02_finlink" and payload.get("pair"):
+        from engine.financing.links import decide as fin_decide
+
+        fin_decide(engine, payload, action, now, target or None)
+    elif kind == "m02_13f_issuer" and payload.get("cusip"):
+        from engine.financing import issuers, thirteenf
+
+        if action == "map" and not target.strip():
+            raise tiers.TierError("Enter the ticker or CIK to map this issuer to.")
+        try:
+            issuers.owner_map(engine, payload["cusip"], target if action == "map" else None,
+                              by, now)  # fmt: skip
+        except ValueError as e:
+            raise tiers.TierError(str(e)) from e
+        thirteenf.re_resolve(engine, payload["cusip"][:6], now)
+    elif kind == "m02_fin_check" and payload.get("holding_id"):
+        if action == "wrong_record":
+            from engine.financing.links import wrong_holding
+
+            wrong_holding(engine, int(payload["holding_id"]), by, now)
+        else:
+            engine.execute("UPDATE fin_holding SET status = 'automatic' WHERE holding_id = ? "
+                           "AND status = 'held'", (payload["holding_id"],))  # fmt: skip
+    # m02_ir_download / m02_capex_gap / m02_fin_alert: the resolution itself is the
     # record; the parts that create them (5, 4, 3) read it.
 
 
