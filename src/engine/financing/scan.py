@@ -36,6 +36,9 @@ TEMPLATES = (
     "warrants to {a}",
     "investment from {a}",
 )
+# wording that names the counterparty elsewhere in the sentence ("NVIDIA has agreed to
+# purchase any unsold capacity"): one search each, hits read like the others (D-M02-47)
+GLOBAL = ("unsold capacity",)
 FORMS = ("10-K", "10-Q", "8-K")
 MONTHS = 18
 REPEAT = timedelta(days=30)
@@ -187,19 +190,20 @@ def phrases(c: Company) -> list[str]:
 def search_company(
     client: SecClient,
     engine: sqlite3.Connection,
-    c: Company,
+    c: Company | None,
     now: datetime,
     rep: ScanReport,
     *,
     force: bool = False,
 ) -> bool:
-    """→ False when throttled."""
-    state = f"fin_search:{c.key}"
+    """One company's phrases, or the phrases naming no company (`c` None) → False when
+    throttled."""
+    state = f"fin_search:{c.key if c else '_global'}"
     row = _state(engine, state)
     if row and not force and now - datetime.fromisoformat(row["fetched_at"]) < REPEAT:
         return True
     start = (now - timedelta(days=30 * MONTHS)).date().isoformat()
-    for phrase in phrases(c):
+    for phrase in phrases(c) if c else GLOBAL:
         res = search(
             client,
             engine,
@@ -219,7 +223,7 @@ def search_company(
             continue
         rep.phrase_hits[phrase] = res.data.total
         for h in res.data.hits:
-            if h.url is None or (c.cik and h.cik == c.cik):
+            if h.url is None or (c and c.cik and h.cik == c.cik):
                 continue
             cur = engine.execute(
                 "INSERT OR IGNORE INTO fin_fetch (url, cik, entity_name, accession, filename, "
@@ -238,7 +242,7 @@ def search_company(
                 ),
             )
             rep.queued += cur.rowcount
-    _mark(engine, state, c.key, now)
+    _mark(engine, state, c.key if c else "_global", now)
     return True
 
 

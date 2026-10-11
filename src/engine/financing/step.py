@@ -23,17 +23,52 @@ F302_CAP = 10
 HIT_CAP = 30
 
 
+def retire_issuer_items(engine: sqlite3.Connection, now: datetime) -> int:
+    """Open `m02_13f_issuer` items whose issuer the rules now resolve, or that is no longer
+    held in any filer's latest quarter, close themselves (engine, 'dismiss', with a note)."""
+    from engine.review import _close
+
+    n = 0
+    for it in engine.execute(
+        "SELECT r.item_id, p.prop_key FROM review_queue r JOIN m02_proposal p ON p.item_id = "
+        "r.item_id WHERE r.kind = 'm02_13f_issuer' AND r.resolved_at IS NULL"
+    ).fetchall():
+        c6 = it["prop_key"].split(":", 1)[1]
+        latest = engine.execute(
+            "SELECT count(*) FROM fin_holding h WHERE substr(cusip, 1, 6) = ? AND status = "
+            "'unresolved' AND h.period = (SELECT max(period) FROM fin_13f f WHERE f.filer_cik = "
+            "h.filer_cik AND f.status = 'read')",
+            (c6,),
+        ).fetchone()[0]
+        if latest:
+            continue
+        left = engine.execute(
+            "SELECT count(*) FROM fin_holding WHERE substr(cusip, 1, 6) = ? AND status = "
+            "'unresolved'",
+            (c6,),
+        ).fetchone()[0]
+        note = ("held only in older quarters; left unresolved (D-M02-47)" if left
+                else "resolved by the issuer rules (D-M02-47)")  # fmt: skip
+        _close(engine, it["item_id"], "dismiss", note, "engine", now)
+        n += 1
+    return n
+
+
 def issuer_items(engine: sqlite3.Connection, now: datetime) -> int:
+    """One `m02_13f_issuer` per unresolved issuer held in a filer's latest 13F quarter
+    (D-M02-47: older-only holdings are mostly delisted companies; they stay unresolved)."""
     from engine.moneyflow.views import dollars
     from engine.themes.proposals import propose
 
+    retire_issuer_items(engine, now)
     n = 0
     for r in engine.execute(
         "SELECT substr(cusip, 1, 6) AS c6, max(issuer_name) AS name, max(cusip) AS cusip, "
         "group_concat(DISTINCT filer_name) AS filers, count(*) AS rows_n, max(value_usd) AS v, "
-        "max(title) AS title, max(period) AS period FROM fin_holding "
-        "WHERE status = 'unresolved' GROUP BY c6"
-    ):
+        "max(title) AS title, max(period) AS period, max(resolved_how) AS how FROM fin_holding h "
+        "WHERE status = 'unresolved' AND h.period = (SELECT max(period) FROM fin_13f f WHERE "
+        "f.filer_cik = h.filer_cik AND f.status = 'read') GROUP BY c6"
+    ):  # only issuers in a filer's latest quarter: older-only holdings (often delisted) wait
         payload = {
             "issuer": r["name"],
             "cusip": r["cusip"],
@@ -42,7 +77,7 @@ def issuer_items(engine: sqlite3.Connection, now: datetime) -> int:
             "rows": r["rows_n"],
             "period": r["period"],
             "largest_value": dollars(r["v"]) if r["v"] is not None else "not stated",
-            "why": "no single SEC company matches this 13F issuer name",
+            "why": f"no single SEC company matches this 13F issuer name ({r['how']})",
         }
         res = propose(
             engine,
@@ -162,6 +197,7 @@ def run_financing_step(
             scan.read_stored(engine, corpus, matcher, ciks, now, rep, rescan=rescan)
             scan.fetch_302(client, engine, corpus, ciks, now, rep, f302_cap)
             if client is not None and search:
+                scan.search_company(client, engine, None, now, rep, force=force_search)
                 for c in matcher.companies:
                     if c.cik in ciks and not scan.search_company(
                         client, engine, c, now, rep, force=force_search

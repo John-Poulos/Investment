@@ -36,12 +36,9 @@ K1 = re.compile(
     rf"(?:[^.;]|\.(?=\d)){{0,160}}\b{_SECURITY}\b|\b{_SECURITY}\b(?:[^.;]|\.(?=\d)){{0,120}}\b(?:to|by|from)\b",
     re.IGNORECASE,
 )
-K2 = re.compile(
-    r"\bwarrants?\b(?:[^.;]|\.(?=\d)){0,200}\b(?:customers?|vest\w*|milestones?|"
-    r"purchases? of (?:our )?products|deploy\w*|commercial agreement|issued to|granted to)\b|"
-    r"\b(?:issued|granted)\b(?:[^.;]|\.(?=\d)){0,60}\bwarrants?\b",
-    re.IGNORECASE,
-)
+# Live check 1 (D-M02-47): every warrant naming a commercial counterparty in the run was a
+# warrant granted to that company (Amazon, Microsoft, Oracle) — one kind per pair, not K1/K2.
+K2 = re.compile(r"\bwarrants?\b", re.IGNORECASE)
 K3 = re.compile(
     r"\b(?:unsold|unused|excess|residual) (?:\w+ ){0,2}capacity\b|\bbackstop\w*\b|"
     r"\bcapacity (?:purchase|commitment)s?\b|\bminimum (?:revenue|purchase|utilization) "
@@ -102,13 +99,33 @@ class FinFound:
     how: str
 
 
+_PER_UNIT = re.compile(r"\s*(?:per|a|each)\s+(?:\w+\s+)?(?:share|unit|warrant)", re.I)
+_PAR = re.compile(
+    r"(?:par value|exercise price|price per (?:share|unit|warrant))(?:\s+of)?\s*$", re.I
+)
+_WARRANT_SHARES = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(million\s+)?(?:\w+\s+){0,3}shares", re.I)
+
+
 def amount_of(sent: str) -> Decimal | None:
-    m = _MONEY.search(sent)
+    """The largest dollar figure that is not a per-share price, par value or exercise price
+    (live check 1: "$0.002 per share" par value was read as Marvell's $2.0B)."""
+    best = None
+    for m in _MONEY.finditer(sent):
+        if _PER_UNIT.match(sent, m.end()) or _PAR.search(sent[max(0, m.start() - 30) : m.start()]):
+            continue
+        value = Decimal(m.group(1).replace(",", ""))
+        value *= Decimal(str(_SCALE.get((m.group(2) or "").lower(), 1)))
+        best = value if best is None else max(best, value)
+    return best
+
+
+def warrant_shares(sent: str) -> str | None:
+    """'warrants (2,696,678 shares)' from "… to acquire up to 2,696,678 shares …"."""
+    m = _WARRANT_SHARES.search(sent)
     if not m:
         return None
-    value = Decimal(m.group(1).replace(",", ""))
-    scale = _SCALE.get((m.group(2) or "").lower(), 1)
-    return value * Decimal(str(scale))
+    n = float(m.group(1).replace(",", "")) * (1e6 if m.group(2) else 1)
+    return f"warrants ({n:,.0f} shares)"
 
 
 def instrument_of(sent: str) -> str | None:
@@ -141,22 +158,31 @@ def direction_of(kind: str, sent: str, b_name: str) -> str | None:
     # A acts towards B: "sell … to NVIDIA", "warrant to Amazon", "investment in Marvell"
     to_b = re.search(rf"\b(?:to|for|with)\s+{n}\b", sent, re.IGNORECASE)
     sale_to_b = to_b and re.search(r"\b(?:issu|s[eo]l[dl]|sale|grant|transfer)\w*", sent, re.I)
-    in_b = re.search(
-        rf"\b(?:investments? in|invested in|stake in|interest in|shares of|stock of|"
-        rf"preferred stock of|loans? to|financing to|guarantee\w* (?:of|for))\b{i}\b{n}\b",
-        sent,
-        re.IGNORECASE,
-    ) or re.search(rf"\b(?:invest|purchas|acquir|bought)\w*[^;]{{0,60}}\bin\s+{n}\b", sent, re.I)
+    in_b = (
+        re.search(
+            rf"\b(?:investments? in|invested in|stake in|interest in|shares of|stock of|"
+            rf"preferred stock of|loans? to|financing to|guarantee\w* (?:of|for))\b{i}\b{n}\b",
+            sent,
+            re.IGNORECASE,
+        )
+        or re.search(rf"\b(?:invest|purchas|acquir|bought)\w*[^;]{{0,60}}\bin\s+{n}\b", sent, re.I)
+        or re.search(
+            rf"\b{n}\b(?:'s)? (?:\w+ )?(?:shares|common stock|preferred stock|stock)\b", sent, re.I
+        )
+    )  # "SpaceX shares", "SpaceX common stock": A holds B (live check 1)
     if kind == "K1":
         if sale_to_b or b_acts:
             return "b_to_a"  # B buys A's shares: B's money goes to A
         if in_b:
             return "a_to_b"
     elif kind == "K2":
-        if to_b and re.search(r"\b(?:issu|grant)\w*", sent, re.I):
-            return "a_to_b"  # A grants equity to B
-        if re.search(rf"\bwarrants? (?:to purchase|in|of)\b{i}\b{n}\b", sent, re.I):
+        # B's own warrants: "warrants to purchase shares of Rivian", "warrants in Rivian"
+        if re.search(rf"\bwarrants? (?:to purchase (?:shares of |common stock of )?|in |of ){n}\b",
+                     sent, re.I):  # fmt: skip
             return "b_to_a"
+        # otherwise the filer granted it to B ("issued … to Amazon", "exercised by Amazon",
+        # "warrants held by Amazon", "the AWS Warrant") — live check 1 (D-M02-47)
+        return "a_to_b"
     elif kind == "K3":
         if b_acts:
             return "b_to_a"  # B backstops A's revenue
@@ -195,8 +221,10 @@ def find(text: str, matcher: Matcher, self_keys: set[str]) -> list[FinFound]:
                     c,
                     m.name,
                     direction_of(k, sent, m.name),
-                    amount_of(sent),
-                    instrument_of(sent),
+                    # a warrant's dollar figures are prices or payment thresholds ("up to
+                    # $60 billion in payments"), not money paid: shares only (live check 1)
+                    None if k == "K2" else amount_of(sent),
+                    (warrant_shares(sent) or "warrants") if k == "K2" else instrument_of(sent),
                     s,
                     e,
                     f"{KIND_LABELS[k]}: {w.group(0).lower()[:60]}",

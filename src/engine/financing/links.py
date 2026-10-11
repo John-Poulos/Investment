@@ -32,6 +32,19 @@ LOOP_CASES = {
 }
 
 
+def registry_name(engine: sqlite3.Connection, cik: str | None) -> str | None:
+    """The SEC company name for a CIK (stored entity, else the ticker list): "Amazon.com,
+    Inc." rather than the longest alias, "Amazon Web Services" (live check 1)."""
+    if not cik:
+        return None
+    row = engine.execute("SELECT name FROM entity WHERE cik = ?", (cik,)).fetchone()
+    if row is None:
+        row = engine.execute(
+            "SELECT name FROM ticker WHERE cik = ? AND name IS NOT NULL LIMIT 1", (cik,)
+        ).fetchone()
+    return row[0] if row and row[0] else None
+
+
 def store(
     engine: sqlite3.Connection,
     a_cik: str | None,
@@ -43,8 +56,10 @@ def store(
 ) -> int:
     n = 0
     a_side = side(a_cik, a_company, a_name)
+    a_name = registry_name(engine, a_cik) or a_name
     for f in found:
         b_side = side(f.b.cik, f.b, f.b_name)
+        b_name = registry_name(engine, f.b.cik) or f.b.name
         if b_side == a_side:
             continue
         existing = engine.execute(
@@ -57,8 +72,19 @@ def store(
             engine.execute(
                 "UPDATE fin_text SET seen_at = ?, how = ?, kind = CASE WHEN status = "
                 "'candidate' THEN ? ELSE kind END, direction = CASE WHEN status = 'candidate' "
-                "THEN ? ELSE direction END, amount_usd = ?, instrument = ? WHERE text_id = ?",
-                (iso(now), f.how, f.kind, f.direction, amount, f.instrument, existing[0]),
+                "THEN ? ELSE direction END, amount_usd = ?, instrument = ?, a_name = ?, "
+                "b_name = ? WHERE text_id = ?",
+                (
+                    iso(now),
+                    f.how,
+                    f.kind,
+                    f.direction,
+                    amount,
+                    f.instrument,
+                    a_name,
+                    b_name,
+                    existing[0],
+                ),
             )
             continue
         cur = engine.execute(
@@ -71,7 +97,7 @@ def store(
                 a_cik,
                 a_name,
                 f.b.cik,
-                f.b.name,
+                b_name,
                 f.direction,
                 amount,
                 f.instrument,
@@ -280,8 +306,9 @@ def financing_edges(engine: sqlite3.Connection) -> list[Edge]:
     for r in engine.execute(
         "SELECT h.* FROM fin_holding h WHERE h.status = 'automatic' AND h.issuer_cik IS NOT NULL "
         "AND h.period = (SELECT max(period) FROM fin_holding x WHERE x.source = h.source AND "
-        "x.filer_cik = h.filer_cik AND x.issuer_cik = h.issuer_cik AND x.status = 'automatic')"
-    ):
+        "x.filer_cik = h.filer_cik AND x.issuer_cik = h.issuer_cik AND x.status = 'automatic') "
+        "AND coalesce(h.shares, 1) != 0 AND coalesce(h.pct_class, 1) != 0"
+    ):  # a 0% schedule reports an exit: no stake (D-M02-47)
         out.append(
             Edge(
                 "K1",

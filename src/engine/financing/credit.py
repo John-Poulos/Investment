@@ -11,8 +11,10 @@ Series (quarter ends, the company's own history; no thresholds across companies)
   shown; a missing part stays missing), ÷ total assets.
 A tag the company stopped using shows "not tagged since <date>". Alerts (weekly digest,
 "noted"): allowance, financing-allowance or guarantee ratio rising two quarters in a
-row; DSO rising two quarters in a row by more than 10% in total — against the same
-quarter a year earlier when revenue is seasonal (latest four quarters' max ÷ min ≥ 1.3).
+row; DSO above the same quarter a year earlier in each of the last two quarters, the
+latest by more than 10% (every company: receivables can be seasonal when revenue is not,
+D-M02-47). DSO change is shown with a band (normal / watch / elevated / at the
+revenue-overstater mean); informational, not scored until signal weights exist (D13).
 """
 
 from __future__ import annotations
@@ -26,7 +28,6 @@ from engine.sec.xbrl_facts import Concept, Point, build_concept, get_series
 TOL = 10  # days: a quarter end matched across tags
 QUARTERS = 8
 DSO_RISE = 0.10
-SEASONAL = 1.3
 RECENT_DAYS = 200  # alerts only on a quarter that ended in the last ~two quarters
 
 
@@ -67,6 +68,22 @@ class Obs:
     end: str
     value: float  # the ratio or amount shown
     parts: str = ""  # what it is made of, for the row's note
+    change: float | None = None  # DSO: vs the same quarter a year earlier
+
+
+# DSO change vs a year earlier (D-M02-47). The top band is the mean days-sales-in-receivables
+# index of revenue overstaters in Beneish's sample (1.465, via a secondary summary, S105);
+# the lower cut-offs are working proposals, to be set when signal weights are designed (D13).
+BANDS = ((0.10, "normal"), (0.25, "watch"), (0.45, "elevated"))
+
+
+def band(change: float | None) -> str:
+    if change is None:
+        return "no year-earlier quarter"
+    for cut, name in BANDS:
+        if change < cut:
+            return name
+    return "at the revenue-overstater mean (Beneish)"
 
 
 @dataclass
@@ -130,22 +147,22 @@ def dso(engine: sqlite3.Connection, cik: str) -> Series:
             continue
         days = (date.fromisoformat(q.end) - date.fromisoformat(q.start)).days + 1
         s.obs.append(Obs(q.end, float(a.latest.value) / float(q.latest.value) * days))
+    # change vs the same quarter a year earlier (receivables can be seasonal even when
+    # revenue is not: Microsoft bills annual contracts in its June quarter) — D-M02-47
+    yoy: list[float | None] = []
+    for o in s.obs:
+        end = date.fromisoformat(o.end)
+        prior = next(
+            (p for p in s.obs if 350 <= (end - date.fromisoformat(p.end)).days <= 380), None
+        )
+        yoy.append(o.value / prior.value - 1 if prior and prior.value else None)
+    s.obs = [Obs(o.end, o.value, o.parts, y) for o, y in zip(s.obs, yoy, strict=True)]
     s.obs = s.obs[-QUARTERS:]
-    vals = [o.value for o in s.obs]
-    seasonal = len(rev) >= 4 and (
-        max(float(r.latest.value) for r in rev[-4:]) / min(float(r.latest.value) for r in rev[-4:])
-        >= SEASONAL
-    )
-    if seasonal and len(s.obs) >= 6:
-        yoy = [s.obs[i].value / s.obs[i - 4].value - 1 for i in range(len(s.obs) - 2, len(s.obs))]
-        if all(y > 0 for y in yoy) and yoy[-1] > DSO_RISE:
-            s.alert = (
-                f"above the same quarter a year earlier twice in a row (latest {yoy[-1]:+.0%})"
-            )
-    elif _rising(vals) and vals[-1] / vals[-3] - 1 > DSO_RISE:
+    last = [o.change for o in s.obs[-2:]]
+    if len(last) == 2 and None not in last and last[0] > 0 and last[1] > DSO_RISE:
         s.alert = (
-            f"rose two quarters in a row: {vals[-3]:.0f} → {vals[-2]:.0f} → {vals[-1]:.0f} days "
-            f"({vals[-1] / vals[-3] - 1:+.0%})"
+            f"above the same quarter a year earlier twice in a row: {last[0]:+.0%}, "
+            f"then {last[1]:+.0%} ({band(last[1])})"
         )
     return s
 

@@ -41,12 +41,28 @@ _SUFFIX = {
 }
 
 
+# 13F issuer names are abbreviated and cut at ~28 characters (live check 1, D-M02-47):
+# "CROWDSTRIKE HLDGS INC", "AIR TRANSPORT SERVICES GRP I", "RECURSION PHARMACEUTICALS IN"
+_ABBREV = {
+    "HLDGS": "HOLDINGS", "HLDG": "HOLDING", "HLDNGS": "HOLDINGS", "GRP": "GROUP",
+    "INTL": "INTERNATIONAL", "SVCS": "SERVICES", "MFG": "MANUFACTURING", "COS": "COMPANIES",
+    "TECHS": "TECHNOLOGIES", "SYS": "SYSTEMS", "PHARMS": "PHARMACEUTICALS",
+}  # fmt: skip
+
+
 def norm(name: str) -> tuple[str, ...]:
     """'INTEL CORPORATION' → ('INTEL',); 'Nebius Group N.V.' → ('NEBIUS', 'GROUP')."""
     s = name.upper().replace("&", " AND ")
-    s = re.sub(r"/[A-Z]{2}/", " ", s)  # state suffix in SEC names: "APPLE INC /CA/"
+    # state or country suffix in SEC names: "APPLE INC /CA/", "ARM HOLDINGS PLC /UK"
+    s = re.sub(r"/[A-Z]{2,3}/?", " ", s)
     s = re.sub(r"[^A-Z0-9 ]+", " ", s.replace(".", ""))
-    words = s.split()
+    words = [_ABBREV.get(w, w) for w in s.split()]
+    # a suffix cut short at the field width ("… IN", "… PL", "… GRP I")
+    if len(words) > 1 and words[-1] not in _SUFFIX and any(
+        x.startswith(words[-1]) and x != words[-1] for x in ("INC", "INCORPORATED", "PLC", "CORP",
+                                                              "CORPORATION", "LTD", "LIMITED")
+    ):  # fmt: skip
+        words.pop()
     while words and words[-1] in _SUFFIX:
         words.pop()
     while words and words[0] == "THE":
@@ -96,6 +112,18 @@ def resolve(
     m = mapped(engine, cusip)
     if m is not None:
         return (m["cik"], m["source"]) if m["cik"] else (None, "dismissed")
+    # the same issuer already resolved under another name ("Mobileye, Inc." / "Mobileye
+    # Global Inc." share CUSIP 60741F)
+    same = {
+        r[0]
+        for r in engine.execute(
+            "SELECT DISTINCT issuer_cik FROM fin_holding WHERE substr(cusip, 1, 6) = ? AND "
+            "issuer_cik IS NOT NULL AND status NOT IN ('wrong', 'dismissed')",
+            (cusip[:6].upper(),),
+        )
+    }
+    if len(same) == 1:
+        return next(iter(same)), "same CUSIP"
     ciks = names.match(name)
     if len(ciks) == 1:
         return next(iter(ciks)), "name"

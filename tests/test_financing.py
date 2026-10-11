@@ -101,7 +101,7 @@ def test_k1_own_investment_k3_backstop_k2_warrant(matcher):
         set(),
     )
     assert [(f.kind, f.b.key, f.direction, f.instrument) for f in w] == [
-        ("K2", "AMZN", "a_to_b", "warrants")
+        ("K2", "AMZN", "a_to_b", "warrants (7,900,000 shares)")
     ]
 
 
@@ -141,7 +141,7 @@ def test_text_link_item_confirm_with_kind_change_and_followers(dbs, matcher):
     )
     assert links.propose_pairs(engine, NOW) == {"queued": 1}
     it = review.get(engine, _item(engine, "m02_finlink")["item_id"])
-    assert it.payload["claim"] == "NVIDIA Corporation invests in Intel Corporation"
+    assert it.payload["claim"] == "NVIDIA CORP invests in INTEL CORP"  # SEC registry names
     assert it.payload["amount"] == "$5,000,000,000" and it.payload["kind"] == "K1"
     review.m02_action(engine, it.item_id, "confirm", "", "owner", NOW, target="K6")
     r = engine.execute("SELECT kind, status, direction FROM fin_text").fetchone()
@@ -311,6 +311,9 @@ def test_unresolved_issuer_item_maps_every_row(dbs, matcher):
     engine, _ = dbs
     from engine.financing.step import check_items, issuer_items
 
+    engine.execute("INSERT INTO fin_13f (accession, filer_cik, form, period, filed, scale, status, "
+                   "read_at) VALUES ('a1', ?, '13F-HR', '2026-06-30', '2026-08-14', 1, 'read', 'n')",
+                   (NVDA,))  # fmt: skip
     engine.execute("INSERT INTO fin_holding (source, accession, filer_cik, filer_name, issuer_name, cusip, "
                    "shares, value_usd, period, filed, status, discovered_at) VALUES ('13F', 'a1', ?, "
                    "'NVIDIA CORP', 'ACME WIDGETS HLDGS', '000000AA1', 10, 5000, '2026-06-30', "
@@ -470,15 +473,44 @@ def test_dso_allowance_guarantees_and_book(dbs):
         _fact(engine, NVDA, "EquitySecuritiesFvNi", end, 40e9)
     _fact(engine, NVDA, "EquityMethodInvestments", "2026-06-30", 10e9)
     s = {x.key: x for x in credit.company_series(engine, NVDA)}
-    assert round(s["dso"].latest.value) == 51 and "rose two quarters in a row" in s["dso"].alert
+    assert round(s["dso"].latest.value) == 51
+    assert s["dso"].alert is None  # no year-earlier quarters yet (D-M02-47)
     assert s["allowance"].alert and round(s["allowance"].latest.value, 4) == round(1.6 / 53.6, 4)
     assert s["guarantees"].alert and s["fin_receivables"].obs == []
     assert (
         s["equity_book"].latest.value == pytest.approx(0.125)
         and "equity-method $10.0B" in s["equity_book"].latest.parts
     )
-    assert credit.queue_alerts(engine, {"NVDA": NVDA}, NOW) == 3  # DSO, allowance, guarantees
+    assert credit.queue_alerts(engine, {"NVDA": NVDA}, NOW) == 2  # allowance, guarantees
     assert credit.queue_alerts(engine, {"NVDA": NVDA}, NOW) == 0
+
+
+def _dso_company(engine, cik, receivables):
+    """Eight quarters (Jul 2024 – Jun 2026), revenue flat at $10B; DSO = AR ÷ 10B × days."""
+    ends = [
+        ("2024-09-30", "2024-07-01"),
+        ("2024-12-31", "2024-10-01"),
+        ("2025-03-31", "2025-01-01"),
+        ("2025-06-30", "2025-04-01"),
+        *QS,
+    ]
+    for (end, start), ar in zip(ends, receivables, strict=True):
+        _series(engine, cik, "revenue", "Q", end, 10e9, start)
+        _series(engine, cik, "receivables", "I", end, ar)
+
+
+def test_dso_compares_with_the_same_quarter_a_year_earlier(dbs):
+    engine, _ = dbs
+    # Microsoft-like: receivables peak every June (annual billing), same level each year
+    _dso_company(engine, NVDA, (4e9, 5e9, 4.5e9, 8e9, 4e9, 5e9, 4.6e9, 8.2e9))
+    d = credit.dso(engine, NVDA)
+    assert d.alert is None and credit.band(d.latest.change) == "normal"
+    # a real deterioration: above the year-earlier quarter twice, the latest by 30%
+    _dso_company(engine, INTC, (4e9, 4e9, 4e9, 4e9, 4e9, 4e9, 4.4e9, 5.2e9))
+    d = credit.dso(engine, INTC)
+    assert d.latest.change == pytest.approx(0.30, abs=0.01)
+    assert "+10%, then +30% (elevated)" in d.alert
+    assert credit.band(0.5) == "at the revenue-overstater mean (Beneish)"
 
 
 def test_tag_dropped_years_ago_shows_not_tagged_since(dbs):
@@ -554,3 +586,65 @@ def test_money_tab_sections_and_wrong_button(client, tmp_path):  # noqa: F811
     assert "wrong?" not in client.get("/c/META?tab=money").text
     runs = client.get("/runs").text
     assert "Financing records marked wrong" in runs and "INTEL CORP" in runs
+
+
+# --- live check 1 (2026-10-11, D-M02-47) -----------------------------------------------------
+
+
+def test_live_check_1_wording(matcher):
+    marvell = find(
+        "On March 31, 2026, the Company completed the issuance and sale of 2.0 million shares "
+        "of Series A Convertible Preferred Stock, par value $0.002 per share, to NVIDIA "
+        "Corporation, for an aggregate purchase price of $2.0 billion.\n",
+        matcher,
+        {"MRVL"},
+    )
+    assert [(f.kind, f.direction, f.amount) for f in marvell] == [
+        ("K1", "b_to_a", Decimal("2.0E9"))
+    ]
+    held = find(
+        "(2) Includes $14.1 billion of Intel shares subject to long-term restrictions.\n",
+        matcher,
+        {"NVDA"},
+    )
+    assert [(f.b.key, f.direction) for f in held] == [("INTC", "a_to_b")]
+    ex = find(
+        "The Warrant may be exercised by Amazon at a price per share of $9.42 before 2027.\n",
+        matcher,
+        set(),
+    )
+    assert [(f.kind, f.direction, f.amount) for f in ex] == [("K2", "a_to_b", None)]
+    own = find("We hold warrants to purchase shares of Intel Corporation.\n", matcher, {"NVDA"})
+    assert [(f.kind, f.direction) for f in own] == [("K2", "b_to_a")]
+
+
+def test_live_check_1_issuer_names_and_exits(dbs, matcher):
+    engine, _ = dbs
+    for t, c, n in (
+        ("CRWD", "0001535527", "CrowdStrike Holdings, Inc."),
+        ("RXRX", "0001601830", "Recursion Pharmaceuticals, Inc."),
+        ("ARM", "0001973239", "Arm Holdings plc /UK"),
+    ):
+        engine.execute("INSERT INTO ticker (ticker, cik, name, valid_from, source) VALUES "
+                       "(?, ?, ?, '2020-01-01', 't')", (t, c, n))  # fmt: skip
+    names = issuers.Names(engine)
+    assert issuers.resolve(engine, names, "22788C105", "CROWDSTRIKE HLDGS INC")[0] == "0001535527"
+    assert (
+        issuers.resolve(engine, names, "75629V104", "RECURSION PHARMACEUTICALS IN")[0]
+        == "0001601830"
+    )
+    assert issuers.resolve(engine, names, "042068205", "ARM HOLDINGS PLC")[0] == "0001973239"
+    assert issuers.norm("AIR TRANSPORT SERVICES GRP I") == ("AIR", "TRANSPORT", "SERVICES", "GROUP")
+    # a row resolved by name lends its CIK to the same CUSIP under another name
+    _holding(engine, INTC, "0001910139")
+    engine.execute("UPDATE fin_holding SET cusip = '60741F104'")
+    assert issuers.resolve(engine, names, "60741F104", "Mobileye, Inc.") == (
+        "0001910139",
+        "same CUSIP",
+    )
+    # a 0% schedule is an exit: no investment edge
+    engine.execute("INSERT INTO fin_holding (source, accession, filer_cik, filer_name, issuer_cik, issuer_name, "
+                   "cusip, shares, pct_class, period, filed, status, discovered_at) VALUES ('13G', 'g1', ?, "
+                   "'AMAZON', '0000894081', 'ATSG', '00922R105', 0, 0, '2025-04-11', '2025-04-11', "
+                   "'automatic', 'n')", (AMZN,))  # fmt: skip
+    assert all(e.other != "0000894081" for e in links.financing_edges(engine))

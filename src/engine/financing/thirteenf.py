@@ -59,6 +59,7 @@ class Report13F:
     automatic: int = 0
     held: int = 0
     unresolved: int = 0
+    re_resolved: int = 0
     problems: list[str] = field(default_factory=list)
 
     def lines(self) -> list[str]:
@@ -66,6 +67,7 @@ class Report13F:
             f"13F: {self.read} filing(s) read, {self.rows} holding(s): {self.automatic} "
             f"stored automatically, {self.held} held for a check, {self.unresolved} issuer(s) "
             "not resolved"
+            + (f"; {self.re_resolved} earlier row(s) resolved now" if self.re_resolved else "")
         ]
         return out + [f"  problem: {p}" for p in self.problems]
 
@@ -367,7 +369,7 @@ def store_rows(
                 r.value,
                 cover.period,
                 f["filed"],
-                how if issuer_cik else None,
+                how,  # unresolved rows keep the reason (ambiguous (n) | no match)
                 status,
                 "; ".join(notes) or None,
                 iso(now),
@@ -418,6 +420,7 @@ def run(
     rep: Report13F,
 ) -> None:
     names = issuers.Names(engine)
+    rep.re_resolved = re_resolve_all(engine, names)
     for cik in ciks:
         for f in due(engine, cik, now):
             if client is None:
@@ -462,3 +465,37 @@ def re_resolve(engine: sqlite3.Connection, cusip6: str, now: datetime) -> int:
             (m["cik"], "held" if notes else "automatic", "; ".join(notes) or None, r["holding_id"]),
         )
     return len(rows)
+
+
+def re_resolve_all(engine: sqlite3.Connection, names: issuers.Names) -> int:
+    """Unresolved rows tried again with the current issuer rules and maps (each run)."""
+    n = 0
+    for r in engine.execute(
+        "SELECT * FROM fin_holding WHERE source = '13F' AND status = 'unresolved'"
+    ).fetchall():
+        cik, how = issuers.resolve(engine, names, r["cusip"], r["issuer_name"])
+        if cik is None:
+            if how != r["resolved_how"]:
+                engine.execute(
+                    "UPDATE fin_holding SET resolved_how = ?, status = ? WHERE holding_id = ?",
+                    (how, "dismissed" if how == "dismissed" else "unresolved", r["holding_id"]),
+                )
+            continue
+        row = Row(
+            r["issuer_name"],
+            r["title"],
+            r["cusip"],
+            float(r["value_usd"] or 0),
+            float(r["shares"]) if r["shares"] is not None else None,
+            r["share_type"],
+            r["put_call"],
+        )
+        notes = checks(engine, r["filer_cik"], row, cik, r["period"])
+        engine.execute(
+            "UPDATE fin_holding SET issuer_cik = ?, resolved_how = ?, status = ?, check_note = ? "
+            "WHERE holding_id = ?",
+            (cik, how, "held" if notes else "automatic", "; ".join(notes) or None,
+             r["holding_id"]),
+        )  # fmt: skip
+        n += 1
+    return n

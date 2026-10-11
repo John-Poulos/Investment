@@ -46,7 +46,7 @@ def _b(x) -> str:
     return "—" if x is None else f"${float(x) / 1e9:,.2f}B"
 
 
-def summary(engine, comps: dict[str, str]) -> list[str]:
+def summary(engine, comps: dict[str, str], now: datetime) -> list[str]:
     lines = ["", "13F holdings, latest quarter per filer (top 10 by value):"]
     for t, cik in sorted(comps.items()):
         periods = thirteenf.current(engine, cik)
@@ -79,13 +79,17 @@ def summary(engine, comps: dict[str, str]) -> list[str]:
     ).fetchone()
     lines.append(f"  headers read {hdr[0]}, relevant {hdr[1] or 0}, XML read {hdr[2] or 0}")
     un = engine.execute(
-        "SELECT issuer_name, cusip, count(*) n FROM fin_holding WHERE status = 'unresolved' "
+        "SELECT issuer_name, cusip, count(*) n, max(resolved_how) how, max(period) last "
+        "FROM fin_holding WHERE status = 'unresolved' "
         "GROUP BY substr(cusip, 1, 6) ORDER BY n DESC LIMIT 30"
     ).fetchall()
     if un:
         lines.append("")
         lines.append(f"Unresolved 13F issuers ({len(un)} shown):")
-        lines += [f"  {r['issuer_name']} ({r['cusip']}) × {r['n']}" for r in un]
+        lines += [
+            f"  {r['issuer_name']} ({r['cusip']}) × {r['n']} · {r['how']} · latest {r['last']}"
+            for r in un
+        ]
     lines.append("")
     lines.append("Text passages by kind and status:")
     for r in engine.execute(
@@ -116,7 +120,9 @@ def summary(engine, comps: dict[str, str]) -> list[str]:
     lines.append(f"Loops: {sum(lp.flagged for lp in lps)} flagged, "
                  f"{sum(not lp.flagged for lp in lps)} supply financing")  # fmt: skip
     for lp in lps:
-        lines.append(f"  {lp.edge.financer} → {lp.edge.other}: {lp.text} ({lp.edge.label})")
+        a = links.registry_name(engine, lp.edge.financer) or lp.edge.financer
+        b = links.registry_name(engine, lp.edge.other) or lp.edge.other
+        lines.append(f"  {a} → {b}: {lp.text} ({lp.edge.label})")
     lines.append("")
     lines.append("Credit series (latest; alerts marked !):")
     for t, cik in sorted(comps.items()):
@@ -127,7 +133,10 @@ def summary(engine, comps: dict[str, str]) -> list[str]:
             o = s.latest
             v = (f"{o.value:.0f}d" if s.unit == "days" else _b(o.value) if s.unit == "usd"
                  else f"{100 * o.value:.2f}%")  # fmt: skip
-            parts.append(f"{s.key} {v} ({o.end}){' !' if s.alert else ''}")
+            stale = " not tagged since" if s.stale(now.date()) else ""
+            ch = (f" {o.change:+.0%} y/y {credit.band(o.change)}"
+                  if s.key == "dso" and o.change is not None else "")  # fmt: skip
+            parts.append(f"{s.key} {v}{ch} ({stale}{o.end}){' !' if s.alert else ''}")
         lines.append(f"  {t}: " + ("; ".join(parts) or "no series"))
     return lines
 
@@ -161,7 +170,7 @@ def main() -> int:
     lines += run_financing_step(client, engine, corpus, comps, now, f302_cap=args.f302_cap,
                                 hit_cap=args.hit_cap, force_search=args.force_search,
                                 rescan=args.rescan, search=not args.no_search)  # fmt: skip
-    lines += summary(engine, comps)
+    lines += summary(engine, comps, now)
     logs = ROOT / "logs"
     logs.mkdir(exist_ok=True)
     log = logs / f"financing_{datetime.now():%Y%m%d-%H%M%S}.txt"

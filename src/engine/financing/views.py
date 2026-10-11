@@ -156,6 +156,9 @@ def _holding_rows(engine: sqlite3.Connection, cik: str) -> list[tuple[FinRow, fl
         )
         pct = f"{float(r['pct_class']):.1f}% of class" if r["pct_class"] is not None else ""
         sh = f"{float(r['shares']):,.0f} sh" if r["shares"] is not None else ""
+        exited = r["shares"] == 0 or r["pct_class"] == 0  # an exit filing (D-M02-47)
+        if exited:
+            sh, pct = "stake sold (0% of class)", ""
         row = FinRow(
             other,
             "K1",
@@ -163,11 +166,12 @@ def _holding_rows(engine: sqlite3.Connection, cik: str) -> list[tuple[FinRow, fl
             None,
             " · ".join(x for x in (sh, pct) if x),
             f"Schedule {r['source']} {r['period']} · A",
-            "automatic",
+            "exited" if exited else "automatic",
             holding_id=r["holding_id"],
             other_cik=r["issuer_cik"] if mine else r["filer_cik"],
         )
-        out.append((row, float("inf")))  # stakes of 5%+ always get their own row
+        # 5%+ stakes always get their own row; exits sort last
+        out.append((row, -1.0 if exited else float("inf")))
     return out
 
 

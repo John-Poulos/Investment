@@ -118,7 +118,7 @@
   <tr><td>{{ s.label }}{% if s.tags %}<div class="muted">{{ s.tags }}</div>{% endif %}</td>
     {% if s.obs and not s.stale(fin.today) %}
     <td class="num">{% if s.unit == 'days' %}{{ '%.0f' | format(s.latest.value) }} days{% elif s.unit == 'usd' %}{{ s.latest.value | money }}{% else %}{{ '%.2f' | format(100 * s.latest.value) }}%{% endif %}
-      <div class="muted">{{ s.latest.end }}{% if s.latest.parts %} · {{ s.latest.parts }}{% endif %}</div></td>
+      <div class="muted">{{ s.latest.end }}{% if s.latest.parts %} · {{ s.latest.parts }}{% endif %}{% if s.key == 'dso' %} · {% if s.latest.change is not none %}{{ '%+.0f' | format(100 * s.latest.change) }}% vs a year earlier{% endif %} · {{ dso_band(s.latest.change) }}{% endif %}</div></td>
     <td class="num muted">{% for o in s.obs[-4:-1] | reverse %}{% if s.unit == 'days' %}{{ '%.0f' | format(o.value) }}{% elif s.unit == 'usd' %}{{ o.value | money }}{% else %}{{ '%.2f' | format(100 * o.value) }}%{% endif %}{{ ' · ' if not loop.last }}{% endfor %}</td>
     <td>{% if s.alert %}<span class="warn">{{ s.alert }}</span>{% elif not s.alerting %}<span class="muted">shown only</span>{% endif %}</td>
     {% elif s.last_tagged %}
@@ -128,7 +128,7 @@
     {% endif %}</tr>
   {% endfor %}
 </table>
-<p class="note">Each ratio is compared with the company's own history only; no thresholds across companies. Alerts (weekly digest): allowance, financing-allowance or guarantee ratio rising two quarters in a row; days sales in receivables rising two quarters in a row by more than 10% (against the same quarter a year earlier when revenue is seasonal; Beneish DSRI, S105). Missing tags stay missing, never zero (D-M02-45).</p>
+<p class="note">Each ratio is compared with the company's own history only; no thresholds across companies. Alerts (weekly digest): allowance, financing-allowance or guarantee ratio rising two quarters in a row; days sales in receivables above the same quarter a year earlier in each of the last two quarters, the latest by more than 10%; bands: under 10% normal · 10–25% watch · 25–45% elevated · over 45% at the revenue-overstater mean in Beneish's sample (S105; lower cut-offs are working proposals). Informational, not scored (D-M02-47). Missing tags stay missing, never zero (D-M02-45).</p>
 {% endif %}
 
 <h2 style="margin-top:16px">Remaining performance obligations (RPO)</h2>
