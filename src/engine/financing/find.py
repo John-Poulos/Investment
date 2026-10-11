@@ -203,13 +203,21 @@ def direction_of(kind: str, sent: str, b_name: str) -> str | None:
 # stock of Jabil … Flex"), registration rights and rights of first refusal are not stakes
 _BOILER = re.compile(
     r"cumulative total (?:stock|share)holder return|performance graph|\$100 investment|"
-    r"rights? of first (?:and last )?refusal|registration rights|register the (?:re)?sale",
+    r"rights? of first (?:and last )?refusal|rights? of refusal|registration rights|"
+    r"register the (?:re)?sale|"
+    # live check 3: the legal verb ("represents and warrants to Boeing that …")
+    r"represents? and warrants?|warrants? and represents?|warrants? (?:to \w+ )?that\b",
     re.IGNORECASE,
 )
 
 
-def find(text: str, matcher: Matcher, self_keys: set[str]) -> list[FinFound]:
+def find(
+    text: str, matcher: Matcher, self_keys: set[str], filer: str | None = None
+) -> list[FinFound]:
+    """`filer`: the document filer's name; an alias that starts it is the filer itself
+    ("Apple" in "Apple iSports Group", live check 3)."""
     out = []
+    own = (filer or "").lower()
     for s, e in _sentences_in(text):
         sent = text[s:e]
         if _COMPETE.search(sent) or _BOILER.search(sent):
@@ -221,6 +229,8 @@ def find(text: str, matcher: Matcher, self_keys: set[str]) -> list[FinFound]:
         for m in matcher.find(text, s, e):
             c = m.company
             if c.key in self_keys or c.key in seen or _product(text, m):
+                continue
+            if own.startswith(m.name.lower() + " "):
                 continue
             seen.add(c.key)
             k, w = kind

@@ -690,3 +690,14 @@ def test_stale_waiting_alert_is_dropped(dbs):
                    "'old rule', '{}', 'overflow', 'n', 'n')")  # fmt: skip
     assert credit.queue_alerts(engine, {}, NOW) == 0
     assert engine.execute("SELECT count(*) FROM m02_proposal").fetchone()[0] == 0
+
+
+def test_live_check_3_legal_verb_xbox_clause_and_filer_name(matcher):
+    text = (
+        "Each Supplier Party represents and warrants to Intel that the statements are true.\n"
+        "Under our agreement with Intel, Intel may have first and last rights of refusal to purchase the stock.\n"
+    )
+    assert find(text, matcher, set()) == []
+    own = "This Warrant certifies that a holder may purchase from Amazon iPets Group 7,692,492 shares.\n"
+    assert find(own, matcher, set(), "Amazon iPets Group, Inc.") == []
+    assert len(find(own, matcher, set())) == 1  # without the filer's name it would be Amazon

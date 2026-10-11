@@ -122,7 +122,7 @@ def read_stored(
             name,
             company,
             doc,
-            find.find(doc.text, matcher, self_keys(matcher, d["cik"])),
+            find.find(doc.text, matcher, self_keys(matcher, d["cik"]), name),
             now,
         )
     _mark(engine, "fin_text:last_doc", str(top), now)
@@ -300,7 +300,7 @@ def read_hit(engine, corpus, matcher: Matcher, q, now: datetime, rep: ScanReport
         name,
         company,
         doc,
-        find.find(doc.text, matcher, self_keys(matcher, q["cik"])),
+        find.find(doc.text, matcher, self_keys(matcher, q["cik"]), q["entity_name"] or name),
         now,
     )
 
