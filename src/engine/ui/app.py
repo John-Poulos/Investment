@@ -25,6 +25,8 @@ from fastapi.templating import Jinja2Templates
 
 from engine import review
 from engine.calls import ir_inbox
+from engine.financing import links as fin_links
+from engine.financing import views as fin_views
 from engine.guidance import labels
 from engine.guidance.sources import FORECAST_NOTE, is_sec, source_label
 from engine.llm import call_check, guidance_reasons
@@ -145,6 +147,8 @@ def create_app(settings: UiSettings) -> FastAPI:
     templates.env.globals["FORECAST_NOTE"] = FORECAST_NOTE
     templates.env.filters["money"] = mf_views.money  # M02 part 3
     templates.env.globals["payload_value"] = mf_views.payload_value
+    templates.env.globals["fin_kinds"] = fin_views.KIND_LABELS  # M02 part 5b
+    templates.env.globals["dso_band"] = fin_views.credit.band
 
     for db in ("engine", "corpus"):  # bring schemas up to date once, at start
         conn = connect(settings.data_dir / f"{db}.db")
@@ -216,6 +220,7 @@ def create_app(settings: UiSettings) -> FastAPI:
             ctx["analyze"] = analyze_estimate(engine, corpus, cik)
         elif tab == "money":
             ctx["mf"] = mf_views.company_view(engine, cik, datetime.now(UTC).date(), corpus)
+            ctx["fin"] = fin_views.company_view(engine, cik, datetime.now(UTC).date())
         elif tab == "financials":
             ctx["tables"] = services.financials(engine, cik)
         elif tab == "insiders":
@@ -401,7 +406,8 @@ def create_app(settings: UiSettings) -> FastAPI:
                                "tag_maps": mf_allocation.mapping_list(engine),
                                "gold": supply_gold.accuracy(engine),
                                "gold_size": supply_gold.size(engine),
-                               "gold_trial": supply_gold.trial_line(engine)}  # fmt: skip
+                               "gold_trial": supply_gold.trial_line(engine),
+                               "fin_wrong": fin_links.wrong_list(engine)}  # fmt: skip
         return templates.TemplateResponse(request, "runs.html", ctx)
 
     @app.get("/m02/labels", response_class=HTMLResponse)
@@ -429,6 +435,20 @@ def create_app(settings: UiSettings) -> FastAPI:
         except ValueError as e:
             return RedirectResponse(f"/m02/labels?pos={pos}&error={quote(str(e))}", 303)
         return RedirectResponse("/m02/labels", 303)
+
+    @app.post("/fin/holding/{holding_id}/wrong")
+    def fin_wrong(holding_id: int, engine: Engine, owner: OwnerDep,
+                  back: Annotated[str, Form()] = "/") -> RedirectResponse:  # fmt: skip
+        """'wrong?' on a 13F/13D/13G record: removed and kept out of later runs (D-M02-42).
+        Undo on the Runs page."""
+        fin_links.wrong_holding(engine, holding_id, owner.id, datetime.now(UTC))
+        return RedirectResponse(back if back.startswith("/") else "/", 303)
+
+    @app.post("/fin/suppress/undo")
+    def fin_wrong_undo(engine: Engine, owner: OwnerDep,
+                       key: Annotated[str, Form()]) -> RedirectResponse:  # fmt: skip
+        fin_links.undo_wrong(engine, key)
+        return RedirectResponse("/runs#fin-wrong", 303)
 
     @app.post("/money/tag-map/{map_id}/undo")
     def tag_map_undo(map_id: int, engine: Engine, owner: OwnerDep) -> RedirectResponse:
@@ -654,6 +674,7 @@ def create_app(settings: UiSettings) -> FastAPI:
         high: Annotated[str, Form()] = "",
         scale: Annotated[str, Form()] = "1",
         reason: Annotated[str, Form()] = "",
+        target: Annotated[str, Form()] = "",
     ) -> RedirectResponse:
         """Owner-only review actions (U2); each closes the item with who, when and note (U3)."""
         now = datetime.now(UTC)
@@ -681,7 +702,7 @@ def create_app(settings: UiSettings) -> FastAPI:
                 review.approve_ticker_hold(engine, item_id, note, owner.id, now)
             elif (it := review.get(engine, item_id)) and it.kind.startswith("m02_"):
                 review.m02_action(engine, item_id, action, note, owner.id, now,
-                                  core_ciks(engine))  # fmt: skip
+                                  core_ciks(engine), target)  # fmt: skip
             else:
                 review.resolve(engine, item_id, action, note, owner.id, now)
         except review.ReviewError as e:

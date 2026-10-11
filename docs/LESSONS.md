@@ -1,6 +1,6 @@
 # Lessons that generalize (running)
 
-Updated: 2026-10-09 · Read at the start of every module build. One line each, with the decision that holds the detail. Add a lesson when a mistake or surprise in one module would recur in another.
+Updated: 2026-10-10 · Read at the start of every module build. One line each, with the decision that holds the detail. Add a lesson when a mistake or surprise in one module would recur in another.
 
 ## Data sources
 - Count what you mean: EDGAR full-text search counts documents, not filings; a filing whose exhibits match counts twice. Report distinct filings and companies (D-SEC-14).
@@ -13,6 +13,9 @@ Updated: 2026-10-09 · Read at the start of every module build. One line each, w
 - SEC companyfacts carries standard taxonomies only; company extension tags (e.g. `amzn:`) need the filing's XBRL instance (`<primary>_htm.xml`) — fetch it only where a recipe or coverage check needs it (D-M02-32).
 - A ratio of mapped lines to a net total swings when the net is small; measure coverage against gross flows plus the unexplained residual (D-M02-33).
 - A share needs a denominator from the same source family and window: EDGAR's quarterly form index gives exact distinct filers per form (D-M02-17).
+- 13F values are thousands of dollars in filings made before 2023-01-03 and dollars after — scale by filing date; one issuer can span several rows (other managers), so sum by CUSIP before comparing quarters (D-M02-45, D-M02-46).
+- A company's submissions list mixes filings it made with filings about it (funds' 13Gs); only the index header says who filed — read it once and keep the answer (D-M02-45).
+- When the counterparty of a disclosure has no stored documents, stored-text finders find nothing; search the counterparty's filings with targeted phrases instead (D-M02-45 (4)).
 - Seed phrases need the same scrutiny as mined ones: a generic phrase ("domestic manufacturing") can dominate a theme (D-M02-17).
 
 ## Rate limits and budgets
@@ -51,9 +54,11 @@ Updated: 2026-10-09 · Read at the start of every module build. One line each, w
 - Jinja resolves `row.items` to the dict method; read clashing keys with `row['key']`; a test fails if any tab renders a Python object (D-UI-7). Hit again in part 4 (`call_document` + `guidance_scan.items`): name SQL columns `n_items` or read with `[]`.
 - Show basis or labels only when the source stated them; store `unspecified` (D-SRCH-20).
 - Review policy: real information the program cannot store yet stays open for its future module (D-UI-15).
+- Never re-case names ("NVIDIA CORP" → "Nvidia Corp" by title-casing): show the SEC registry name when resolved, else the name as the filing states it (D-M02-46).
 
 ## Process
 - A store of code-found passages needs a re-read path from day one: rules change after every live log; keep first-seen dates and never delete an answer key (D-M02-37, D-M02-40).
 - Company names in filing text: competitor lists, share sales and product names look like relationships; filter them and let the owner confirm each link (D-M02-37…40).
 - Mock up each screen with real stored data before building it (D-UI-4).
+- Regex and `\n` edits through shell (sed, heredoc Python) lose their backslashes — hit twice more in part 5b; use the Edit tool for any string with a backslash.
 - Owner runs live tests and sends a short log; keep live output to summaries (context cost).

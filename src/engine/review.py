@@ -184,14 +184,16 @@ def m02_action(
     by: str,
     now: datetime,
     core: set[str] = frozenset(),
+    target: str = "",
 ) -> None:
-    """M02 proposal actions: apply the data change (tracked tier, theme status), then close."""
+    """M02 proposal actions: apply the data change (tracked tier, theme status), then close.
+    `target` carries the owner's input for actions that take one (13F issuer, link kind)."""
     it = _open(engine, item_id, tuple(proposals.ACTIONS))
     if action not in it.actions:
         raise ReviewError(f"'{action}' is not an action for {it.label.lower()}.")
     engine.execute("BEGIN")
     try:
-        proposals.apply(engine, it.kind, action, it.payload, it.cik, by, now, core)
+        proposals.apply(engine, it.kind, action, it.payload, it.cik, by, now, core, target)
         _close(engine, item_id, action, note, by, now)
         engine.execute("COMMIT")
     except tiers.TierError as e:
