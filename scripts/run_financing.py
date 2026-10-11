@@ -133,7 +133,7 @@ def summary(engine, comps: dict[str, str], now: datetime) -> list[str]:
             o = s.latest
             v = (f"{o.value:.0f}d" if s.unit == "days" else _b(o.value) if s.unit == "usd"
                  else f"{100 * o.value:.2f}%")  # fmt: skip
-            stale = " not tagged since" if s.stale(now.date()) else ""
+            stale = "not tagged since " if s.stale(now.date()) else ""
             ch = (f" {o.change:+.0%} y/y {credit.band(o.change)}"
                   if s.key == "dso" and o.change is not None else "")  # fmt: skip
             parts.append(f"{s.key} {v}{ch} ({stale}{o.end}){' !' if s.alert else ''}")

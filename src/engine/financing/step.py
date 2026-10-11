@@ -150,16 +150,18 @@ def loop_alerts(engine: sqlite3.Connection, now: datetime) -> int:
             "why": why,
             "note": "hypothesis, not scored (D-M02-41)",
         }
+        key = f"loop:{e.financer}:{e.other}:{lp.case}"
+        new = credit._new(engine, f"m02_fin_alert:{key}")
         res = propose(
             engine,
             "m02_fin_alert",
-            f"loop:{e.financer}:{e.other}:{lp.case}",
+            key,
             f"New loop: {why}",
             payload,
             now,
             cik=e.financer,
         )
-        n += res in ("queued", "overflow")
+        n += new and res in ("queued", "overflow")
     return n
 
 

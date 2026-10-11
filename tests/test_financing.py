@@ -648,3 +648,45 @@ def test_live_check_1_issuer_names_and_exits(dbs, matcher):
                    "'AMAZON', '0000894081', 'ATSG', '00922R105', 0, 0, '2025-04-11', '2025-04-11', "
                    "'automatic', 'n')", (AMZN,))  # fmt: skip
     assert all(e.other != "0000894081" for e in links.financing_edges(engine))
+
+
+# --- live check 2 (2026-10-11, D-M02-48) -----------------------------------------------------
+
+
+def test_live_check_2_boilerplate_and_undirected_claims(dbs, matcher):
+    engine, _ = dbs
+    graph = (
+        "The performance graph compares a $100 investment in the common stock of Intel with "
+        "NVIDIA over five years.\n"
+        "Under our agreement with Intel, Intel may have rights of first refusal to purchase our stock.\n"
+    )
+    assert find(graph, matcher, set()) == []
+    _store(
+        engine,
+        matcher,
+        CRWV,
+        "CoreWeave, Inc.",
+        "The Company and NVIDIA Corporation entered into an order form for unsold capacity "
+        "with an initial value of $6.3 billion.\n",
+        "c9",
+        {"CRWV"},
+    )
+    links.propose_pairs(engine, NOW)
+    it = review.get(engine, _item(engine, "m02_finlink")["item_id"])
+    assert (
+        "direction not stated — Confirm = CoreWeave, Inc. backstops the revenue of NVIDIA CORP"
+        in it.payload["claim"]
+    )
+    review.m02_action(engine, it.item_id, "flip", "", "owner", NOW)
+    assert (
+        engine.execute("SELECT direction FROM fin_text").fetchone()[0] == "b_to_a"
+    )  # NVIDIA → CoreWeave
+
+
+def test_stale_waiting_alert_is_dropped(dbs):
+    engine, _ = dbs
+    engine.execute("INSERT INTO m02_proposal (prop_key, kind, reason, payload, status, first_seen_at, "
+                   "last_seen_at) VALUES ('m02_fin_alert:0000789019:dso:2026-06-30', 'm02_fin_alert', "
+                   "'old rule', '{}', 'overflow', 'n', 'n')")  # fmt: skip
+    assert credit.queue_alerts(engine, {}, NOW) == 0
+    assert engine.execute("SELECT count(*) FROM m02_proposal").fetchone()[0] == 0

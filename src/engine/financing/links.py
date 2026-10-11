@@ -193,6 +193,15 @@ def propose_pairs(engine: sqlite3.Connection, now: datetime) -> dict[str, int]:
         names = sorted({first["a_name"], first["b_name"]})
         amount = next((float(r["amount_usd"]) for r in rows if r["amount_usd"] is not None), None)
         claim = claim_text(kind, c)
+        if c is None:
+            # no stated direction: Confirm reads the filer as the financer, the flip the
+            # other company — both spelled out, so either answer stores a direction
+            # (live check 2: CoreWeave's NVIDIA order form, D-M02-48)
+            c = (first["a_side"], first["a_name"], first["b_side"], first["b_name"])
+            claim += (
+                f" — Confirm = {claim_text(kind, c)}; flipped = "
+                f"{claim_text(kind, (c[2], c[3], c[0], c[1]))}"
+            )
         payload = {
             "pair": key,
             "kind": kind,

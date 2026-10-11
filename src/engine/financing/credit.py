@@ -292,6 +292,7 @@ def queue_alerts(engine: sqlite3.Connection, ciks: dict[str, str], now: datetime
     from engine.themes.proposals import propose
 
     n = 0
+    current: set[str] = set()
     cutoff = (now.date() - timedelta(days=RECENT_DAYS)).isoformat()
     for ticker, cik in sorted(ciks.items()):
         for s in company_series(engine, cik):
@@ -305,14 +306,32 @@ def queue_alerts(engine: sqlite3.Connection, ciks: dict[str, str], now: datetime
                 "tags": s.tags,
                 "why": f"{ticker}: {s.label[0].lower() + s.label[1:]} {s.alert}",
             }
+            key = f"{cik}:{s.key}:{s.latest.end}"
+            current.add(f"m02_fin_alert:{key}")
+            new = _new(engine, f"m02_fin_alert:{key}")
             res = propose(
                 engine,
                 "m02_fin_alert",
-                f"{cik}:{s.key}:{s.latest.end}",
+                key,
                 f"{ticker}: {s.label[0].lower() + s.label[1:]} {s.alert}",
                 payload,
                 now,
                 cik=cik,
             )
-            n += res in ("queued", "overflow", "requeued")
+            n += new and res in ("queued", "overflow")
+    # a waiting alert whose rule no longer holds (first-run DSO rule, D-M02-47) is dropped
+    for r in engine.execute(
+        "SELECT prop_key FROM m02_proposal WHERE kind = 'm02_fin_alert' AND status = 'overflow' "
+        "AND prop_key NOT LIKE 'm02_fin_alert:loop:%'"
+    ).fetchall():
+        if r[0] not in current:
+            engine.execute("DELETE FROM m02_proposal WHERE prop_key = ?", (r[0],))
     return n
+
+
+def _new(engine: sqlite3.Connection, prop_key: str) -> bool:
+    """True when no proposal with this key exists yet (counts only new alerts)."""
+    return (
+        engine.execute("SELECT 1 FROM m02_proposal WHERE prop_key = ?", (prop_key,)).fetchone()
+        is None
+    )

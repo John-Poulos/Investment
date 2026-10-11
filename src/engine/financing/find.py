@@ -199,11 +199,20 @@ def direction_of(kind: str, sent: str, b_name: str) -> str | None:
     return None
 
 
+# live check 2 (D-M02-48): the stock performance graph ("a $100 investment in the common
+# stock of Jabil … Flex"), registration rights and rights of first refusal are not stakes
+_BOILER = re.compile(
+    r"cumulative total (?:stock|share)holder return|performance graph|\$100 investment|"
+    r"rights? of first (?:and last )?refusal|registration rights|register the (?:re)?sale",
+    re.IGNORECASE,
+)
+
+
 def find(text: str, matcher: Matcher, self_keys: set[str]) -> list[FinFound]:
     out = []
     for s, e in _sentences_in(text):
         sent = text[s:e]
-        if _COMPETE.search(sent):
+        if _COMPETE.search(sent) or _BOILER.search(sent):
             continue
         kind = next(((k, m) for k, rx in KINDS if (m := rx.search(sent))), None)
         if kind is None:
