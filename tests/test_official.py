@@ -642,3 +642,29 @@ def test_weekly_item_gets_final_rules_and_new_laws(db):
     assert digest.propose_week(engine, week, {}, NOW) == "queued"
     reason = engine.execute("SELECT reason FROM review_queue WHERE kind = 'm02_news'").fetchone()[0]
     assert "2 final rule(s) / law(s)" in reason
+
+
+def test_changed_search_names_research_now_and_drop_old_unmapped(db, monkeypatch):
+    engine, _ = db
+    url = usaspending.SEARCH_URL
+    f, _ = make_fetcher(
+        engine, {}, {(url, "BOEING", "contracts"): (200, json.dumps(USA_BA).encode(), {})}
+    )
+    usaspending.run(engine, f, {"BA": BA}, NOW, budget())  # name parts: "BOEING"
+    before = engine.execute("SELECT count(*) FROM usa_award").fetchone()[0]
+    assert before == 4
+    # the owner adds the exact list; the next day's run searches again at once
+    monkeypatch.setattr(usaspending, "usa_lists", lambda *a, **k: {"BA": ("THE BOEING COMPANY",)})
+    f2, t2 = make_fetcher(engine, {}, {})
+    r = usaspending.run(engine, f2, {"BA": BA}, NOW + timedelta(days=1), budget())
+    assert {c[1]["filters"]["recipient_search_text"][0] for c in t2.post_calls} == {
+        "THE BOEING COMPANY"
+    }
+    assert t2.post_calls[0][1]["filters"]["time_period"][0]["start_date"] == "2025-10-15"
+    # the mapped award (THE BOEING COMPANY) is kept; unmapped old-term hits are dropped
+    left = [x["recipient_name"] for x in engine.execute("SELECT recipient_name FROM usa_award")]
+    assert set(left) == {"THE BOEING COMPANY"} and r.retermed == before - len(left) > 0
+    # same names next time: weekly again
+    f3, t3 = make_fetcher(engine, {}, {})
+    usaspending.run(engine, f3, {"BA": BA}, NOW + timedelta(days=2), budget())
+    assert not t3.post_calls

@@ -100,6 +100,11 @@ def _run(engine, companies, now, rep, fetcher, congress_key, budgets, arxiv_requ
             f"new; recipient profiles read {r.profiles}, mapped by parent {r.by_parent}"
             + _stop(r.stopped)
         )  # fmt: skip
+        if r.retermed:
+            rep.lines.append(
+                f"  search names changed: {r.retermed} unmapped award(s) from the old search "
+                "terms dropped; those companies searched again now"
+            )
         if r.no_list:
             rep.lines.append(
                 "  no exact recipient list (searched by name parts; add `usaspending = [...]` "

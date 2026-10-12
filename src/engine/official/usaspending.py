@@ -35,7 +35,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from engine.news.fetch import Fetcher
-from engine.official.common import Budget, snip, state_get, state_set, write
+from engine.official.common import Budget, snip, state_detail, state_get, state_set, write
 from engine.sec.client import iso
 from engine.sec.results import Failed
 from engine.supply import aliases
@@ -315,6 +315,44 @@ class UsaResult:
     stopped: str = ""
     left: int = 0  # companies due but not reached
     no_list: list[str] = field(default_factory=list)  # searched by name parts (no owner list)
+    retermed: int = 0  # unmapped awards dropped because the company's search names changed
+
+
+def _last_terms(engine: sqlite3.Connection, co: Company) -> set[str]:
+    """Terms of the last successful search (stored since D-M02-61; before that, the terms
+    recorded on the company's awards)."""
+    saved = state_detail(engine, f"official:usaspending:{co.cik}:terms")
+    if saved:
+        try:
+            return set(json.loads(saved))
+        except ValueError:
+            pass
+    sql = "SELECT DISTINCT search_term FROM usa_award WHERE searched_cik = ?"
+    return {r[0] for r in engine.execute(sql, (co.cik,))}
+
+
+def terms_changed(engine: sqlite3.Connection, co: Company) -> bool:
+    old = _last_terms(engine, co)
+    return bool(old) and old != set(co.terms())
+
+
+def purge_old_terms(engine: sqlite3.Connection, co: Company) -> int:
+    """Drop awards that only an old search term found and that map to no company (name-part
+    hits such as Apple Ten Alabama Services); mapped awards are kept."""
+    terms = co.terms()
+    marks = ",".join("?" * len(terms))
+    with write(engine):
+        n = engine.execute(
+            f"DELETE FROM usa_award WHERE searched_cik = ? AND search_term NOT IN ({marks}) "
+            "AND (recipient_id IS NULL OR recipient_id NOT IN "
+            "(SELECT recipient_id FROM usa_recipient WHERE cik IS NOT NULL))",
+            (co.cik, *terms),
+        ).rowcount
+        engine.execute(
+            "DELETE FROM usa_recipient WHERE cik IS NULL AND recipient_id NOT IN "
+            "(SELECT recipient_id FROM usa_award WHERE recipient_id IS NOT NULL)"
+        )
+    return n
 
 
 def run(
@@ -333,6 +371,9 @@ def run(
     due = []
     for c in cos:
         last = state_get(engine, f"official:usaspending:{c.cik}")
+        if last and terms_changed(engine, c):
+            res.retermed += purge_old_terms(engine, c)
+            last = None  # new search names: search now, over the first-run window
         if last is None or date.fromisoformat(last[:10]) <= today - timedelta(days=RECHECK_DAYS):
             due.append((last or "", c))
     due.sort(key=lambda x: x[0])  # never checked first, then oldest
@@ -372,6 +413,8 @@ def run(
             note = f"{seen} award(s) since {start}, terms {', '.join(co.terms())}"
             with write(engine):
                 state_set(engine, f"official:usaspending:{co.cik}", SEARCH_URL, now, note)
+                state_set(engine, f"official:usaspending:{co.cik}:terms", SEARCH_URL, now,
+                          json.dumps(co.terms()))  # fmt: skip
     read, mapped, fails = map_parents(engine, fetcher, cos, now, budget)
     res.profiles, res.by_parent = read, mapped
     res.failures += fails
