@@ -1,0 +1,148 @@
+Investment Strategies:
+----------------------
+Type of investing by time frame:
+	1. multi year investments (years)
+	2. position trading (months)
+	3. swing trading (weeks)
+
+Select the investment area:
+	1. Position yourself for where the money and growth is going to be
+	2. Fundamental analysis comes first - guides what to invest in.
+	3. Technical analysis comes second - guides when to invest in something.
+
+Catch the S-curve early:
+	1. Early entry can mean asymmetric payoff
+	2. Problem with this approach is latency before appreciation
+	3. TSLA post-IPO flat for years, AMD before AI, MU before high bandwith memory
+	4. Don't chase after the initial move, position before the crowd notices
+	5. Develop a process over "hot" stock tips
+	6. The pattern to develop - determine the investment space -> recognize the leader ->
+			verify the financials -> determine if they have a competitive moat -> determine entry/exit points
+
+Follow the money:
+	1. Estimate how much money will be spent into the future
+	2. Identify how it will be spent, how much money has been allocated
+
+Identify who will be the recipient of the the capex
+	1. One company may do all the spending and itself maybe a great candidiate
+		but what about the companies it is purchasing from - those too maybe
+		excellent purchases. Example: The hyperscaler build out being done by Google/Meta etc
+		will directly benefit NVDA/AMD for chips, MU, SK Hynix for memory, ALAB, MRVL, AVGO
+		for CXL/optics/PCIe connectivity
+	2. This has to be done from news and reportings as by the time it is on
+		the profit and loss sheet, the information is too old and the stock
+		has likely already been evaluated for it.
+
+Identify the leaders in the space:
+	1. The top 0.3% of the market make up 1/2 of the market's return over the last century.
+	2. Find the leaders by examining their market share, their product design's competitiveness,
+		their technology roadmaps and switching costs as parts of their competitive moats.
+	3. Is the share accelearting into a growing total addressable market (TAM)?
+
+Some examples of what early entry looks like - AMD, while NVDA stock appreciated much before AMD,
+AMD started to gain due to data center gains and the MI300/Instinct roadmap. The software stack
+is catching up as well, even though AMD is still discounted versus the NVDA narrative.
+AMD has given custom chip signals with segment growth and design wins.
+
+Micron, MU is a memory manufacture. Memory is typically a highly cyclical industry where demand
+outsrips supply until it catches up with new capacity. The recent change has been with high bandwith
+memory, HBM which has been outstripping supply. There have been nonstop signals from both Elon Musk
+and Jensen Huang on the need for HBM based on both their respective companies capex and bill of
+materials for memory. This example is one of future demand and their appears to be demand for the
+next few years while the data center build outs continue. This is an example of an early signals
+- a structural product inside a cyclical ticker.
+
+ALAB and MRVL - both companies create connectivity and custom silicon solutions for AI racks. The
+early signal here was revenue CAGR against their peers, gross margin expansion and backlog. Also
+their designs have given them competitive edge.
+
+TSLA maybe an example of early based on the TAM that they are positioning themselves for:
+self driving cars, self driving taxis, humanoid robots, energy storage and production (solar panels).
+These layers can be considered S-curves and depending on implementation and speed of execution could
+bring about dramatic changes. TSLA seems well poised because of their integration in these industries.
+
+Analyze the financials:
+	1. Review YoY revenue growth and the 3 year CAGR
+	2. Look at Free Cash Flow (FCF) growth - it is a golden indicator - example, if a company can continue to
+		grow FCF while building out its infrastructure or growing its business in general, like new products,
+		etc., it would be considered a very strong signal.
+	3. Gross margin trends - if expanding then the company has pricing power in the market
+	4. Operating leverage - if their operating expense is growing slower than sales, also a good signal
+	5. Consider growth potential of equity: potential growth percent and FCF margin considering TAM's in
+		comparison to increases in money supply. Increase in money supply plus inflation creates a percentage
+		that you would want to exceed as a return to outpace.
+	6. Avoid a company who has increasing revenue while its margins are collapsing usually indicates a strong
+		competitor. For exmaple - Invitae
+
+Financial Red Flags:
+	1. Look for cash burn with no share gains
+	2. Serial stock dilution for the company to survive
+	3. Accounting manipulations and "one-time" adjustments. - examples GE, Rivian - multiple one time adjustments
+	4. Massive negative FCF
+	5. Revenue up but unit economics down
+	6. Debt - large debt against revenue - avoid
+
+CAPEX and Future Spend:
+	1. If capital expenditure (CAPEX) is done to create an economic and competitive advantage (moat) - the spend
+		can be viewed as a beneficial or positive flag. The determination is subjective and would need expert
+		opinions to be weighed, but if a company is positioning itself to be the lead in a field by spending
+		money to secure its future and if they have a proven track record of success, this is a positive flag.
+	2. CAPEX and sales rising into a demand wave can be bullsih.
+		examples: MU HBM fabs buildout, AMD struggling with increasing capacity, TSLA giga/lithium factories
+	3. Separate growth capex from maintenance capex and pair it with return on invested capital to create a signal
+	4. CAPEX should be viewed in context with return on invested capital (ROIC) and customer prepayments or
+		LTA's - long term agreements.
+	5. CAPEX without demand destroys value, follow the bookings.
+
+Moat Check:
+	1. Don't invest in a company without a moat.
+	2. Vertical integration - exmaples TSLA - scale, NVDA - CUDA lock in ecosystem
+	3. Process node or supply or IP (intellectual property)
+		- examples MU has HBM supply that others do not, ALAB products, supply control of transformers for data
+		center buildouts, etc
+	4. Custom ASIC relationships - AMD/AVGO working with Google. MRVL and its customers - one factor is switching cost
+	5. Timeframe - can a competitor catch up in 3 years or less? If not, the company has a moat.
+
+Ownership and Insiders:
+	1. Discern between instiutonal quality not just percent ownership - the difference between smart and dumb money.
+	2. Look at 13F filings with buys from the smart money as a soft signal - CEO of equity, Stanley Druckenmiller, etc.
+	3. Insider buying should exceed selling with context given to scheduled 10b5-1 sales which can sometimes be noise.
+	4. Look at how much short interest there is as it can be fuel for squeezes or structural risk.
+		-example of insider activity of note - CRWV - insiders sold 25.2M shares in last 9-12 months worth >$3.4B
+
+Analysts Price Targets and Upgrades:
+	1. Use as a sentiment guide as half or more of analysts are wrong.
+	2. Look at spread of targets and revision direction
+	3. Estimate revisions for EPS and revenue over the next 2 years
+	4. Wallstreet always misses new S-curve opportunities
+	5. Crowded consensus means less asymmetry - edge fades when everyone knows about the deal.
+
+PEG:
+	1. Useful for finding S-curve companies	as those companies PE (price to earnings) ration may be very high.
+		But when taken in context with the expected annial earning per share growth - PE/EPS growth rate = PEG
+		it makes it easier to spot a company that is going to grow.
+	2. Ideal PEG ration is 1, anything below that is a great opportunity.
+
+Technical Analysis:
+	1. Don't buy a stock because its cheap or completly oversold - 80% of the time it's dead or dying
+	2. Use augmented trading range or create one to give guidance on where a good entry point exists
+	3. Create a tool for mean reversion to signify top and bottom extremes. This can be based off of 1-2 standard
+		deviations from the running average of the stock price. Need to determine what range for that average is
+		ideal. This will aid in selling calls at tops and selling puts at bottoms.
+	4. Buy signals need to be based on a confluence of multiple signals and flags, not just one.
+
+Understand why an asset is or is not moving:
+	1. Understand the macro - wars, interest rates, politics, the narrative, future earnings, money flows, short squeezes
+	2. Be wary of late capital chasing the same story
+	3. If you dont know why something is moving, you dont have an edge
+	4. Be able to write a sentence - this asset is moving because ....
+	5. It is acceptable to have the knowledge of an edge and the asset is not moving, may indicate that you are
+		early and the market has not priced in yet. example: Solana trades at 1/5 of the market cap of Etherium but
+		does 5000% more activity.
+
+Entry, Size, Exit and Killswitch:
+	1. Know exit before entry and write it down as part of the plan
+	2. Optimize position size - balance risk and reward
+	3. Know the killswitch: and event that changes the investment idea - ban on AI, capex slowdown, etc.
+	4. Opportunity cost vs. core safety. Capital is finite so above all else, perserve capital - do not lose.
+	5. Review the thesis quarterly - fill or kill
