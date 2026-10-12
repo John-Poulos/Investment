@@ -56,14 +56,14 @@
       <td class="num">{{ p.prior_companies }} → {{ '≥ ' if p.lower_bound }}{{ p.latest_companies }}</td>
       <td class="num">{% if p.growth_pts is not none %}{{ '%+.2f' % p.growth_pts }} pts{% else %}—{% endif %}</td>
       <td class="num">{{ '%.3f' % p.p_value if p.p_value is not none else '—' }}</td>
-      <td>{% for g, n in (sp.groups or [])[:3] %}{{ g.split(' (')[0] }} {{ n }}{{ ' · ' if not loop.last }}{% endfor %} <span class="muted">· finance {{ sp.finance or 0 }}{% if sp.blank_check %} · +{{ sp.blank_check }} blank check{% endif %}{% if sp.unknown %} · {{ sp.unknown }} no SIC{% endif %}</span>{% if sp.generic_d49 %} <span class="tag" title="D-M02-49 working cut-offs: shown, not enforced (D-M02-52)">wide by D-M02-49</span>{% endif %}</td>
+      <td>{% for g, n in (sp.groups or [])[:3] %}{{ g.split(' (')[0] }} {{ n }}{{ ' · ' if not loop.last }}{% endfor %} <span class="muted">· finance {{ sp.finance or 0 }}{% if sp.blank_check %} · +{{ sp.blank_check }} blank check{% endif %}{% if sp.unknown %} · {{ sp.unknown }} no SIC{% endif %}</span>{% if sp.top3 is not none and sp.known %} <span class="muted" title="share of known-industry companies in the three largest groups; under 67% of 20 or more = spread like all filers (D-M02-54)">· top 3 {{ '%.0f' % (100 * sp.top3) }}% of {{ sp.known }}</span>{% endif %}</td>
       <td class="num">{% if cr.latest is not none %}{{ cr.prior }} → {{ cr.latest }}{% if cr.flag %} <span class="warn">crowding</span>{% endif %}{% else %}—{% endif %}</td>
       <td>{{ p.adopters | join(', ') }}</td>
       {% endif %}
     </tr>
     {% endfor %}
   </table>
-  <p class="note">Companies = distinct operating companies (blank checks apart) in the window, prior → latest; "≥" when a phrase had more than 1,000 hits. p = chance of a rise this large if usage were flat, weighted by each window's share of filers; ≤ 0.10 passes (a screen, not proof — the samples and your review decide). Industry spread is shown, not enforced, until the calibration round sets a rule (D-M02-52); finance filers (funds, REITs, banks, crypto) are listed apart. Fund filings = documents in new fund registrations (N-1A, 485APOS); "crowding" when they rose beyond chance (S90). Gemini can name a phrase and suggest wordings (cost first): <code>uv run python scripts/run_seasonal.py --gemini-name all</code>.</p>
+  <p class="note">Companies = distinct operating companies (blank checks apart) in the window, prior → latest; "≥" when a phrase had more than 1,000 hits. p = chance of a rise this large if usage were flat, weighted by each window's share of filers; ≤ 0.10 passes (a screen, not proof — the samples and your review decide). A phrase spread like all filers (top 3 industry groups under 67% of 20 or more companies) fails (D-M02-54); finance filers (funds, REITs, banks, crypto) are listed apart. Fund filings = documents in new fund registrations (N-1A, 485APOS); "crowding" when they rose beyond chance (S90). Gemini can name a phrase and suggest wordings (cost first): <code>uv run python scripts/run_seasonal.py --gemini-name all</code>.</p>
   {% endif %}
   {% if sv.stopped %}
   <details><summary>Screened out or failed ({{ sv.stopped | length }}) — why each one stopped</summary>

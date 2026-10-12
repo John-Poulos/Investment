@@ -31,7 +31,11 @@ from engine.themes.seasonal import TEST_PAGES, Season, Throttled, count
 from engine.themes.universe import FAMILIES
 
 COMPANY_CAP = 25
-SUBSTANTIVE = re.compile(r"(?:^|\s)(?:Item 1|Item 7|Part I Item 2)$")
+# 10-K business and MD&A, 10-Q MD&A (10-Q Part I Item 1 is the financial statements)
+SUBSTANTIVE = frozenset({"10-K Item 1", "10-K Item 7", "10-Q Part I Item 2"})
+# no text a company wrote about its business: a number there is a filing detail
+NOT_TEXT = frozenset({"cover", "signatures", "10-K Item 15", "10-K Item 16",
+                      "10-Q Part II Item 6"})  # fmt: skip
 _MONEY = re.compile(
     r"\$|%|\b\d[\d,.]*\b|\b(?:revenue|revenues|sales|capex|capital expenditures?|orders?|"
     r"backlog|bookings|million|billion|invest(?:ed|ment|ing)?)\b", re.I,
@@ -140,7 +144,9 @@ class Mention:
 
     @property
     def substantive(self) -> bool:
-        return not self.boilerplate and (bool(SUBSTANTIVE.search(self.section)) or self.quantified)
+        if self.boilerplate or self.section in NOT_TEXT:
+            return False
+        return self.section in SUBSTANTIVE or self.quantified
 
 
 def mentions(corpus: sqlite3.Connection, doc_id: int, phrases: list[str]) -> list[Mention]:
@@ -240,7 +246,12 @@ def run_candidates(
         doc_id = _read_hit(client, corpus, cik, hit, now)
         rep.read += 1
         first = first_mention(engine, cik, tid) or hit["file_date"]
-        fl, size, problem = flagmod.company_flags(client, engine, cik, date.fromisoformat(first))
+        # flags concern first mentions (D-M02-15): an older mention keeps only its size label
+        is_first = first >= s.latest[0]
+        fl, size, problem = flagmod.company_flags(client if is_first else None, engine, cik,
+                                                  date.fromisoformat(first))  # fmt: skip
+        if not is_first:
+            fl = []
         if problem:
             rep.problems.append(f"{cik}: {problem}")
         ms = mentions(corpus, doc_id, sorted(info["phrases"])) if doc_id else []

@@ -161,7 +161,8 @@ Decisions in M02_THEMES.md; this is what the build needs.
   1. `uv run python scripts/run_seasonal.py --calibrate` → spread of "pillar two", "cybersecurity incident", "tariffs", "one big beautiful bill", "risk factors" vs the 36 seed phrases (10-Q family, 2026 to 19 Aug; ≤ 10 pages each, ~400 requests). Its counts are reused by step 2.
   2. `uv run python scripts/run_seasonal.py` → season 2026-08: twins (~300 requests), mining, screen, tests, proposals, candidates. Check: twins per company; companies compared and their kinds; whether the top mined phrases look like themes or wording; screen reasons; the passed phrases' samples and theme fit; candidates' sections and flags.
   Expect new wording → two or three rounds (`--no-sec` re-mines locally; every EFTS count is stored, so re-runs are cheap).
-- Open: Yes/No box at logon (after the live rounds); spread rule to propose from the calibration log; crowding per active theme on the theme page (counts are in `seasonal_count` for proposals only).
+- Live check 1 (2026-10-12, logs/seasonal_20261011-232712.txt and -233213.txt): calibration settled the spread rule; the pass's proposals were all new accounting/tax/tariff wording and 9 candidates rested on 10-Q financial statements → fixes D-M02-54 (narrative-only mining, accounting-word filter, exact substantive sections, flags on first mentions only, cosmetic renames, `--reset`). Re-check: `uv run python scripts/run_seasonal.py --reset` (re-mines locally; screens and tests only new phrases, stored counts reused).
+- Open: Yes/No box at logon (after the live rounds); crowding per active theme on the theme page (counts are in `seasonal_count` for proposals only).
 
 ### Phrase mining and tests (D-M02-8)
 - Corpus n-gram counts per year over stored passages (`search/passages.py` output); flag rising 2–3-grams; drop stop-phrases and boilerplate (forward-looking-statement text, D-SRCH-20).

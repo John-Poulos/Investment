@@ -18,6 +18,8 @@ Updated: 2026-10-12 · Read at the start of every module build. One line each, w
 - When the counterparty of a disclosure has no stored documents, stored-text finders find nothing; search the counterparty's filings with targeted phrases instead (D-M02-45 (4)).
 - Seed phrases need the same scrutiny as mined ones: a generic phrase ("domestic manufacturing") can dominate a theme (D-M02-17).
 - A year-over-year comparison inside a stored corpus measures what was stored, not what changed: 220 documents vs 32 made "inline xbrl" and "cash flow" rise; compare each company with its own documents of the same kind a year earlier (D-M02-52).
+- New accounting standards and tax laws make every filer adopt the same wording in the same year; a "new phrase" miner must read narrative sections (business, risk factors, MD&A), not financial-statement notes, and drop accounting/tax/legal words (D-M02-54).
+- A section label match must be exact and form-specific: "Item 1" is the business in a 10-K but the financial statements in a 10-Q (D-M02-54).
 - Calibrate a cut-off on known cases before enforcing it: 50% / 75% industry concentration would have rejected 12 of 36 real seed themes, because value chains span related industries and finance filers mention themes as holdings or risks (D-M02-52).
 
 ## Rate limits and budgets

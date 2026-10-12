@@ -8,7 +8,8 @@ by 2-digit SIC major group, the fallback D-M02-49 names; otherwise unrelated ind
 would look like one group. A filer without a SIC is "industry unknown" and blank-check
 companies (SIC 6770) are not operating companies. Finance filers (funds, REITs, banks,
 crypto companies) mention themes as holdings or risks, so they are counted apart
-(D-M02-52); the spread is shown, not enforced, until the calibration round sets a rule.
+(D-M02-52). Generic = the three largest groups hold < 67% of ≥ 20 known-industry
+companies (D-M02-54, calibrated; D-M02-49's 50% / 75% would have stopped real themes).
 """
 
 from __future__ import annotations
@@ -90,24 +91,33 @@ class Spread:
     top3_share: float | None
 
     @property
-    def generic_d49(self) -> bool | None:
-        """D-M02-49's working cut-offs (largest group < 50% and top two < 75%). Shown only:
-        the spread rule is re-proposed after the calibration round (D-M02-52)."""
-        if self.top1_share is None or self.top2_share is None:
+    def known(self) -> int:
+        return sum(n for _, n in self.groups)
+
+    @property
+    def generic(self) -> bool | None:
+        """D-M02-54: spread like all filers — the three largest groups hold < 67% of the
+        companies with a known industry (finance apart); judged only with ≥ 20 of them
+        (shares of a few companies jump, S111). None = not judged."""
+        if self.known < MIN_JUDGED or self.top3_share is None:
             return None
-        return self.top1_share < GENERIC_TOP1 and self.top2_share < GENERIC_TOP2
+        return self.top3_share < GENERIC_TOP3
 
     def to_json(self) -> dict:
         return {
             "operating": self.operating, "blank_check": self.blank_check,
             "unknown": self.unknown, "finance": self.finance,
             "groups": [list(g) for g in self.groups], "top1": self.top1_share,
-            "top2": self.top2_share, "top3": self.top3_share, "generic_d49": self.generic_d49,
+            "top2": self.top2_share, "top3": self.top3_share, "known": self.known,
+            "generic": self.generic,
         }  # fmt: skip
 
 
-GENERIC_TOP1 = 0.50  # working cut-offs (D-M02-49); not enforced until re-proposed (D-M02-52)
-GENERIC_TOP2 = 0.75
+# Calibration (live check 1, 10-Q filers 2026 to 19 Aug): rose-everywhere phrases 54–66%
+# ("pillar two" 66%, "cybersecurity incident" 65%, "tariffs" 55%); seed themes with ≥ 20
+# companies 69–100% ("AI data center" 69%). Revisit with each season's log.
+GENERIC_TOP3 = 0.67
+MIN_JUDGED = 20
 FINANCE = next(label for n, _, label, _ in FF12 if n == 11)
 
 

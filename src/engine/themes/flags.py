@@ -16,6 +16,7 @@ charter or bylaw amendment.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -101,11 +102,26 @@ def _near(d: str | None, anchor: date, days: int) -> bool:
         return False
 
 
+_SUFFIX = re.compile(
+    r"\b(?:incorporated|inc|corporation|corp|company|co|limited|ltd|plc|llc|lp|sa|nv|ag|"
+    r"holdings?|group|the|de|nv|md)\b"
+)
+
+
+def _norm(name: str) -> str:
+    words = re.sub(r"[^a-z0-9]+", " ", name.lower())
+    return " ".join(_SUFFIX.sub(" ", words).split())
+
+
 def submission_flags(data: dict[str, Any], cik: str, first_mention: date) -> list[str]:
     """Rename, offering and reverse-merger/shell signs around the first mention."""
     flags = []
-    for f in data.get("formerNames") or []:
-        if _near(f.get("to"), first_mention, RENAME_DAYS):
+    names = [str(f.get("name") or "") for f in data.get("formerNames") or []]
+    for i, f in enumerate(data.get("formerNames") or []):
+        # the name that replaced it: the next former name, else the current one; a change
+        # of case, punctuation or legal suffix is not a rename (live check 1: QuickLogic)
+        after = names[i + 1] if i + 1 < len(names) else str(data.get("name") or "")
+        if _near(f.get("to"), first_mention, RENAME_DAYS) and _norm(names[i]) != _norm(after):
             flags.append(f"renamed {str(f.get('to'))[:10]} (was {f.get('name')})")
     recent = ((data.get("filings") or {}).get("recent")) or {}
     try:

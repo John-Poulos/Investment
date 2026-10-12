@@ -36,7 +36,7 @@ def seed(e) -> None:
               "'done', ?, ?)", (T, T))  # fmt: skip
     spread = {"operating": 21, "blank_check": 1, "unknown": 0, "finance": 2,
               "groups": [["business equipment (chips, computers, software)", 15],
-                         ["manufacturing", 3]], "generic_d49": False}  # fmt: skip
+                         ["manufacturing", 3]], "top3": 1.0, "known": 18, "generic": None}  # fmt: skip
     sample = {"passage_id": 9, "cik": X, "name": "NVIDIA CORP", "group": "business equipment",
               "accession": "0001045810-26-000010", "filename": "n.htm",
               "text": "our switches use co-packaged optics to cut <power> per port"}  # fmt: skip

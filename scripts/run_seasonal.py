@@ -4,6 +4,7 @@
     uv run python scripts/run_seasonal.py                  # run (or resume) the due season
     uv run python scripts/run_seasonal.py --season 2026-08 # a given season
     uv run python scripts/run_seasonal.py --calibrate      # spread calibration round (D-M02-52)
+    uv run python scripts/run_seasonal.py --reset          # re-read the season with new rules
     uv run python scripts/run_seasonal.py --gemini-name all        # use case 4 estimate
     uv run python scripts/run_seasonal.py --gemini-name all --yes  # run it
 
@@ -61,14 +62,15 @@ def mine_lines(engine, corpus, s, comps, now) -> list[str]:
     added = seasonal.store_mined(engine, s, res, now)
     out = [f"\nmining (current {res.current[0]}..{res.current[1]} vs year ago "
            f"{res.year_ago[0]}..{res.year_ago[1]}): {len(res.compared)} companies compared, "
-           f"{res.above_floor} phrases with ≥ 2 new adopters, {len(res.candidates)} kept, "
-           f"{added} new this run"]  # fmt: skip
+           f"{res.above_floor} phrases with ≥ 2 new adopters ({res.admin_dropped} more dropped "
+           f"as accounting, tax or legal wording), {len(res.candidates)} kept, "
+           f"{added} new this run; narrative sections only ({mining.MINER_VERSION})"]  # fmt: skip
     for cik, kinds in sorted(res.compared.items()):
         out.append(f"  {comps.get(cik, cik)}: compared {', '.join(kinds)}")
     for cik, why in sorted(res.not_compared.items()):
         out.append(f"  {comps.get(cik, cik)}: not compared — {why}")
-    out.append("  top 25 (adopters − droppers, adopters, phrase):")
-    for m in res.candidates[:25]:
+    out.append("  top 50 (adopters − droppers, adopters, phrase):")
+    for m in res.candidates[:50]:
         out.append(f"    {m.score:>3} {len(m.adopters):>3}  {m.phrase}  "
                    f"[{', '.join(comps.get(c, c) for c in m.adopters)}]")  # fmt: skip
     return out
@@ -88,8 +90,9 @@ def stage_lines(engine, s) -> list[str]:
                                (r["theme_id"],)).fetchone() if r["theme_id"] else None  # fmt: skip
         out.append(f"  [{r['stage']}] {r['phrase']}: {r['reason']}")
         if r["stage"] != "failed":
+            top3 = f"{sp['top3']:.0%} of {sp.get('known')}" if sp.get("top3") is not None else "—"
             out.append(
-                f"      spread: {groups} · finance {sp.get('finance')} · blank "
+                f"      spread: {groups} (top 3 {top3}) · finance {sp.get('finance')} · blank "
                 f"{sp.get('blank_check')} · no SIC {sp.get('unknown')} · fund filings "
                 f"{crowd.get('prior')} → {crowd.get('latest')}"
                 f"{' (crowding)' if crowd.get('flag') else ''} · theme "
@@ -174,6 +177,11 @@ def _main() -> int:
     ap.add_argument("--resume", action="store_true", help="continue a stopped pass (the default)")
     ap.add_argument("--no-sec", action="store_true", help="mine only (local)")
     ap.add_argument("--calibrate", action="store_true", help="spread calibration round")
+    ap.add_argument(
+        "--reset",
+        action="store_true",
+        help="clear the season's undecided phrases and companies, then run again",
+    )
     ap.add_argument("--gemini-name", metavar="PHRASE|all", help="Gemini use case 4 (estimate)")
     ap.add_argument("--yes", action="store_true", help="run Gemini after the estimate")
     ap.add_argument("--minutes", type=float, default=seasonal.TIME_BUDGET_S / 60)
@@ -197,6 +205,14 @@ def _main() -> int:
     if args.gemini_name:
         lines += gemini(engine, corpus, s, args.gemini_name, args.yes, now)
         return _write(lines)
+    if args.reset:
+        if row is None:
+            lines.append("nothing to reset")
+            return _write(lines)
+        lines.append(f"reset (re-read with the current rules; stored EFTS counts kept): "
+                     f"{seasonal.reset(engine, s.key, now)}")  # fmt: skip
+        if args.dry_run:
+            return _write(lines)
     if args.dry_run or args.no_sec:
         todo, missing = twins.plan(engine, corpus, comps, s.day)
         lines.append(f"year-ago twins to fetch: {len(todo)} filings (~{3 * len(todo)} requests); "
@@ -273,7 +289,7 @@ def _write(lines: list[str]) -> int:
 
 
 def main() -> int:
-    if "--dry-run" in sys.argv[1:]:
+    if "--dry-run" in sys.argv[1:] and "--reset" not in sys.argv[1:]:
         return _main()  # reads only: no lock needed
     from engine.store.lock import run_script
 

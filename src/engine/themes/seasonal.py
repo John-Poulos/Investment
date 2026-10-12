@@ -11,8 +11,9 @@ Steps, each resumable (state per season and phrase, counts per window in seasona
    counts available (companies when complete, else documents);
 3. test (≤ 30 strongest survivors): up to 10 pages per window — ≥ 5 operating companies
    (blank checks apart) and the conditional binomial rise test, p ≤ 0.10, p0 = the
-   window's share of the family's filers (D-M02-49, -52 (2)); industry spread shown,
-   finance apart, not enforced (D-M02-52 (3)); crowding = N-1A + 485APOS filings;
+   window's share of the family's filers (D-M02-49, -52 (2)); not spread like all filers
+   (top 3 industry groups ≥ 67% of ≥ 20 known-industry companies, finance apart,
+   D-M02-54); crowding = N-1A + 485APOS filings;
 4. propose: theme by co-occurrence with an active theme's phrases in our corpus (→
    m02_phrase) or a new theme (m02_theme); at most 10 per pass in priority order, the
    rest listed on the Themes page (D-M02-51). A longer phrase that keeps ≥ 90% of a
@@ -363,6 +364,9 @@ def test(
             why, stage = f"fewer than {MIN_COMPANIES} operating companies ({_fmt(a)})", "failed"
         elif p > P_MAX:
             why, stage = f"no rise beyond chance ({n0} → {n1} companies, p {p:.3f})", "failed"
+        elif sp.generic:
+            why, stage = (f"spread like all filers (top 3 groups {sp.top3_share:.0%} of "
+                          f"{sp.known} < {industries.GENERIC_TOP3:.0%})", "failed")  # fmt: skip
         else:
             why, stage = f"{n0} → {n1} companies, p {p:.3f}", "passed"
         _update(engine, s, ph, now, stage=stage, reason=why, **cols)
@@ -601,6 +605,59 @@ def _rows_for(engine: sqlite3.Connection, s: Season, r: sqlite3.Row,
                            "new_theme": new_theme}  # fmt: skip
     if new_theme:
         out["theme_id"] = tid
+    return out
+
+
+def reset(engine: sqlite3.Connection, key: str, now: datetime) -> dict[str, int]:
+    """Re-read a season with the current rules (`run_seasonal.py --reset`): every phrase and
+    company row is cleared, with its waiting or open proposal and the proposed theme/phrase
+    rows it created — except those the owner already decided (kept as the answer key, as
+    in part 5's re-read). Stored EFTS counts stay, so the re-run costs only new counts."""
+    out = {"phrases": 0, "companies": 0, "proposals": 0, "kept": 0}
+    decided_phrases: set[str] = set()
+    decided_ciks: set[str] = set()
+    for r in engine.execute(
+        "SELECT p.prop_key, p.kind, p.cik, p.payload, p.item_id, q.resolved_at FROM m02_proposal p "
+        "LEFT JOIN review_queue q ON q.item_id = p.item_id "
+        "WHERE p.kind IN ('m02_phrase', 'm02_theme', 'm02_candidate')"
+    ).fetchall():
+        pl = json.loads(r["payload"] or "{}")
+        if pl.get("season") != key:
+            continue
+        if r["resolved_at"] is not None:
+            out["kept"] += 1
+            if r["kind"] == "m02_candidate":
+                decided_ciks.add(r["cik"])
+            else:
+                decided_phrases.add(pl.get("phrase"))
+            continue
+        engine.execute("DELETE FROM m02_proposal WHERE prop_key = ?", (r["prop_key"],))
+        if r["item_id"]:  # an open item the owner never answered
+            engine.execute("DELETE FROM review_queue WHERE item_id = ?", (r["item_id"],))
+        if pl.get("phrase_id"):
+            engine.execute("DELETE FROM theme_phrase WHERE phrase_id = ? AND status = 'proposed'",
+                           (pl["phrase_id"],))  # fmt: skip
+        if pl.get("theme_id") and pl.get("new_theme"):
+            engine.execute("DELETE FROM theme WHERE theme_id = ? AND status = 'proposed' AND NOT "
+                           "EXISTS (SELECT 1 FROM theme_phrase WHERE theme_id = ?)",
+                           (pl["theme_id"], pl["theme_id"]))  # fmt: skip
+        out["proposals"] += 1
+    for r in engine.execute(
+        "SELECT phrase FROM seasonal_phrase WHERE season = ?", (key,)
+    ).fetchall():
+        if r[0] not in decided_phrases:
+            engine.execute(
+                "DELETE FROM seasonal_phrase WHERE season = ? AND phrase = ?", (key, r[0])
+            )
+            out["phrases"] += 1
+    for r in engine.execute("SELECT cik, theme_id FROM seasonal_company WHERE season = ?",
+                            (key,)).fetchall():  # fmt: skip
+        if r[0] not in decided_ciks:
+            engine.execute("DELETE FROM seasonal_company WHERE season = ? AND cik = ? AND "
+                           "theme_id = ?", (key, r[0], r[1]))  # fmt: skip
+            out["companies"] += 1
+    engine.execute("UPDATE seasonal_run SET status = 'mined', finished_at = NULL WHERE season = ?",
+                   (key,))  # fmt: skip
     return out
 
 

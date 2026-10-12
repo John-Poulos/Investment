@@ -134,7 +134,7 @@ def spread_check(engine) -> list[str]:
                               "IS NOT NULL", (q[0],)).fetchall()  # fmt: skip
         pairs = [(h[0], (json.loads(h[1] or "[]") or [None])[0]) for h in hits]
         s = industries.spread(pairs)
-        verdict = {True: "GENERIC", False: "concentrated", None: "no SIC"}[s.generic_d49]
+        verdict = {True: "GENERIC", False: "concentrated", None: "not judged"}[s.generic]
         top = "; ".join(f"{g} {n}" for g, n in s.groups[:3])
         t1 = "—" if s.top1_share is None else f"{s.top1_share:.0%}"
         t2 = "—" if s.top2_share is None else f"{s.top2_share:.0%}"

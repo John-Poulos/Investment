@@ -6,10 +6,12 @@ the 12 months before ("year ago"), by kind: 10-K, 10-Q, 20-F, earnings release (
 of an Item 2.02 8-K) and call (management turns of a transcript or IR document). Only
 kinds present in both periods are compared, so filing boilerplate cancels out. A phrase
 is an adopter's when it appears in the current documents and not the year-ago ones;
-rank = adopters − droppers. Text = stored passages minus analyst/operator turns and
-forward-looking-statement boilerplate (D-SRCH-20); phrases break at punctuation, line and
-tab boundaries and numbers, and may not start or end with a stop word. Hit documents of
-other filers have no twins and are not mined. The probe's corpus-wide counter
+rank = adopters − droppers. Text = narrative passages (10-K Items 1, 1A, 7, 7A; 10-Q MD&A
+and risk factors; releases and calls whole) minus analyst/operator turns and
+forward-looking-statement boilerplate (D-SRCH-20); phrases with an accounting, tax or
+legal-process word are dropped and counted (mine-3, live check 1); phrases break at
+punctuation, line and tab boundaries and numbers, and may not start or end with a stop word.
+Hit documents of other filers have no twins and are not mined. The probe's corpus-wide counter
 (`count_period`, D-M02-52 (1)) stays for comparison.
 """
 
@@ -22,7 +24,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
-MINER_VERSION = "mine-2"
+MINER_VERSION = "mine-3"
 MAX_KEYS = 3_000_000
 SKIP_SECTIONS = ("call analyst", "call operator", "call other")
 BOILERPLATE = re.compile(
@@ -46,6 +48,38 @@ continued result results primarily significant total
 january february march april may june july august september october november december
 """
 STOP = frozenset(_STOP_WORDS.split())
+
+# Narrative sections of 10-K/10-Q (D-M02-14): the business, risk factors and MD&A.
+# Financial-statement notes, the cover and exhibits carry new accounting standards that
+# every filer adopts at once (live check 1: "cross-border tax", "targeted improvements").
+# Other documents (releases, calls, 20-F, unsplit filings) are read whole.
+NARRATIVE = frozenset({
+    "10-K Item 1", "10-K Item 1A", "10-K Item 7", "10-K Item 7A",
+    "10-Q Part I Item 2", "10-Q Part I Item 3", "10-Q Part II Item 1A",
+})  # fmt: skip
+# Accounting, tax and legal-process words: a phrase containing one is the wording of a
+# rule every filer adopts (ASUs, tax law, tariff authorities), not an investment theme.
+# Macro wording (tariffs, tax law) belongs to M10. Dropped phrases are counted.
+_ADMIN_WORDS = """
+tax taxes taxable taxation deductible nondeductible nontaxable accounting asu asus gaap fasb
+ifrs act acts bill statute amendment amendments retrospective prospective transition adoption
+adopted adopt improvements disclosure disclosures reporting interim pursuant regulation
+regulations tariff tariffs emergency powers grant grants internal-use impairment valuation
+unrecognized allowance allowances lease leases goodwill amortization depreciation vesting
+dividend dividends auditor audit pro forma consideration remeasurement hedge hedging
+derivative derivatives fair receivable receivables payable payables accrued accruals
+"""
+ADMIN = frozenset(_ADMIN_WORDS.split())
+
+
+def admin_phrase(phrase: str) -> bool:
+    return any(w in ADMIN for w in phrase.split())
+
+
+def narrative(label: str) -> bool:
+    if label.startswith(("10-K ", "10-Q ")):
+        return label in NARRATIVE
+    return label not in ("cover", "signatures") and label not in SKIP_SECTIONS
 
 
 def phrases_in(text: str, sizes: tuple[int, ...] = (2, 3)) -> set[str]:
@@ -140,6 +174,7 @@ class MineResult:
     not_compared: dict[str, str] = field(default_factory=dict)  # cik → why
     candidates: list[Mined] = field(default_factory=list)
     above_floor: int = 0  # phrases with ≥ min adopters before the cap
+    admin_dropped: int = 0  # accounting, tax or legal-process wording (ADMIN)
 
 
 def _grams(corpus: sqlite3.Connection, docs: Iterable[Doc]) -> set[str]:
@@ -195,6 +230,8 @@ def mine(
         for g, c in adopters.items()
         if len(c) >= min_adopters and g not in exclude
     ]
+    res.admin_dropped = sum(1 for m in rows if admin_phrase(m.phrase))
+    rows = [m for m in rows if not admin_phrase(m.phrase)]
     res.above_floor = len(rows)
     # ties: two-word phrases first (a phrase inside a longer one is at least as common);
     # which of "bandwidth memory" / "high bandwidth memory" to keep is decided on EFTS
@@ -216,7 +253,7 @@ def passages(corpus: sqlite3.Connection, doc_id: int) -> Iterator[tuple[str, str
         "JOIN section s ON s.section_id = p.section_id WHERE p.doc_id = ? ORDER BY p.start_offset",
         (doc_id,),
     ):
-        if r[0] in SKIP_SECTIONS:
+        if not narrative(r[0]):
             continue
         piece = body[r[1] : r[2]]
         if BOILERPLATE.search(piece):

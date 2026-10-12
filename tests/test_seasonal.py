@@ -410,8 +410,111 @@ def test_spread_counts_finance_apart():
                             ("5", None), ("6", "4813")])  # fmt: skip
     assert (sp.operating, sp.blank_check, sp.finance, sp.unknown) == (5, 1, 1, 1)
     assert sp.groups[0] == ("business equipment (chips, computers, software)", 2)
-    assert sp.top1_share == 2 / 3 and sp.to_json()["generic_d49"] is False
+    assert sp.top1_share == 2 / 3 and sp.to_json()["generic"] is None  # < 20: not judged
+    wide = industries.spread(
+        [
+            (f"{i:010d}", sic)
+            for i, sic in enumerate(
+                ["3674"] * 6
+                + ["2834"] * 5
+                + ["3711"] * 4
+                + ["5411"] * 4
+                + ["4911"] * 3
+                + ["1311"] * 3
+            )
+        ]
+    )
+    assert wide.known == 25 and round(wide.top3_share, 2) == 0.6 and wide.generic is True
+    tech = industries.spread([(f"{i:010d}", sic) for i, sic in enumerate(
+        ["3674"] * 14 + ["3711"] * 3 + ["4813"] * 2 + ["2834"] * 1)])  # fmt: skip
+    assert tech.known == 20 and tech.generic is False  # a value chain: 95% in three groups
 
 
 def test_new_review_kinds_are_known():
     assert {"m02_phrase", "m02_theme", "m02_candidate"} <= set(KIND_LABELS)
+
+
+# --- live check 1 fixes (mine-3, D-M02-54) ---------------------------------------------------
+
+
+def test_mining_reads_narrative_sections_and_drops_accounting_wording(dbs):
+    engine, corpus = dbs
+    for cik in ("0000000011", "0000000022"):
+        filing(engine, cik, f"{cik}-25-1", "10-K", "2025-02-10")
+        filing(engine, cik, f"{cik}-26-1", "10-K", "2026-02-10")
+        doc(corpus, cik, f"{cik}-25-1", "10-K", ten_k("We sell switches."))
+        now = ten_k("We sell switches and compute capacity. Cross-border tax laws apply.")
+        doc(
+            corpus,
+            cik,
+            f"{cik}-26-1",
+            "10-K",
+            now.replace("Tables.", "Targeted improvements to internal-use software guidance."),
+        )  # notes
+    res = mining.mine(engine, corpus, ["0000000011", "0000000022"], S.day)
+    got = {m.phrase for m in res.candidates}
+    assert "compute capacity" in got
+    assert not any("tax" in p for p in got) and res.admin_dropped > 0
+    assert "targeted improvements" not in got  # Item 8 (financial statements) is not read
+    assert mining.narrative("10-Q Part I Item 2") and not mining.narrative("10-Q Part I Item 1")
+    assert mining.narrative("whole") and not mining.narrative("cover")
+
+
+def test_candidate_sections_and_cosmetic_renames():
+    assert candidates.Mention(0, 1, "10-Q Part I Item 1", False, False).substantive is False
+    assert candidates.Mention(0, 1, "10-Q Part I Item 2", False, False).substantive is True
+    assert candidates.Mention(0, 1, "cover", True, False).substantive is False  # filing detail
+    assert candidates.Mention(0, 1, "10-K Item 1A", True, False).substantive is True
+    data = {"name": "QuickLogic Corp", "formerNames": [
+        {"name": "QUICKLOGIC CORPORATION", "to": "2026-03-01"}]}  # fmt: skip
+    assert flags.submission_flags(data, "0000000001", date(2026, 3, 10)) == []
+    data = {"name": "Riot Platforms, Inc.", "formerNames": [
+        {"name": "Riot Blockchain, Inc.", "to": "2026-03-01"}]}  # fmt: skip
+    assert flags.submission_flags(data, "0000000001", date(2026, 3, 10))[0].startswith("renamed")
+
+
+def test_old_mentions_get_no_first_mention_flags(make_client, dbs):
+    engine, corpus = dbs
+    _theme(engine, "optics", ["co-packaged optics"])
+    x = "0000000077"
+    old = engine.execute("INSERT INTO fulltext_query (phrase, variant, forms, start_date, "
+                         "end_date, total, capped, hits_kept, fetched_at) VALUES "
+                         "('\"co-packaged optics\"', 'phrase', '10-K', '2023-01-01', "
+                         "'2023-12-31', 1, 0, 1, 'x')").lastrowid  # fmt: skip
+    engine.execute("INSERT INTO fulltext_hit (query_id, accession, filename, cik, file_date) "
+                   "VALUES (?, 'old', 'o.htm', ?, '2023-03-01')", (old, x))  # fmt: skip
+    q10 = ("PART I\nItem 1. Financial Statements\nTables.\nItem 2. Management's Discussion\n"
+           "Our co-packaged optics orders reached $12 million.\n")  # fmt: skip
+    routes = {f"https://data.sec.gov/api/xbrl/frames/dei/EntityPublicFloat/USD/{p}.json":
+              [ok(b"", status=404)] for p in flags.float_frames(NOW.date())}  # fmt: skip
+    routes[f"{ARCHIVES}/77/{x}26000001/x.htm"] = [ok(q10.encode())]
+    t = Efts({("co-packaged optics", Q, S.latest[0], 0): efts(1, [hit(x, 1, filename="x.htm")])},
+             routes)  # fmt: skip
+    rep = candidates.run_candidates(make_client(t), engine, corpus, S, set(), NOW, lambda: False)
+    row = engine.execute("SELECT * FROM seasonal_company").fetchone()
+    assert rep.candidates == 1 and row["first_mention"] == "2023-03-01"
+    assert json.loads(row["flags"]) == []  # no submissions request for an old mention
+    assert not any(SUBMISSIONS_URL.format(cik=x) == c[0] for c in t.calls)
+
+
+def test_reset_clears_undecided_rows_and_keeps_decided_ones(make_client, dbs):
+    engine, corpus = dbs
+    spec = {"alpha words": (ciks(9), []), "beta words": (ciks(8, 30), [])}
+    client = make_client(Efts(_answers(spec)))
+    seasonal.ensure_run(engine, S, NOW)
+    seasonal.store_mined(engine, S, _mined(list(spec)), NOW)
+    budget = seasonal.Budget()
+    seasonal.screen(client, engine, S, NOW, budget)
+    seasonal.test(client, engine, corpus, S, NOW, budget)
+    seasonal.propose_pass(engine, S, NOW)
+    items = {json.loads(r["payload"])["phrase"]: r["item_id"]
+             for r in engine.execute("SELECT * FROM review_queue")}  # fmt: skip
+    review.m02_action(engine, items["alpha words"], "reject", "noise", "owner", NOW)
+    out = seasonal.reset(engine, S.key, NOW)
+    assert out == {"phrases": 1, "companies": 0, "proposals": 1, "kept": 1}
+    left = [r[0] for r in engine.execute("SELECT phrase FROM seasonal_phrase")]
+    assert left == ["alpha words"]  # the answered one stays (answer key)
+    assert engine.execute("SELECT count(*) FROM review_queue").fetchone()[0] == 1
+    assert engine.execute("SELECT count(*) FROM theme WHERE key = 'mined-beta-words'"
+                          ).fetchone()[0] == 0  # fmt: skip
+    assert engine.execute("SELECT count(*) FROM seasonal_count").fetchone()[0] > 0  # cache kept
