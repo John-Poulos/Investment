@@ -36,6 +36,7 @@ from engine.llm.runs import run as llm_run
 from engine.moneyflow import allocation as mf_allocation
 from engine.moneyflow import views as mf_views
 from engine.news import views as news_views
+from engine.official import views as off_views
 from engine.prices import store as prices
 from engine.prices.tiingo import MissingKey, TiingoClient, token_from_env
 from engine.store.db import connect, migrate
@@ -148,6 +149,8 @@ def create_app(settings: UiSettings) -> FastAPI:
     templates.env.globals["is_sec"] = is_sec
     templates.env.globals["FORECAST_NOTE"] = FORECAST_NOTE
     templates.env.filters["money"] = mf_views.money  # M02 part 3
+    templates.env.filters["usd"] = off_views.usd  # M02 part 7b
+    templates.env.globals["AWARD_NOTE"] = off_views.AWARD_NOTE
     templates.env.globals["payload_value"] = mf_views.payload_value
     templates.env.filters["mark_phrase"] = themes.mark_phrase  # M02 part 6 samples
     templates.env.globals["fin_kinds"] = fin_views.KIND_LABELS  # M02 part 5b
@@ -226,6 +229,7 @@ def create_app(settings: UiSettings) -> FastAPI:
         elif tab == "money":
             ctx["mf"] = mf_views.company_view(engine, cik, datetime.now(UTC).date(), corpus)
             ctx["fin"] = fin_views.company_view(engine, cik, datetime.now(UTC).date())
+            ctx["awards"] = off_views.company_awards(engine, cik, datetime.now(UTC).date())
         elif tab == "financials":
             ctx["tables"] = services.financials(engine, cik)
         elif tab == "insiders":
@@ -382,7 +386,9 @@ def create_app(settings: UiSettings) -> FastAPI:
         row = engine.execute("SELECT theme_id FROM theme WHERE key = ?", (key,)).fetchone()
         mf = mf_views.theme_view(engine, row["theme_id"], key, datetime.now(UTC).date())
         news = news_views.theme_view(engine, row["theme_id"], datetime.now(UTC).date())
+        official = off_views.theme_view(engine, row["theme_id"], datetime.now(UTC).date())
         ctx = frame(engine) | {"viewer": viewer, "d": d, "mf": mf, "news": news,
+                               "official": official,
                                "crowd": themes.theme_crowding(engine, row["theme_id"])}  # fmt: skip
         return templates.TemplateResponse(request, "theme.html", ctx)
 

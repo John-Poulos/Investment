@@ -1,7 +1,9 @@
 """HTTP for news feeds and news APIs (D-M02-13): pacing per lane, the shared fetch log.
 
 - Lanes: `feed` (RSS, 1 s apart), `finnhub` (free tier 60/min → 1.1 s apart), `massive`
-  (free tier 5/min → 12.5 s apart).
+  (free tier 5/min → 12.5 s apart); official feeds (part 7b, D-M02-13): `arxiv` (3 s, as
+  arXiv asks), `usaspending`, `fedreg` and `congress` (1 s each, well inside 5,000/h).
+- `post_json` for APIs that take a JSON body (USAspending), same pacing and logging.
 - Keys travel in headers only, and any secret is masked in logged details; `fetch_log`
   stores the URL as given by the caller (never with a key).
 - A network error or HTTP error is a `Failed`, never empty data; 429 is throttled.
@@ -19,7 +21,15 @@ from engine.sec.client import iso
 from engine.sec.results import Failed
 
 USER_AGENT = "InvestmentEngine/0.1 (personal research; RSS reader)"
-INTERVALS = {"feed": 1.0, "finnhub": 1.1, "massive": 12.5}
+INTERVALS = {
+    "feed": 1.0,
+    "finnhub": 1.1,
+    "massive": 12.5,
+    "arxiv": 3.0,
+    "usaspending": 1.0,
+    "fedreg": 1.0,
+    "congress": 1.0,
+}
 
 Transport = Callable[
     [str, Mapping[str, str], Mapping[str, str]], tuple[int, bytes, Mapping[str, str]]
@@ -32,6 +42,18 @@ def requests_transport(
     import requests
 
     r = requests.get(url, params=dict(params) or None, headers=dict(headers), timeout=30)
+    return r.status_code, r.content, dict(r.headers)
+
+
+PostTransport = Callable[[str, object, Mapping[str, str]], tuple[int, bytes, Mapping[str, str]]]
+
+
+def requests_post_transport(
+    url: str, body: object, headers: Mapping[str, str]
+) -> tuple[int, bytes, Mapping[str, str]]:
+    import requests
+
+    r = requests.post(url, json=body, headers=dict(headers), timeout=60)
     return r.status_code, r.content, dict(r.headers)
 
 
@@ -57,9 +79,11 @@ class Fetcher:
         sleep: Callable[[float], None] = time.sleep,
         intervals: Mapping[str, float] | None = None,
         secrets: tuple[str, ...] = (),
+        post_transport: PostTransport = requests_post_transport,
     ) -> None:
         self._engine = engine
         self._transport = transport
+        self._post = post_transport
         self._now = now
         self._clock = clock
         self._sleep = sleep
@@ -96,11 +120,26 @@ class Fetcher:
         headers: Mapping[str, str] | None = None,
         logged_url: str | None = None,
     ) -> Reply | Failed:
-        shown = logged_url or url
         hdrs = {"User-Agent": USER_AGENT} | dict(headers or {})
+        return self._call(lambda: self._transport(url, params or {}, hdrs), lane,
+                          logged_url or url)  # fmt: skip
+
+    def post_json(
+        self,
+        url: str,
+        body: object,
+        *,
+        lane: str,
+        headers: Mapping[str, str] | None = None,
+        logged_url: str | None = None,
+    ) -> Reply | Failed:
+        hdrs = {"User-Agent": USER_AGENT, "Content-Type": "application/json"} | dict(headers or {})
+        return self._call(lambda: self._post(url, body, hdrs), lane, logged_url or url)
+
+    def _call(self, send, lane: str, shown: str) -> Reply | Failed:
         self._pace(lane)
         try:
-            status, body, rh = self._transport(url, params or {}, hdrs)
+            status, body, rh = send()
         except Exception as e:  # network errors are failures, never empty data
             detail = self._mask(f"{type(e).__name__}: {e}")
             self._log(shown, "failed", None, detail)

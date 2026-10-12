@@ -127,6 +127,17 @@ def news_step(engine, corpus, report) -> str:
     return "\n" + "\n".join(rep.lines) + "\n"
 
 
+def official_step(engine, report) -> str:
+    """Official feeds after news (M02 part 7b): Federal Register, Congress.gov, USAspending,
+    arXiv, each within its own slice of a ~3-minute budget. Never fails the run."""
+    from engine.news.vendors import key_from_env
+    from engine.official.step import run_official_step
+
+    rep = run_official_step(engine, companies_of(report), datetime.now(UTC),
+                            congress_key=key_from_env("CONGRESS_API_KEY"))  # fmt: skip
+    return "\n" + "\n".join(rep.lines) + "\n"
+
+
 def seasonal_step(engine, corpus, report, background: bool):
     """D-M02-51: a due seasonal pass is mined here, locally (no SEC), and a background run
     then asks Yes/No after releasing the lock. Manual runs and a pass declined today get
@@ -347,6 +358,7 @@ def _run(args, engine, folder):
     calls += supply_step(client, engine, corpus, report)
     calls += financing_step(client, engine, corpus, report)
     calls += news_step(engine, corpus, report)
+    calls += official_step(engine, report)
     background = args.scheduled or args.if_missed
     season_text, prep = seasonal_step(engine, corpus, report, background)
     calls += season_text
