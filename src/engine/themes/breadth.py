@@ -75,7 +75,25 @@ def count_phrase(
     (seen live: "advanced packaging", 2020). A failed window is retried once as two
     halves and merged; if a half fails too, the window stays missing.
     """
-    res = search(client, engine, phrase, forms=FAMILIES[family], start=start, end=end, now=now,
+    count, sics, accessions = count_detail(client, engine, phrase, FAMILIES[family], start, end,
+                                           now, max_pages, split)  # fmt: skip
+    return count, set(sics), accessions
+
+
+def count_detail(
+    client: SecClient,
+    engine: sqlite3.Connection,
+    phrase: str,
+    forms: Sequence[str],
+    start: str,
+    end: str,
+    now: datetime,
+    max_pages: int = MAX_PAGES,
+    split: bool = True,
+) -> tuple[Count, dict[str, str | None], set[str]]:
+    """As `count_phrase` for any forms, with each fetched filer's first SIC (None when EFTS
+    lists none) — the seasonal pass needs industries and fund forms (D-M02-49, -52)."""
+    res = search(client, engine, phrase, forms=forms, start=start, end=end, now=now,
                  max_hits=max_pages * PAGE, allow_fallback=False)  # fmt: skip
     if not isinstance(res, Ok):
         reason = res.reason if isinstance(res, Failed) else "not found"
@@ -83,23 +101,30 @@ def count_phrase(
         s, e = date.fromisoformat(start), date.fromisoformat(end)
         if split and server_error and (e - s).days >= 2:
             mid = s + (e - s) // 2
-            a = count_phrase(client, engine, phrase, family, start, mid.isoformat(), now,
+            a = count_detail(client, engine, phrase, forms, start, mid.isoformat(), now,
                              max_pages, split=False)  # fmt: skip
-            b = count_phrase(client, engine, phrase, family,
-                             (mid + timedelta(days=1)).isoformat(), end, now, max_pages,
-                             split=False)  # fmt: skip
+            b = count_detail(client, engine, phrase, forms, (mid + timedelta(days=1)).isoformat(),
+                             end, now, max_pages, split=False)  # fmt: skip
             if a[0].documents is not None and b[0].documents is not None:
-                return _merge(phrase, start, end, a, b, reason)
-        return Count(phrase, start, end, None, None, None, False, False, reason), set(), set()
+                merged, _, acc = _merge(phrase, start, end, (a[0], set(a[1]), a[2]),
+                                        (b[0], set(b[1]), b[2]), reason)  # fmt: skip
+                sics = dict(b[1])
+                sics.update({k: v for k, v in a[1].items() if v or k not in sics})
+                return merged, sics, acc
+        return Count(phrase, start, end, None, None, None, False, False, reason), {}, set()
     r = res.data
-    ciks = {c for h in r.hits for c in (h.ciks or ((h.cik,) if h.cik else ()))}
+    sics: dict[str, str | None] = {}
+    for h in r.hits:
+        for c in h.ciks or ((h.cik,) if h.cik else ()):
+            if sics.get(c) is None:
+                sics[c] = h.sics[0] if h.sics else None
     accessions = {h.accession for h in r.hits}
     complete = r.complete
-    companies = len(ciks) if complete else len(ciks | set(r.entities))
+    companies = len(sics) if complete else len(set(sics) | set(r.entities))
     count = Count(phrase, start, end, r.total, len(accessions), companies, not complete,
                   r.capped or r.total >= EFTS_CAP,
                   "; ".join(r.incomplete) or None)  # fmt: skip
-    return count, ciks, accessions
+    return count, sics, accessions
 
 
 def _merge(

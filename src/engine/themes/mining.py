@@ -1,12 +1,16 @@
-"""Corpus phrase mining (D-M02-8): 2–3-word phrases per company and period over the
-stored corpus, so rising phrases can be proposed for the EFTS tests (D-M02-49).
+"""Corpus phrase mining (D-M02-8, D-M02-52): 2–3-word phrases that watchlist companies
+newly use, compared with their own documents of the same kind a year earlier.
 
-Unit = distinct companies using a phrase in a period (a phrase one company repeats is
-one use). Text = stored passages, minus analyst/operator turns of call transcripts and
-forward-looking-statement boilerplate (D-SRCH-20). Phrases break at punctuation, line
-and tab boundaries and numbers; a phrase may not start or end with a stop word. Counting
-runs one company at a time; when the table grows past `MAX_KEYS`, phrases seen by a
-single company are dropped (lossy counting) and the result says so.
+Each company's documents are split into the 12 months to the season date ("current") and
+the 12 months before ("year ago"), by kind: 10-K, 10-Q, 20-F, earnings release (EX-99.1
+of an Item 2.02 8-K) and call (management turns of a transcript or IR document). Only
+kinds present in both periods are compared, so filing boilerplate cancels out. A phrase
+is an adopter's when it appears in the current documents and not the year-ago ones;
+rank = adopters − droppers. Text = stored passages minus analyst/operator turns and
+forward-looking-statement boilerplate (D-SRCH-20); phrases break at punctuation, line and
+tab boundaries and numbers, and may not start or end with a stop word. Hit documents of
+other filers have no twins and are not mined. The probe's corpus-wide counter
+(`count_period`, D-M02-52 (1)) stays for comparison.
 """
 
 from __future__ import annotations
@@ -16,8 +20,9 @@ import sqlite3
 from collections import Counter
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 
-MINER_VERSION = "mine-1"
+MINER_VERSION = "mine-2"
 MAX_KEYS = 3_000_000
 SKIP_SECTIONS = ("call analyst", "call operator", "call other")
 BOILERPLATE = re.compile(
@@ -38,6 +43,7 @@ year years quarter quarters month months fiscal company companies inc corp corpo
 llc ltd first second third fourth new including included include includes certain
 million billion thousand percent approximately based related respectively continue
 continued result results primarily significant total
+january february march april may june july august september october november december
 """
 STOP = frozenset(_STOP_WORDS.split())
 
@@ -72,21 +78,130 @@ class Doc:
     accession: str
     doc_type: str | None
     dated: str  # filing date (SEC) or the release date of a call (AV-/IR-)
+    kind: str | None = None  # 10-K, 10-Q, 20-F, release, call; None = not mined
+
+
+def doc_kind(doc_type: str | None, form: str | None, items: str | None, call: bool) -> str | None:
+    """The comparison kind of a stored document (amendments and contracts are not mined)."""
+    if call:
+        return "call"
+    if doc_type in ("10-K", "10-Q", "20-F") and form == doc_type:
+        return doc_type
+    if (doc_type or "").startswith("EX-99.1") and form == "8-K" and "2.02" in (items or ""):
+        return "release"
+    return None
 
 
 def corpus_docs(engine: sqlite3.Connection, corpus: sqlite3.Connection) -> list[Doc]:
     """Every stored document with a date: SEC filings by filing date; call transcripts and
     IR documents by their release date (else when they were added)."""
-    filed = dict(engine.execute("SELECT accession, filed FROM filing"))
+    filed = {r[0]: (r[1], r[2], r[3]) for r in engine.execute(
+        "SELECT accession, filed, form, items FROM filing")}  # fmt: skip
     calls = {(r[0], r[1]): r[2] for r in engine.execute(
         "SELECT accession, filename, coalesce(stated_on, substr(added_at, 1, 10)) "
         "FROM call_document")}  # fmt: skip
     out = []
     for r in corpus.execute("SELECT doc_id, cik, accession, filename, doc_type FROM document"):
-        dated = filed.get(r["accession"]) or calls.get((r["accession"], r["filename"]))
+        call = calls.get((r["accession"], r["filename"]))
+        f = filed.get(r["accession"])
+        dated = (f[0] if f else None) or call
         if dated:
-            out.append(Doc(r["doc_id"], r["cik"], r["accession"], r["doc_type"], dated[:10]))
+            kind = doc_kind(r["doc_type"], f[1] if f else None, f[2] if f else None,
+                            call is not None)  # fmt: skip
+            out.append(Doc(r["doc_id"], r["cik"], r["accession"], r["doc_type"], dated[:10],
+                           kind))  # fmt: skip
     return out
+
+
+def periods(season_date: date) -> tuple[tuple[str, str], tuple[str, str]]:
+    """(current, year ago): the 12 months to the season date and the 12 months before."""
+    cur = ((season_date - timedelta(days=364)).isoformat(), season_date.isoformat())
+    ago_end = season_date - timedelta(days=365)
+    return cur, ((ago_end - timedelta(days=364)).isoformat(), ago_end.isoformat())
+
+
+@dataclass(frozen=True)
+class Mined:
+    phrase: str
+    adopters: tuple[str, ...]  # CIKs newly using it
+    droppers: int
+    users: int  # compared companies using it in the current period
+
+    @property
+    def score(self) -> int:
+        return len(self.adopters) - self.droppers
+
+
+@dataclass
+class MineResult:
+    current: tuple[str, str]
+    year_ago: tuple[str, str]
+    compared: dict[str, tuple[str, ...]] = field(default_factory=dict)  # cik → shared kinds
+    not_compared: dict[str, str] = field(default_factory=dict)  # cik → why
+    candidates: list[Mined] = field(default_factory=list)
+    above_floor: int = 0  # phrases with ≥ min adopters before the cap
+
+
+def _grams(corpus: sqlite3.Connection, docs: Iterable[Doc]) -> set[str]:
+    out: set[str] = set()
+    for d in docs:
+        for _, piece in passages(corpus, d.doc_id):
+            out |= phrases_in(piece)
+    return out
+
+
+def mine(
+    engine: sqlite3.Connection,
+    corpus: sqlite3.Connection,
+    ciks: Iterable[str],
+    season_date: date,
+    *,
+    exclude: set[str] = frozenset(),
+    min_adopters: int = 2,
+    cap: int = 200,
+) -> MineResult:
+    """Phrases newly used by ≥ `min_adopters` of `ciks`, ranked; at most `cap`."""
+    cur, ago = periods(season_date)
+    res = MineResult(cur, ago)
+    wanted = set(ciks)
+    by_cik: dict[str, list[Doc]] = {}
+    for d in corpus_docs(engine, corpus):
+        if d.cik in wanted and d.kind:
+            by_cik.setdefault(d.cik, []).append(d)
+    adopters: dict[str, list[str]] = {}
+    drops: Counter[str] = Counter()
+    users: Counter[str] = Counter()
+    for cik in sorted(wanted):
+        docs = by_cik.get(cik, [])
+        now_docs = [d for d in docs if cur[0] <= d.dated <= cur[1]]
+        old_docs = [d for d in docs if ago[0] <= d.dated <= ago[1]]
+        shared = sorted({d.kind for d in now_docs} & {d.kind for d in old_docs})  # type: ignore[misc]
+        if not shared:
+            res.not_compared[cik] = (
+                "no stored documents" if not docs else
+                f"no kind in both periods (current: {sorted({d.kind for d in now_docs})}, "
+                f"year ago: {sorted({d.kind for d in old_docs})})"
+            )  # fmt: skip
+            continue
+        res.compared[cik] = tuple(shared)  # type: ignore[arg-type]
+        a = _grams(corpus, (d for d in now_docs if d.kind in shared))
+        b = _grams(corpus, (d for d in old_docs if d.kind in shared))
+        users.update(a)
+        for g in a - b:
+            adopters.setdefault(g, []).append(cik)
+        drops.update(b - a)
+    rows = [
+        Mined(g, tuple(c), drops.get(g, 0), users[g])
+        for g, c in adopters.items()
+        if len(c) >= min_adopters and g not in exclude
+    ]
+    res.above_floor = len(rows)
+    # ties: two-word phrases first (a phrase inside a longer one is at least as common);
+    # which of "bandwidth memory" / "high bandwidth memory" to keep is decided on EFTS
+    # counts at proposal time (seasonal._covered), not on a handful of adopters here
+    rows.sort(key=lambda m: (-m.score, -len(m.adopters), m.phrase.count(" "), m.phrase))
+    res.candidates = rows[:cap]
+    return res
 
 
 def passages(corpus: sqlite3.Connection, doc_id: int) -> Iterator[tuple[str, str]]:

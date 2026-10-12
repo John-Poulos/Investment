@@ -249,6 +249,11 @@ class SecClient:
     def _headers(self) -> dict[str, str]:
         return {"User-Agent": self.user_agent, "Accept-Encoding": "gzip, deflate"}
 
+    def paused_for(self) -> float:
+        """Seconds the throttle breaker stays open (0 = calls allowed). Batch jobs whose
+        helpers fold failures into a count use it to stop on a throttle."""
+        return self._breaker.remaining()
+
     def get_bytes(
         self,
         url: str,

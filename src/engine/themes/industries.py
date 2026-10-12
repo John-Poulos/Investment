@@ -6,7 +6,9 @@ equipment" group, so a technology phrase used across them reads as concentrated,
 generic. FF12's catch-all "Other" (mining, construction, transport, services …) is split
 by 2-digit SIC major group, the fallback D-M02-49 names; otherwise unrelated industries
 would look like one group. A filer without a SIC is "industry unknown" and blank-check
-companies (SIC 6770) are not operating companies.
+companies (SIC 6770) are not operating companies. Finance filers (funds, REITs, banks,
+crypto companies) mention themes as holdings or risks, so they are counted apart
+(D-M02-52); the spread is shown, not enforced, until the calibration round sets a rule.
 """
 
 from __future__ import annotations
@@ -81,20 +83,32 @@ class Spread:
     operating: int  # companies counted toward the ≥ 5 floor (blank checks excluded)
     blank_check: int
     unknown: int  # no SIC: counted toward the floor, not toward spread
-    groups: tuple[tuple[str, int], ...]  # largest first
-    top1_share: float | None  # of companies with a known industry
+    finance: int  # FF12 finance (funds, REITs, banks, crypto): shown apart (D-M02-52)
+    groups: tuple[tuple[str, int], ...]  # other known industries, largest first
+    top1_share: float | None  # of companies in `groups`
     top2_share: float | None
+    top3_share: float | None
 
     @property
-    def generic(self) -> bool | None:
-        """D-M02-49: largest group < 50% and top two < 75% → generic. None = no known SIC."""
+    def generic_d49(self) -> bool | None:
+        """D-M02-49's working cut-offs (largest group < 50% and top two < 75%). Shown only:
+        the spread rule is re-proposed after the calibration round (D-M02-52)."""
         if self.top1_share is None or self.top2_share is None:
             return None
         return self.top1_share < GENERIC_TOP1 and self.top2_share < GENERIC_TOP2
 
+    def to_json(self) -> dict:
+        return {
+            "operating": self.operating, "blank_check": self.blank_check,
+            "unknown": self.unknown, "finance": self.finance,
+            "groups": [list(g) for g in self.groups], "top1": self.top1_share,
+            "top2": self.top2_share, "top3": self.top3_share, "generic_d49": self.generic_d49,
+        }  # fmt: skip
 
-GENERIC_TOP1 = 0.50  # working cut-offs (D-M02-49), checked against stored part-1 hits
+
+GENERIC_TOP1 = 0.50  # working cut-offs (D-M02-49); not enforced until re-proposed (D-M02-52)
 GENERIC_TOP2 = 0.75
+FINANCE = next(label for n, _, label, _ in FF12 if n == 11)
 
 
 def spread(companies: Iterable[tuple[str, str | None]]) -> Spread:
@@ -105,17 +119,21 @@ def spread(companies: Iterable[tuple[str, str | None]]) -> Spread:
             seen[cik] = sic
     blank = sum(1 for s in seen.values() if s and str(s).strip() == BLANK_CHECK)
     counts: Counter[str] = Counter()
-    unknown = 0
+    unknown = finance = 0
     for s in seen.values():
         if s and str(s).strip() == BLANK_CHECK:
             continue
         g = group_of(s)
         if g == UNKNOWN:
             unknown += 1
+        elif g == FINANCE:
+            finance += 1
         else:
             counts[g] += 1
     known = sum(counts.values())
     ranked = tuple(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
-    top1 = ranked[0][1] / known if known else None
-    top2 = sum(c for _, c in ranked[:2]) / known if known else None
-    return Spread(len(seen) - blank, blank, unknown, ranked, top1, top2)
+
+    def top(n: int) -> float | None:
+        return sum(c for _, c in ranked[:n]) / known if known else None
+
+    return Spread(len(seen) - blank, blank, unknown, finance, ranked, top(1), top(2), top(3))
