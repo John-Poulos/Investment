@@ -1,6 +1,6 @@
 # M04 — Financials & red flags
 
-Status: design complete 2026-10-12, D-M04-1…75; build parts in M04_BUILD_LOG.md · Updated: 2026-10-12 · Outline headings: Analyze the financials; Financial red flags · Depends on: M00 (SEC data), M02 (peer data), M06, M11 (R19 ledger) · Sources: S02–S04, S13, S20, S25, S32–S37, S43–S45; review sources in M04_DESIGN_PACK.md (provisional IDs, mapped to S122 onward in build Part 0)
+Status: design complete 2026-10-12, D-M04-1…75; build parts in M04_BUILD_LOG.md · Updated: 2026-10-12 · Outline headings: Analyze the financials; Financial red flags · Depends on: M00 (SEC data), M02 (capex recipes and guided-vs-actual, allocation block, guidance freshness, DSO, supply links), M06, M11 (R19 ledger) · Sources: S02–S04, S13, S20, S25, S32–S37, S43–S45; review sources in M04_DESIGN_PACK.md (provisional IDs, mapped to S122 onward in build Part 0)
 
 Every rule cites its D-M04-n; suggestion IDs (S1.x–S6.x, SB.x) point to the round briefs in docs/m04_review/. Thresholds marked † are starting values, calibrated at Part 8b (D-M04-51) or, for red flags, at the High review after 8b (D-M04-73). Missing data stays missing (`method` = "missing: <reason>"), never zero (D-M04-9). Outputs are research signals; the owner decides (D8, D16).
 
@@ -12,18 +12,18 @@ Judge financial health and earnings quality, flag the outline's red flags by lif
 |---|---|---|---|
 | Point-in-time facts: `facts_as_of()` (periodic forms only, tag priority after time, de-SPAC boundary); every value carries tag and accession (S1.1, S1.4) | `fact` (companyfacts) | A | Logon refresh, per new filing (D-M04-70) |
 | Share series `shares_period_end`, `shares_cover`, `shares_basic_wavg`, `shares_diluted_wavg`, `sbc`; multi-class cover from R1 pages; implied float (D-M04-2) | `fact`; R1 pages | A | Per new filing; multi-class R1 ~1 per filing |
-| Capex: company definition for display, longest consistent tag for own history, PP&E tag only for peers (D-M04-3); `capex_split` ladder (D-M04-6) | `config/capex_definitions.toml`; `fact`; NVDA instances | A | Per new filing |
+| Capex: display = M02's company-definition recipe (clause-derived, toml override, approximate label and shown-actual rule, D-M02-29/-32/-34) with the standard-tag value beside it and the D-M04-3 marker worded "broader tag: <what it adds>" (e.g. "includes intangibles"), so it cannot be confused with M02's "≈, gap X%"; longest consistent tag for own history; PP&E tag only for peers (D-M04-3); `capex_split` ladder (D-M04-6) | `moneyflow/actuals.py` (`config/capex_definitions.toml` overrides); `fact`; NVDA instances | A | Per new filing |
 | Peers: 4-digit SIC proposals from a ranked shortlist, owner-confirmed `peer_group`; non-SEC peers "missing" (D-M04-4); periods TTM ±45 d, quarters/instants ±40 d† (D-M04-5); peer facts trimmed to M04 tags (D-M04-75) | submissions, browse-by-SIC, companyfacts | A | Peer companyfacts on a new peer filing |
 | Life-cycle stage, owner-confirmed (D-M04-7, -12) | Cash-flow totals in `fact`; owner | A (owner confirmation) | Per new 10-K |
 | Model tags (D-M04-8) | `config/company_models.toml`, hand-edited | Owner | On edit |
-| Guidance record, `guidance_hit_rate` (D-M04-10) | Guidance ledger (`guidance/`), first-filed facts | A; B if from a transcript | Per earnings release |
+| Guidance record, `guidance_hit_rate` (D-M04-10) | Guidance ledger (`guidance/`), first-filed facts; capex actuals from M02's `moneyflow/guided.py` (recipe in force at the guide date, D-M02-29); M02 freshness states (D-M02-30) | A; B if from a transcript | Per earnings release |
 | 8-K items 1.01–1.03, 2.01, 2.04, 3.01–3.03, 4.01, 4.02, 5.06 (D-M04-15, -28, -37) | `event` | A | Logon refresh |
 | Filing text: going concern, covenants, restatement wording, causes, estimates, credit lines, overhang, ratings (D-M04-15, -19, -34, -41) | corpus (FTS5), EFTS one-off history | A (verified quote) | Finders run on stored text |
 | Dimensional facts: segments, customers, missing 10-Q lines (D-M04-42) | Filing instances → `fact_dim` | A | One instance per new 10-K/10-Q |
 | Unit KPIs, credits (D-M04-42) | `unit_metric`: Tesla DS2, EX-99.2, 10-K sentences | A | Per release |
 | 424B fee exhibits, shelves (D-M04-24) | Filing index, fee exhibit | A | Per new 424B |
 | Issuance bands (D-M04-23) | CY frames (float ≥ $700M, SIC 6770 out) | A | Once a year |
-| Daily closes; delisted symbols only on name and date match (D-M04-72, S6.15) | Tiingo | Market data (see Open questions) | Nightly prices |
+| Daily closes; delisted symbols only on name and date match (D-M04-72, S6.15) | Tiingo | Market data (see Open questions) | Logon price step: core and promoted daily, tracked in a 3-day rotation (D-M02-12, -18); rows name the close date used |
 | Owner entries: market share (D-M04-68), undrawn credit, stickiness class (D-M04-43), peer and stage confirmations | Setup page, review items | B without a filing source; A with one (D-M04-9) | On entry |
 
 ## Company profile
@@ -55,6 +55,7 @@ Initial entries: MSTR `asset_treasury`, ETV `fund`, INFQ `spac_shell` for period
 - **Overdue** → survival gate incomplete and an exit warning (D-M04-61).
 - **Stale** → once a period has ended unfiled, the carried CvD state is marked stale. The first tranche may use it; later tranches wait for the filing (D-M04-61).
 - **Input age:** older facts are labelled "as of <date>". Foreign annual filers use annual burn for up to 16 months, then the gate is incomplete (D-M04-36).
+- **Re-evaluated on every logon run:** overdue and stale come from the calendar (a due date passes with no filing), not from a new filing, so `filing_status`, the stale mark and the gate state are recomputed for every covered company on each run (local, 0 SEC requests; D-M04-61, D-M02-12; M04_BUILD_LOG.md "Logon-refresh constraints").
 
 ## Cycle vs. Decline (CvD) profile
 Approved structure of D-M04-1, amended. A changed cell carries its D-M04-n. Units: pp = percentage points.
@@ -85,7 +86,7 @@ CvD runs when the latest filed quarter shows any of: TTM revenue down year over 
 | Capex and R&D (D-M04-54) | Total capex ÷ revenue and R&D dollars both held near own 3-year average and peers | Either cut > 20%† while peers hold | Capex ÷ revenue > 1.5×† own 3-year average while revenue falls → neutral, pointer to M05 (D-M04-64); tag switch in window → not scored (D-M04-3) | XBRL; peers on the PP&E tag only |
 | Moat (M06), challengers (R21) | Unchanged; no challenger qualified | Challenger qualified at a major customer | Not applicable until M06 (S6.11) | M06 |
 | Customer base, by owner-confirmed stickiness class (D-M04-43) | Within own historical range | Design-in: owner-confirmed loss (agreement ended, share below own 3-year minimum while revenue flat or down, replacement supplier named). Contracted: RPO below its 3-year minimum for 2† quarters (D-M04-49) | RPO ÷ revenue break alone → review only (D-M04-49); transactional weight 0; no data → missing, never intact | Instance axes, else sentences; customer-named 8-Ks only (D-M04-43); RPO |
-| Guidance record (D-M04-10) | Hit rate steady | 2† misses in the last 4 guided quarters, or a quiet removal | Point and "approximately" guides unscored; release-silent → "missing (DS1)" | `guidance_hit_rate` |
+| Guidance record (D-M04-10) | Hit rate steady | 2† misses in the last 4 guided quarters, or a quiet removal (only in M02's freshness state "not restated", D-M02-30) | Point and "approximately" guides unscored; release-silent → "missing (DS1)"; call not stored yet or results not read yet → missing with that reason | `guidance_hit_rate` |
 | Health score (D-M04-53, -59, -65) | F-quality ≥ 4 of 5 | F-quality ≤ 2 | 3 → neutral; Piotroski F and Mohanram G shown, not voted | XBRL |
 | R12 cause (new vote, D-M04-44) | — | Owner-confirmed price, mix or competition cause | Present only when it fires (D-M04-56) | R12 episode |
 
@@ -94,12 +95,12 @@ CvD runs when the latest filed quarter shows any of: TTM revenue down year over 
 - **Open 4.02:** rows reading the affected periods are marked "inputs under non-reliance" and warn; adds are not blocked (D-M04-21).
 
 ### Classification
-Each row returns a side, neutral (present, no side), or missing with its reason; missing rows leave the denominator. A question needs ≥ 2 present rows and one side holding ≥ 2/3† of present weight; otherwise AMBIGUOUS → `m04_cvd` review, and the owner's answer becomes the state (D-M04-56, D-M04-63).
+Each row returns a side, neutral (present, no side), or missing with its reason; missing rows leave the denominator. A question needs ≥ 2 present rows and one side holding ≥ 2/3† of present weight; otherwise AMBIGUOUS → `m04_cvd` review, and the owner's answer becomes the state (D-M04-56, D-M04-63). The grid's "review" for STUMBLE and CYCLE_PLUS_DAMAGE (D-M04-1) is the same `m04_cvd` item, and the owner's answer becomes the state in the same way.
 
 | | Franchise intact | Franchise weakening |
 |---|---|---|
-| Shared slump | CYCLICAL_TROUGH → adds allowed on M01 trigger | CYCLE_PLUS_DAMAGE → warning; review |
-| Company-specific | STUMBLE → review | STRUCTURAL_DECLINE → no adds; exit warning |
+| Shared slump | CYCLICAL_TROUGH → adds allowed on M01 trigger | CYCLE_PLUS_DAMAGE → exit warning (M01 rule 4); `m04_cvd` review |
+| Company-specific | STUMBLE → `m04_cvd` review | STRUCTURAL_DECLINE → no adds; exit warning |
 | Not active (D-M04-55) | NO_SLOWDOWN | |
 | No 2/3 majority or < 2 rows (D-M04-56) | AMBIGUOUS → review | |
 
@@ -138,20 +139,23 @@ Liquidity and legal facts only; runs at every stage; scope by model tag (D-M04-8
 - **Open 4.02:** the gate is marked "inputs under non-reliance" and warns; it is not set to incomplete (D-M04-21).
 - Regression: Invitae fails at the FY2021 10-K (715 days before its 8-K 1.03); Boeing FY2019 runway 5.9 and Q2 2024 5.5 → fail, wall passes; Intel FY2024 capex-funded → warn + review (D-M04-32, probe).
 
-### How M01 reads M04 (D27; D-M04-58 = D-M01-5)
+### How M01 reads M04 (D27; D-M04-58 = D-M01-5; rule 4 per M01 rule 4 and S6.14)
+"Yes" in the rule-4 column is an exit warning: a warning only, the owner decides (D16).
+
 | M04 output | Rule 3: later tranches | Rule 7: strength beyond 2σ | Rule 4: exit warning |
 |---|---|---|---|
 | CYCLICAL_TROUGH, gate pass or warn | Allowed | Yes (gauge not required, D-M04-62) | — |
 | NO_SLOWDOWN, gate pass or warn | Allowed | No | — |
-| AMBIGUOUS, STUMBLE | Blocked until the owner resolves | No | — |
-| CYCLE_PLUS_DAMAGE | Blocked | No | Warning |
-| STRUCTURAL_DECLINE | Blocked | No | Yes |
+| AMBIGUOUS, STUMBLE | Blocked until the owner resolves the `m04_cvd` item; the answer becomes the state (D-M04-56, -58) | No | — |
+| CYCLE_PLUS_DAMAGE | Blocked (D-M04-58) | No | Yes (M01 rule 4; S6.14) |
+| STRUCTURAL_DECLINE | Blocked (D-M04-58) | No | Yes (M01 rule 4; S6.14) |
 | Stale (carried state) | First tranche may use it; later tranches wait (D-M04-61) | As the carried state | As the carried state |
-| Overdue | Blocked | No | Yes (D-M04-61) |
-| Gate fail | Blocked | No | Warning |
+| Overdue | Blocked (D-M04-58) | No | Yes (D-M04-61) |
+| Gate fail | Blocked (D-M04-31) | No | Yes (S6.14) |
 | Gate incomplete or not applicable | Blocked; missing inputs listed (D-M04-35) | No | — |
 | Capex-funded review open (< 6 quarters) | Allowed | No (D-M04-38) | — |
-| Red-flag warnings (`distress_score`, `financing_pressure`, non-reliance, others) | Shown; never block (D16, D-M04-21) | No effect | Listed |
+| `guidance_removed` (S1.7) | — | — | Yes: M01 rule 4's "quietly removed targets" (R19) |
+| Red-flag warnings (`distress_score`, `financing_pressure`, non-reliance, others) | Shown; never block adds (D8, D-M04-21, -60) | No effect | Listed in the `exit_warning` reasons; never block (D16, D-M04-21) |
 
 ## Red flags
 **Routing.** Tag first (D-M04-8), then the owner-confirmed stage (D-M04-46): introduction → young set; growth → young set + SG&A rule; mature → mature set; decline → mature set, reversion prior unused; confirmed shake-out → all-stage flags only. Unconfirmed stage → both sets, labelled, uncounted (D-M04-7).
@@ -170,6 +174,8 @@ Liquidity and legal facts only; runs at every stage; scope by model tag (D-M04-8
 | `estimate_share` | < 10% note, 10–25% watch, ≥ 25% elevated†, both directions; 3 years same direction adds a flag (D-M04-17, S2.7) | Denominator on the amount's basis; ≤ 0 or < 1% of revenue → not meaningful (D-M04-18) | ≥ 10% → `m04_estimate` review | ≥ 20 |
 | `special_items` | Restructuring, impairment, write-down tags or "non-recurring"/"one-time" wording in ≥ 3† of 4 years; cumulative size vs operating income; stated non-GAAP gap quoted, never computed (D-M04-19) | All stages | Warning | ≥ 20 |
 
+DSO and its alert are M02's (`financing/credit.dso`, `m02_fin_alert`, D-M02-45, -47). M04 shows DSO as context and raises no second alert for it; the DSRI inside `mscore` stays a screen.
+
 ### Dilution and financing (outline Red Flags 2, 3 SBC)
 | Flag | Trigger | Routing | Output | D13 |
 |---|---|---|---|---|
@@ -179,6 +185,8 @@ Liquidity and legal facts only; runs at every stage; scope by model tag (D-M04-8
 | Shelves, ATMs, 424Bs | Fee-exhibit amounts; a shelf is capacity, resales add no shares (D-M04-24) | All | Information | never |
 | Overhang | Convertibles, warrants, mandatory convertibles from verified text (S3.6) | All | `m04_overhang` review; information | never |
 | SBC block, rating actions | SBC ÷ revenue and ÷ OCF, buyback offset (S3.4); actual or review rating sentences (S3.7) | All | Information; `m04_rating` review | never |
+
+Buybacks, tax withholding, equity issued and debt raised or repaid come from M02's allocation block (`moneyflow/allocation.py`, `fin_tag_map`, withholding kept separate, "partial: X% mapped" label; D-M02-31); M04 does not map those tags a second time.
 
 ### Distress and FCF burn (outline Red Flags 1, 4, 6)
 | Flag | Trigger | Routing | Output | D13 |
@@ -211,11 +219,13 @@ Negative gross margin alone is not a flag (S5.6). Contribution margins are compa
 | Contracted RPO | Below its 3-year minimum for 2 quarters → weakening; an RPO ÷ revenue break alone → review (D-M04-49) | Q2 vote | via CvD Q2 |
 | Weight | min(1, at stake ÷ 0.25†); contracted 1; transactional 0; missing excluded (D-M04-50) | `customer_at_stake`, `customer_hhi` shown | info |
 
+Sentence sources include M02's `supply_link` (L2 sentences with revenue share, L3 Item 1.01 counterparties, confirmed direction, each with its date; D-M02-36, -40), and the RPO series is M02's (D-M02-19 (4)). M04 adds only the loss rules and the class logic (D-M04-43, -49).
+
 ### Core trend information rows (outline "Analyze the financials" 1–4)
 `rev_yoy`, `rev_cagr3`, `fcf_growth` (on total capex and on owner earnings = OCF − maintenance capex − SBC), `gm_trend_pp`, `opex_vs_sales`: each against own history and as peer robust z; near-zero bases → not meaningful (S2.1); no vote in CvD or confluence until Part 8 (D-M04-6, -11).
 
 ## Signals out
-Every row: `cik` (key; ticker for display, D-M04-74), one row per timeframe, `value` for numbers, `value_text` for states with `value` NULL, missing = both empty and `method` = "missing: <reason>", `evidence_grade` = weakest deciding input, `source_ref` = newest accession "+N", full inputs in `method` (D-M04-9). ✓ = may carry weight once D13 weights exist, subject to the red-flag D13 column; info = weight 0. One computation serves all timeframes; profiles differ only in weights (S1.5). * = name proposed at the redraft, confirmed at build (Open questions).
+Every row: `cik` (key; ticker for display, D-M04-74), one row per timeframe, `value` for numbers, `value_text` for states with `value` NULL, missing = both empty and `method` = "missing: <reason>", `evidence_grade` = weakest deciding input, `source_ref` = newest accession "+N", full inputs in `method` (D-M04-9). ✓ = may carry weight once D13 weights exist, subject to the red-flag D13 column; info = weight 0. One computation serves all timeframes; profiles differ in weights and, later, in persistence windows; profile parameters are recorded in `method` (S1.5). M04's own windows are fixed (3 years: D-M04-29, -49, -64). * = name proposed at the redraft, confirmed at build (Open questions).
 
 | Signal | value / value_text | Meaning | MY | PT | ST |
 |---|---|---|---|---|---|
@@ -265,8 +275,9 @@ Every row: `cik` (key; ticker for display, D-M04-74), one row per timeframe, `va
 | `capex_maint`, `capex_growth`, `owner_earnings`* | $; method tag | `capex_split` context | info | info | info |
 
 ## Review queue (D8)
-- **Order** (D-M04-71): 1 survival · 2 CvD AMBIGUOUS and stage changes · 3 events · 4 restatement · 5 dilution · 6 margin, customer, unit KPI · 7 estimate and M-score.
-- **Cap:** 5 judgment items a week across M04† (S4.8); overflow listed on the M04 tab, flushed by order, oldest first. Gate fails are alerts and operational items are uncapped.
+- **Order** (D-M04-71): 1 survival · 2 CvD review (AMBIGUOUS; also STUMBLE and CYCLE_PLUS_DAMAGE, Classification) and stage changes · 3 events · 4 restatement · 5 dilution · 6 margin, customer, unit KPI · 7 estimate and M-score.
+- **Cap:** 5 judgment items per Monday–Sunday week (UTC) across M04†, the week as in D-M02-18 (S4.8); overflow listed on the M04 tab, flushed by order, oldest first (as D-M02-53). Gate fails are alerts and operational items are uncapped.
+- **How alerts reach the owner:** `m04_gate_fail` items and exit warnings are listed in the existing end-of-run summary box (shown after the lock is released, D-M02-18, -53, -57) and on the M04 tab; the logon catch-up has no other channel.
 - **Baselines:** existing hits are baselined except items filed in the last 12 months and a current gate fail or incomplete (D-M04-71); EFTS history is shown, never queued (D-M04-34).
 - **Setup batch** (stages, peer shortlists, credit lines, gate inputs) is outside the cap and comes before Part 3 (D-M04-71).
 
@@ -278,8 +289,8 @@ Every row: `cik` (key; ticker for display, D-M04-74), one row per timeframe, `va
 | `m04_runway`* | Capex-funded runway < 6 quarters (D-M04-38) | 0–1 | Rare |
 | `m04_score_gap` | `distress_score` in distress while the gate passes | 0–1 (BA Z 1.53) | Rare |
 | `m04_credit_line` (operational) | Text-found undrawn credit to confirm (runway < 12 or capex-funded warn) | ~2 | Per 10-Q for those names |
-| `m04_gate_input` (operational) | Tag to map | 1 (INFQ) | Rare |
-| `m04_cvd` | CvD AMBIGUOUS | Set at Part 8a | ~2 a year |
+| `m04_gate_input` (operational) | Non-financing gate input tag to map (financing tags go through M02's `fin_tag_map`, D-M02-31) | 1 (INFQ) | Rare |
+| `m04_cvd` | CvD AMBIGUOUS, STUMBLE or CYCLE_PLUS_DAMAGE; the owner's answer becomes the state (D-M04-56) | Set at Part 8a | ~2–4 a year (estimate) |
 | `m04_stage` | First stage; computed change; ambiguous | 15 (setup) | 4–5 a year |
 | `m04_peer` | Ranked SIC shortlist | ~13 (setup) | New names only |
 | `m04_event` | 8-K 4.02, 4.01, 2.04, 3.01, 1.03, 2.06; NT filings | Last 12 months only | ~2 a year |
@@ -305,7 +316,7 @@ D9: how could this data mislead? Build and operations rows (lock, logon load, fi
 | Point-in-time values and tag switches | Recasts rewrite what was known (Rite Aid FY2017 32,845 → 22,928; WDC FY2023 12.3B → 6.3B); 8-K and DEF 14A facts become "latest"; a tag switch (ASC 606 contract tags) reads as a change | `facts_as_of`, periodic forms only, first-filed values in backtests (S1.1, S6.1); switch inside a window = "definition changed", not scored (D-M04-3; S2.2) |
 | Extension-only, wrong-meaning and mis-mapped tags | Values only under extensions, absent from companyfacts (NVDA capex before FY2022, NVDA marketable securities 51,951; MRVL has no issuance tag); GE FY2016 contract assets double-tagged as `CommodityContractAssetNoncurrent` (a derivative concept); nonproduction D&A read as total (INTC $200M vs $9,204M) | Instance read or "missing", never zero; per-company alias (GE only), that concept never mapped generally; `Depreciation` added, fallbacks marked (D-M04-3, -42; S1.3, S1.4, SB.18) |
 | Shares | Cover and period-end dates mixed; multi-class counts missing (GOOG, META, MSTR, SPCX); splits | Four series; class-summed cover count from R1; split guard on every series; pre-2011 history on basic weighted average, labelled (D-M04-2) |
-| Capex definition and split | Broader fallback tag (+15.8% Amazon FY2016) mixed into peer z; Greenwald out of range (MU 6 of 8 years, INTC 4 of 4) or calls a build-out maintenance (MSFT 65–79%); depreciation moves with useful lives (INTC 2023 −29.5%) | Company definition with "≈ broader tag" marker; peers on PP&E tag only (NVDA, AMZN out); depreciation default capped at capex, Greenwald only as in-range cross-check; method tag on every value; consumers use total capex (D-M04-3, -6; S2.7) |
+| Capex definition and split | Broader fallback tag (+15.8% Amazon FY2016) mixed into peer z; Greenwald out of range (MU 6 of 8 years, INTC 4 of 4) or calls a build-out maintenance (MSFT 65–79%); depreciation moves with useful lives (INTC 2023 −29.5%) | Display on M02's company-definition recipe (D-M02-29, -32) with a "broader tag: <what it adds>" marker, worded apart from M02's "≈, gap X%"; peers on PP&E tag only (NVDA, AMZN out); depreciation default capped at capex, Greenwald only as in-range cross-check; method tag on every value; consumers use total capex (D-M04-3, -6; S2.7) |
 | History depth and breaks | XBRL starts 2009–2011, later for some concepts; bankruptcy emergence leaves no 12-month period (Peabody 2017) | Depth per concept; "insufficient history", never "first deep decline"; stubs never summed (D-M04-54) |
 | De-SPAC and same-CIK history | Shell and target histories under one CIK read as restatement or issuance (INFQ FY2025 loss 52% smaller; SPCX +100%, INFQ +1,310%) | Boundary at the closing 8-K (2.01 + 5.06); `predecessor` label; `spac_shell` keyed on period end (D-M04-8, -22) |
 | Filer status and deadlines | Status must carry year to year: Invitae's FY2022 float $569.8M is above the $560M exit line, so it stayed large accelerated; an entry-line ($700M) reading misdates its deadline | Rule 12b-2 entry and exit lines from stored float, carried yearly; longest deadline when float is missing; Invitae as regression case (S1.6; D-M04-36, -61) |
@@ -327,7 +338,7 @@ D9: how could this data mislead? Build and operations rows (lock, logon load, fi
 |---|---|---|
 | Activation | TTM lags: MU read NO_SLOWDOWN at its 2022-10-07 10-K; one lumpy quarter can switch CvD on | Revenue, gross margin (≥ 3 pp) or operating income (≥ 25%) falls, or latest quarter ≥ 10% below a year earlier (starting values) (D-M04-55, -67) |
 | Missing rows | Unbuilt rows read as disagreement (all AMBIGUOUS) or vanish unseen; a state can rest on few rows (MU trough on 3 of 7) | Missing rows leave the denominator; ≥ 2 present; coverage shown beside confidence (D-M04-56) |
-| Filing lag, stale and overdue | The price trigger fires before the filing that confirms the state (Micron's low came while filings showed growth); a dead company keeps its last state (Invitae, RadioShack) | "stale" once a period ends unfiled, later tranches wait (pauses up to 40–50 days); `overdue` → gate incomplete and exit warning; 8-K 1.03 and 3.01 fail the gate first (D-M04-37, -61) |
+| Filing lag, stale and overdue | The price trigger fires before the filing that confirms the state (Micron's low came while filings showed growth); a dead company keeps its last state (Invitae, RadioShack) | "stale" once a period ends unfiled, later tranches wait (pauses up to 40–50 days); `overdue` → gate incomplete and exit warning; status re-evaluated on every logon run, not only on a new filing; 8-K 1.03 and 3.01 fail the gate first (D-M04-37, -61) |
 | Inventory days | Write-downs understate days (Micron 153 vs 235); ending vs average inventory gives other figures (151/213) | One labelled definition (average inventory); write-down added back to inventory and COGS (R1 brief; probe L9) |
 | Capex and intensity rows | One cut drives both Q1 supply response and Q2 weakening; a surge into falling revenue reads intact; a planned counter-cyclical build reads neutral | Q2 on total capex intensity and R&D level; surge > 1.5× own average → neutral, pointer to M05 (D-M04-54, -64) |
 | Troughs and ROIC | 1–4 pp wiggles count as cycles (Intel 2013–17); write-downs fake lower lows; invested capital ≤ 0 after buybacks; goodwill jumps | 5 pp turning points, write-down adjusted; ROIC `not_meaningful` when ≤ 0 and "intact" only with gross margin (D-M04-54) |
@@ -336,7 +347,7 @@ D9: how could this data mislead? Build and operations rows (lock, logon load, fi
 | Normalized earnings power | Assumes the next cycle resembles the last; decliners keep old margins; repeated "one-time" items inflate it; two unrelated one-offs both stay in | Current and cycle-average revenue bases; reported and ex-items shown; an item excluded only if nothing similar in 10 years (D-M04-54, -66) |
 | Overreaction gauge | Mismatched windows fake an overreaction; clears near the low (MU Q2 FY23); a trough without overreaction still gets strength | Same 4 quarters for price and earnings; informs, never overrides (D-M04-57, -62) |
 | Market share and the Intel case | Most names rest on owner entries (grade B); "no gains" line is illustrative; without share and moat rows CvD never says "damage" alone (Intel) | Grade shown; else "missing: no share data"; Intel AMBIGUOUS → owner review, the owner's answer is the expected state (D-M04-63, -68) |
-| Guidance record | Seasonal guides read as removals (Intel January); Intel FY2022 a "hit" despite two cuts; release-silent guiders | Same fiscal position a year earlier; ended = "expired"; revisions counted separately; "missing (DS1)" (D-M04-10) |
+| Guidance record | Seasonal guides read as removals (Intel January); Intel FY2022 a "hit" despite two cuts; release-silent guiders; a call not yet stored or a release not yet read looks like a removal (call-only guiders after each release); one capex guide scored two ways | Same fiscal position a year earlier; ended = "expired"; revisions counted separately; "missing (DS1)"; removal only in M02's "not restated" state, a `guidance_skip` refusal counts as the stated reason; capex actuals from M02's `guided.py` (D-M04-10; D-M02-29, -30) |
 | M01 reading of CvD | A NO_SLOWDOWN name at a gate warn (Rivian) still gets tranches | Only CYCLICAL_TROUGH + gate pass adds rule-7 strength; gate state shown beside (D-M04-58) |
 
 ### Survival gate
@@ -358,7 +369,7 @@ D9: how could this data mislead? Build and operations rows (lock, logon load, fi
 | M-score and misstatement score | SGI penalises growers; old cut-offs; > 100 false positives per true one; GMI breaks on negative margins; misstatement `issue` ≈ 1 for large caps and soft assets lift most above 1.00 (Apple 1.30); a growth-based manipulator gets only a note | Screens only; review only when the SGI = 1 M-score > −1.78; misstatement score labelled "approximation", both bands, never a trigger; `issue` unknown → missing (D-M04-14; S2.3, S2.4) |
 | Restatement events | No 8-K for little r; no history before 2004-08-23; dei error flag only on annual reports from 2023 and missed by out-of-period corrections (AVGO's Dec 2023 10-K needs its R1); a 4.01 after a de-SPAC is routine | 4.02 + dei flag + text + one-off old-filing fetch; flag never positive evidence; a 4.01 within 12 months escalates, post-de-SPAC 4.01 without disagreement = information (D-M04-15; S1.11) |
 | Restatement walk | Recasts, adoptions, tag switches, rounding, cash-flow reclassifications and de-SPAC look like errors; a dollar floor hides small corrections; tiny residuals queue (GE +$4M on −$244M) | Ordered labels, then residual > 0.5% and $0.1M → review; first-run baseline (D-M04-16, -71) |
-| Open 4.02 | CvD, gate and scores read disowned figures; an M01 add can still trigger | Rows marked "inputs under non-reliance" and warn; adds not blocked (D16) (D-M04-21) |
+| Open 4.02 | CvD, gate and scores read disowned figures; an M01 add can still trigger | Rows marked "inputs under non-reliance" and warn; adds not blocked (D8; D-M04-21) |
 | Estimate changes | Disclosed only when material; income-decreasing ones exist; GE Power's 29% segment share hidden behind 15.5% company share | Bands in both directions on the amount's own tax basis; segment share only when stored or quoted (D-M04-17, -18) |
 | Recurring "one-time" charges | A genuine multi-year restructuring reads as recurrence; a computed non-GAAP gap misstates the company's own | ≥ 3 of 4 years (starting value), shown with its plan; gap quoted, never computed (D-M04-19) |
 
@@ -506,7 +517,7 @@ Design points the review left open. The doc follows the reading shown until the 
 - **Liquidity-only and trust-only gates:** named for `asset_treasury`, `reit` and `spac_shell` (D-M04-8) but not defined. Does liquidity-only use only the runway and the maturity wall, and do the text and 8-K triggers apply to either?
 - **D13 weight of "burning with falling units" (D-M04-47):** a young-firm flag that counts now (D-M04-45), or part of the Red Flag 1 row, unweighted until ≥ 20 labels (D-M04-60)? Shown as "disputed".
 - **Unsourced thresholds that count now:** D-M04-45 counts R12 (3 pp) and the young per-unit flags although their thresholds are unsourced; the other unsourced Round 5 thresholds (inventory 15 pp, credit share 50%, production gap 10%, SG&A 4 quarters) stay information until calibration. Confirm.
-- **CYCLE_PLUS_DAMAGE and M01 rule 4:** the approved grid says "warning; review", the pack's M01 table gave an exit warning, and D-M04-58 is silent. The doc reads "Warning".
+- **CYCLE_PLUS_DAMAGE and M01 rule 4 — closed:** an exit warning. M01 rule 4 (owner-reviewed 2026-10-07) already lists CvD moving to CYCLE_PLUS_DAMAGE or STRUCTURAL_DECLINE, and the pack's M01 table accepted through S6.14 gives "Yes"; the grid's "review" is the `m04_cvd` item (How M01 reads M04).
 - **Cycle-average window for NEP (D-M04-54, S6.6):** which years make up the cycle; are they tied to the 5 pp turning points?
 - **Evidence grade for prices:** D14 and D-M04-9 grade filings, transcripts, third-party data and owner entries only. The doc labels Tiingo closes "market data".
 - **Review queue:** Round 5's per-kind caps (`m04_customer` 3 a week, `m04_unit_kpi` 2 a week) read as superseded by D-M04-71's single cap of 5; `m04_gate_fail` also opens on a gate turning incomplete (D-M04-71); the capex-funded runway review (D-M04-38) has no kind in any round and is named `m04_runway` here; stickiness-class proposals (~15 at first run, D-M04-43) are treated as setup items outside the cap. Confirm.
