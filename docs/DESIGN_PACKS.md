@@ -11,7 +11,7 @@ Updated: 2026-10-12 · Research only — nothing in a pack is decided until the 
 ## How the packs were made (2026-10-12, overnight)
 - M04: six researchers (one per section), an adversarial source checker per section (111 problems fixed or removed), a synthesis, a completeness critique, and a section-by-section revision (153 critique points addressed; 77 points left as known gaps).
 - M03, M05–M12: one researcher, one adversarial source checker (12–21 problems fixed or removed per module) and one pack writer per module.
-- Not read by the agents: the owner's `investment_strategy.txt` (not in the repo); packs work from DESIGN.md's module map and approved revisions.
+- The owner's outline `docs/investment_strategy.txt` was added to the repo after the packs were written (the agents worked from DESIGN.md's module map and approved revisions). **Check each round against the outline's section for that module before asking its questions** — e.g. M07's Q3 ("CEO of equity", outline Ownership item 2) and M09's Q2 ("augmented trading range", outline Technical Analysis item 2) are quoted there.
 
 ## Packs
 | Module | Pack | Rounds | Notes |
