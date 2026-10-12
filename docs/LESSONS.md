@@ -23,6 +23,8 @@ Updated: 2026-10-10 · Read at the start of every module build. One line each, w
 - Check the shared fetch log before each request so all processes stay under one budget (Tiingo, D-UI-8); the SEC limiter is still per process (M00_SEC_DATA open item).
 - A budget stop ends the batch and leaves the rest for the next run; it is reported, never silent (D-UI-8).
 - Count limits need counting, not spacing: pacing Tiingo at 75–90 s made a 17-symbol run take 20+ minutes while the hourly count check already guarded the limit (D-UI-19).
+- For discovery passes the owner's review queue, not SEC time, is the binding constraint: rank before queuing, cap per pass, flush in the approved priority order (D-M02-51).
+- A scheduled task killed at its time limit or at shutdown skips cleanup (TerminateProcess): locks need a stale check, every SEC-calling script must take the lock, and no modal box may wait while the lock is held (D-M02-51).
 - "Nightly" jobs run at logon during the owner's session (PC off overnight): keep them in the background, keep write transactions short (the app writes too; busy_timeout 5 s), stay well inside the 3-h task limit, and leave part of any shared API budget for interactive use (D-M02-12).
 
 ## Parsing and numbers
