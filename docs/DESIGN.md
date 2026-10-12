@@ -37,7 +37,7 @@ In docs/: DESIGN.md · SOURCES.md · DATA_SOURCES.md (data needs & gaps register
 - **D10** All module outputs are visible for every equity in every timeframe; profiles change weights, not visibility.
 - **D11** A holding = core lots + optional overlays, each judged under its own profile.
 - **D12** Timeframe = parameter profile consumed by every module. The user can switch profiles and bar sizes on the fly; each decision logs the profile it was made under, and positions keep a profile of record. (P1)
-- **D13** Signal record `{ticker, module_id, signal, value, timeframe, evidence_grade, source_ref, method, as_of}`; core computes a per-timeframe confluence score. `module_id` = which module produced the signal; `source_ref` = the document behind it. (P2)
+- **D13** Signal record `{ticker, module_id, signal, value, timeframe, evidence_grade, source_ref, method, as_of}`; core computes a per-timeframe confluence score. `module_id` = which module produced the signal; `source_ref` = the document behind it. (P2) Extended by D-M04-9: enums in `value_text`, missing = a row with `method` "missing: <reason>", one row per timeframe.
   Example: `{ticker: "XYZ", module_id: "M07", signal: "opportunistic_buy", value: 1, timeframe: "MY", evidence_grade: "A", source_ref: "Form 4 <accession no.>", method: "routine/opportunistic filter", as_of: "2026-09-12"}`
 - **D14** Evidence grades: A = filing/company release, B = credible report, C = rumor. (P3)
 - **D15** Module map (P4):
