@@ -70,6 +70,34 @@
     <tr><th>Evidence</th><td>grade {{ p.grade }} (filing) · {{ 'money flow' if p.money_flow else 'no money flow' }} · seasonal pass {{ p.season }}</td></tr>
   </table>
   {% if p.quote %}<div class="quote" style="margin-top:8px">… {{ p.quote | mark_phrase(p.phrases[0] if p.phrases else '') }} …</div>{% endif %}
+  {% elif it.kind == 'm02_news' %}
+  {% set p = it.payload %}
+  <p class="muted">Week {{ p.week }} to {{ p.week_end }}{% if p.preview %} (so far — a preview built on request){% endif %} · {{ p.events }} event(s) · {{ p.companies }} compan{{ 'y' if p.companies == 1 else 'ies' }} · {{ p.other_items }} other theme item(s) counted, not listed</p>
+  {% for t in p.themes %}
+  <h3 class="sub"><a href="/themes/{{ t.key }}">{{ t.name }}</a></h3>
+  <table class="data">
+    <tr><th>Date</th><th>Grade</th><th>Headline</th><th>Companies</th><th>Phrase</th><th>Sources</th></tr>
+    {% for e in t.events %}
+    <tr><td style="white-space:nowrap">{{ e.date }}</td><td>{{ e.grade }}</td>
+      <td>{% if e.url %}<a href="{{ e.url }}" target="_blank" rel="noopener">{{ e.title }}</a>{% else %}{{ e.title }}{% endif %}</td>
+      <td>{% for tk in e.companies %}<a href="/c/{{ tk }}?tab=news">{{ tk }}</a>{{ ', ' if not loop.last }}{% endfor %}</td>
+      <td class="muted">{{ e.phrase }}</td>
+      <td class="muted">{% for s in e.sources %}{{ news_channel(s.channel) }}{% if s.channel in ('finnhub', 'massive', 'trade') and s.origin %} ({{ s.origin }}){% endif %} {{ s.grade }}{{ ' · ' if not loop.last }}{% endfor %}</td></tr>
+    {% endfor %}
+  </table>
+  {% if t.more or t.other %}<p class="note">{% if t.more %}{{ t.more }} more event(s){% endif %}{% if t.more and t.other %} · {% endif %}{% if t.other %}{{ t.other }} other item(s) (grade C, or naming no watchlist/tracked company){% endif %} — on the <a href="/themes/{{ t.key }}">theme page</a>.</p>{% endif %}
+  {% endfor %}
+  {% if p.first_mentions %}
+  <h3 class="sub">First mention of an accepted theme</h3>
+  <table class="data">
+    <tr><th>Company</th><th>Theme</th><th>Phrase</th><th>Date</th><th>Where</th></tr>
+    {% for f in p.first_mentions %}
+    <tr><td><a href="/c/{{ f.ticker }}?tab=news">{{ f.ticker }}</a></td><td><a href="/themes/{{ f.theme_key }}">{{ f.theme_name }}</a></td><td>{{ f.phrase }}</td><td>{{ f.dated }}</td>
+      <td>{% if f.source == 'document' %}<a href="/source/{{ f.accession }}/{{ f.filename }}">{{ f.section or f.accession }}</a>{% else %}IR headline{% endif %}{% if f.quote %}<div class="quote">{{ f.quote | mark_phrase(f.phrase) }}</div>{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  <p class="note">{{ p.why }} Grade A = the company's own feed or 8-K release; B = trade press or a known outlet naming a watchlist/tracked company. The same release from several sources is one event (D-M02-15, D-M02-58).</p>
   {% elif it.kind.startswith('m02_') %}
   {% if it.payload.earlier %}<div class="warnbox">Shown before and {{ it.payload.earlier.resolution }}ed{% if it.payload.earlier.note %} — your note: “{{ it.payload.earlier.note }}”{% endif %}. Back because it changed materially (distinct filers doubled or money-flow evidence appeared).</div>{% endif %}
   <table class="data">

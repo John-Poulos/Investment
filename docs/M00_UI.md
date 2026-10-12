@@ -34,6 +34,7 @@ Before sharing (not now): login, HTTPS behind a reverse proxy, CSRF protection o
   - *Guidance (R19):* ledger by period with basis, quote link, flags; code-computed changes; stored Gemini reasons with their quotes; **Analyze** button.
   - *Financials (M04):* XBRL facts and series (data exists; red flags when M04 is built).
   - *Insiders (M07):* Form 4 transactions (data exists; classification when M07 is built).
+  - *News (M02 part 7a, D-M02-58):* headlines from the company's IR feed, 8-K releases, Finnhub/Massive and trade press, deduped, graded, with theme phrases; first mention of each accepted theme.
   - *Events & filings:* 8-K events by category and severity, filing list with SEC links.
   - *Search:* Tier-2 search within this company (passages, snippets).
   - *Themes (M02):* linked themes and the company's own theme mentions (D-UI-17); theme pages at `/themes`.
