@@ -14,6 +14,13 @@
 # bare = true               # also search the bare name in hardware/semiconductor filers
 #                           # (option (c), trial for NVIDIA, D-M02-38)
 #
+# usaspending = ["…"]      # exact USAspending recipient names (D-M02-61 (3)): used as the
+#                           # search text and for mapping awards to the company. Names below
+#                           # were found with USAspending's recipient lookup on 2026-10-12 and
+#                           # need the owner's confirmation; Apple's own entry was not among the
+#                           # lookup's top results (seen in the 2026-10-12 live run); no Marvell
+#                           # recipient was found.
+#
 # Avoid names that are common words or parts of other names ("Meta" in "metadata",
 # "Apple" alone is fine with word boundaries but "Oracle" also names a database).
 
@@ -23,56 +30,67 @@ ticker = "NVDA"
 names = ["NVIDIA Corporation", "NVIDIA Corp", "NVIDIA"]
 customer = true
 bare = true
+usaspending = ["NVIDIA CORP", "NVIDIA PUBLIC SECTOR CORPORATION"]
 
 [META]
 ticker = "META"
 names = ["Meta Platforms, Inc.", "Meta Platforms", "Facebook"]
 customer = true
+usaspending = ["META PLATFORMS, INC"]
 
 [MSFT]
 ticker = "MSFT"
 names = ["Microsoft Corporation", "Microsoft"]
 customer = true
+usaspending = ["MICROSOFT CORPORATION"]
 
 [AMZN]
 ticker = "AMZN"
 names = ["Amazon.com, Inc.", "Amazon Web Services", "Amazon.com", "Amazon", "AWS"]
 customer = true
+usaspending = ["AMAZON WEB SERVICES, INC.", "AMAZON.COM, INC.", "AMAZON.COM SERVICES LLC"]
 
 [GOOG]
 ticker = "GOOG"
 names = ["Alphabet Inc.", "Alphabet", "Google"]
 customer = true
+usaspending = ["GOOGLE LLC", "GOOGLE PUBLIC SECTOR LLC"]
 
 [AAPL]
 ticker = "AAPL"
 names = ["Apple Inc.", "Apple"]
 customer = true
+usaspending = ["APPLE INC."]
 
 [TSLA]
 ticker = "TSLA"
 names = ["Tesla, Inc.", "Tesla"]
 customer = true
+usaspending = ["TESLA, INC.", "TESLA MOTORS INC"]
 
 [ORCL]
 ticker = "ORCL"
 names = ["Oracle Corporation", "Oracle"]
 customer = true
+usaspending = ["ORACLE AMERICA, INC.", "ORACLE CORPORATION"]
 
 [INTC]
 ticker = "INTC"
 names = ["Intel Corporation", "Intel"]
 customer = true
+usaspending = ["INTEL CORPORATION", "INTEL FEDERAL LLC"]
 
 [BA]
 ticker = "BA"
 names = ["The Boeing Company", "Boeing"]
 customer = true
+usaspending = ["THE BOEING COMPANY"]
 
 [MU]
 ticker = "MU"
 names = ["Micron Technology", "Micron"]
 customer = true
+usaspending = ["MICRON TECHNOLOGY INC"]
 
 [MRVL]
 ticker = "MRVL"
@@ -81,15 +99,18 @@ names = ["Marvell Technology", "Marvell"]
 [GFS]
 ticker = "GFS"
 names = ["GlobalFoundries"]
+usaspending = ["GLOBALFOUNDRIES U.S. INC.", "GLOBALFOUNDRIES U.S. 2 LLC"]
 
 [AVGO]
 ticker = "AVGO"
 names = ["Broadcom Inc.", "Broadcom"]
+usaspending = ["BROADCOM INC.", "BROADCOM GOVERNMENT SOLUTIONS LLC"]
 
 [SPCX]
 ticker = "SPCX"
 names = ["Space Exploration Technologies", "SpaceX"]
 customer = true
+usaspending = ["SPACE EXPLORATION TECHNOLOGIES CORP."]
 
 # --- Suppliers often named in filings (L1, L3) -------------------------------------------
 [TSM]
@@ -164,3 +185,14 @@ names = ["Dell Technologies", "Dell"]
 [HPE]
 ticker = "HPE"
 names = ["Hewlett Packard Enterprise"]
+
+# --- Added for USAspending recipient lists (D-M02-61) ----------------------------------------
+[MSTR]
+ticker = "MSTR"
+names = ["MicroStrategy Incorporated", "MicroStrategy", "Strategy Inc."]
+usaspending = ["MICROSTRATEGY INCORPORATED", "MICROSTRATEGY SERVICES CORPORATION"]
+
+[INFQ]
+ticker = "INFQ"
+names = ["Infleqtion, Inc.", "Infleqtion"]
+usaspending = ["INFLEQTION QUANTUM, LLC"]

@@ -88,7 +88,8 @@ def build(
             (lo, hi),
         )
     ]
-    if not by_theme and not firsts:
+    official = official_events(engine, week_start)
+    if not by_theme and not firsts and not official:
         return None
     themes = []
     for t in sorted(by_theme.values(), key=lambda t: (-len(t["events"]), t["name"])):
@@ -103,6 +104,7 @@ def build(
         "week_end": (week_start + timedelta(days=6)).date().isoformat(),
         "themes": themes,
         "first_mentions": firsts,
+        "official": official,
         "events": n_events,
         "other_items": sum(t["other"] for t in themes) + sum(other.values()),
         "companies": len(
@@ -140,7 +142,9 @@ def propose_week(
     reason = (f"News {payload['week']} to {payload['week_end']}"
               + (" (so far)" if preview else "")
               + f": {payload['events']} event(s) on {len(payload['themes'])} theme(s), "
-              f"{len(payload['first_mentions'])} first mention(s)")  # fmt: skip
+              f"{len(payload['first_mentions'])} first mention(s)"
+              + (f", {len(payload['official'])} final rule(s) / law(s)"
+                 if payload["official"] else ""))  # fmt: skip
     return proposals.propose(engine, "m02_news", key, reason, payload, now)
 
 
@@ -158,6 +162,38 @@ def _supersede_preview(engine: sqlite3.Connection, week: str, now: datetime) -> 
             (iso(now), row["item_id"]),
         )
     engine.execute("DELETE FROM m02_proposal WHERE prop_key = ?", (pk,))
+
+
+def official_events(engine: sqlite3.Connection, week_start: datetime) -> list[dict[str, Any]]:
+    """Final rules naming a theme phrase in their title or abstract, and bills first seen
+    enacted, in the week (D-M02-61 (1)); proposed rules, notices, introduced bills, awards
+    and arXiv counts stay on the pages. One line per document, its themes listed."""
+    lo, hi = iso(week_start), iso(week_start + timedelta(days=7))
+    oldest = (week_start - timedelta(days=7)).date().isoformat()
+    out: dict[str, dict[str, Any]] = {}
+    rows = engine.execute(
+        "SELECT 'rule' AS kind, d.document_number AS ref, d.title, d.url, "
+        "d.publication_date AS dated, d.agencies AS detail, o.phrase, th.key, th.name "
+        "FROM fedreg_doc d JOIN official_theme o ON o.source = 'fedreg' "
+        "AND o.ref = d.document_number JOIN theme th ON th.theme_id = o.theme_id "
+        "WHERE th.status = 'active' AND d.doc_type = 'Rule' AND o.prominent = 1 "
+        "AND d.first_seen_at >= ? AND d.first_seen_at < ? AND d.publication_date >= ? "
+        "UNION ALL "
+        "SELECT 'law', b.bill_id, b.bill_type || ' ' || b.number || ': ' || b.title, b.url, "
+        "coalesce(b.latest_action_date, substr(b.enacted_seen_at, 1, 10)), b.latest_action, "
+        "o.phrase, th.key, th.name FROM congress_bill b JOIN official_theme o "
+        "ON o.source = 'congress' AND o.ref = b.bill_id "
+        "JOIN theme th ON th.theme_id = o.theme_id WHERE th.status = 'active' "
+        "AND b.status = 'enacted' AND b.enacted_seen_at >= ? AND b.enacted_seen_at < ? "
+        "AND coalesce(b.latest_action_date, '9999') >= ? ORDER BY 1, 5",
+        (lo, hi, oldest, lo, hi, oldest),
+    ).fetchall()
+    for r in rows:
+        e = out.setdefault(r["ref"], {"kind": r["kind"], "ref": r["ref"], "title": r["title"],
+                                      "url": r["url"], "date": r["dated"],
+                                      "detail": r["detail"], "themes": []})  # fmt: skip
+        e["themes"].append({"key": r["key"], "name": r["name"], "phrase": r["phrase"]})
+    return list(out.values())
 
 
 def last_week_start(now: datetime) -> datetime:

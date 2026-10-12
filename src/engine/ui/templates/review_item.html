@@ -87,6 +87,19 @@
   </table>
   {% if t.more or t.other %}<p class="note">{% if t.more %}{{ t.more }} more event(s){% endif %}{% if t.more and t.other %} · {% endif %}{% if t.other %}{{ t.other }} other item(s) (grade C, or naming no watchlist/tracked company){% endif %} — on the <a href="/themes/{{ t.key }}">theme page</a>.</p>{% endif %}
   {% endfor %}
+  {% if p.official %}
+  <h3 class="sub">Final rules and new laws on accepted themes</h3>
+  <table class="data">
+    <tr><th>Date</th><th>Kind</th><th>Title</th><th>Themes (phrase)</th><th>Detail</th></tr>
+    {% for o in p.official %}
+    <tr><td style="white-space:nowrap">{{ o.date }}</td><td>{{ 'Final rule' if o.kind == 'rule' else 'Enacted' }}</td>
+      <td>{% if o.url %}<a href="{{ o.url }}" target="_blank" rel="noopener">{{ o.title }}</a>{% else %}{{ o.title }}{% endif %}</td>
+      <td>{% for t in o.themes %}<a href="/themes/{{ t.key }}">{{ t.name }}</a> ({{ t.phrase }}){{ ', ' if not loop.last }}{% endfor %}</td>
+      <td class="muted">{{ o.detail or '' }}</td></tr>
+    {% endfor %}
+  </table>
+  <p class="note">Federal Register final rules naming a theme phrase in their title or abstract, and bills that became law (Congress.gov); grade A, government sources. Proposed rules, notices, introduced bills, federal awards and arXiv counts stay on the theme pages (D-M02-61).</p>
+  {% endif %}
   {% if p.first_mentions %}
   <h3 class="sub">First mention of an accepted theme</h3>
   <table class="data">

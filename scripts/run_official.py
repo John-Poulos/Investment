@@ -76,8 +76,9 @@ def summary(engine) -> list[str]:
     for r in engine.execute(
         "SELECT a.searched_cik cik, coalesce((SELECT min(ticker) FROM ticker t WHERE "
         "t.cik = a.searched_cik AND t.valid_to IS NULL), a.searched_cik) tk, "
-        "sum(p.cik = a.searched_cik) mapped, sum(CASE WHEN p.cik = a.searched_cik "
-        "THEN a.amount END) total, sum(p.cik IS NULL OR p.cik != a.searched_cik) other "
+        "count(CASE WHEN p.cik = a.searched_cik THEN 1 END) mapped, sum(CASE WHEN "
+        "p.cik = a.searched_cik THEN a.amount END) total, count(CASE WHEN p.cik IS NULL "
+        "OR p.cik != a.searched_cik THEN 1 END) other "
         "FROM usa_award a LEFT JOIN usa_recipient p USING (recipient_id) "
         "GROUP BY a.searched_cik ORDER BY total DESC"
     ):

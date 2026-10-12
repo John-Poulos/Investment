@@ -82,6 +82,13 @@ def budget(seconds=1000.0):
     return Budget(seconds, clock=lambda: 0.0)
 
 
+@pytest.fixture(autouse=True)
+def no_usa_lists(monkeypatch):
+    """Tests use name-part search unless they set exact recipient lists (D-M02-61 (3));
+    the real config/aliases.toml lists are not read."""
+    monkeypatch.setattr(usaspending, "usa_lists", lambda *a, **k: {})
+
+
 @pytest.fixture
 def db(dbs, tmp_path: Path):
     engine, corpus = dbs
@@ -122,7 +129,10 @@ def test_arxiv_months_query_and_parse():
     assert arxiv.months_due(date(2026, 10, 2), 1) == ["2026-08"]  # September not settled
     assert arxiv.months_due(date(2026, 1, 20), 2) == ["2025-12", "2025-11"]
     q = arxiv.query("quantum computing", "2026-02")
-    assert q == 'all:"quantum computing" AND submittedDate:[202602010000 TO 202602282359]'
+    assert q == (
+        '(ti:"quantum computing" OR abs:"quantum computing") AND '
+        "submittedDate:[202602010000 TO 202602282359]"
+    )  # D-M02-61 (2)
     assert arxiv.parse_total(atom(37)) == 37
     assert arxiv.parse_total(atom(0)) == 0
     assert arxiv.parse_total(ARXIV_ERROR).startswith("arXiv error: malformed")
@@ -543,3 +553,92 @@ def test_run_official_step_end_to_end_never_fails(db):
     # an unexpected error inside the step is reported, never raised
     rep2 = run_official_step(engine, COMPANIES, NOW, fetcher=object(), congress_key=None)  # type: ignore[arg-type]
     assert any(line.startswith("error —") for line in rep2.lines)
+
+
+# --- D-M02-61 follow-up ----------------------------------------------------------------------
+
+
+def test_fedreg_prominence_marks_title_or_abstract_and_fills_old_links(db):
+    engine, _ = db
+    docs, _ = fedreg.parse(json.dumps(FR).encode())
+    qc = next(p for p in active_phrases(engine) if p.phrase == "quantum computing")
+    fedreg.store(engine, docs, qc, NOW)
+    marks = dict(engine.execute("SELECT ref, prominent FROM official_theme").fetchall())
+    # the notice names it in the abstract; the rule's title says only "Quantum Items"
+    assert marks == {"2026-20023": 1, "2026-19999": 0}
+    # links stored before D-M02-61 (NULL) are marked from the stored title and abstract
+    engine.execute("UPDATE official_theme SET prominent = NULL")
+    assert fedreg.fill_prominence(engine) == 2
+    assert dict(engine.execute("SELECT ref, prominent FROM official_theme").fetchall()) == marks
+    # a later prominent match never downgrades; a NULL (bill) link stays NULL
+    from engine.official.common import link_theme
+
+    link_theme(engine, "fedreg", "2026-20023", qc.theme_id, qc.phrase, NOW, prominent=False)
+    link_theme(engine, "congress", "119-hr-1", qc.theme_id, qc.phrase, NOW)
+    got = dict(engine.execute("SELECT ref, prominent FROM official_theme").fetchall())
+    assert got["2026-20023"] == 1 and got["119-hr-1"] is None
+
+
+def test_usaspending_exact_recipient_lists(db, monkeypatch):
+    engine, _ = db
+    monkeypatch.setattr(usaspending, "usa_lists",
+                        lambda *a, **k: {"BA": ("THE BOEING COMPANY", "BOEING SERVICE COMPANY")})  # fmt: skip
+    cos = {c.ticker: c for c in usaspending.companies_for(engine, COMPANIES)}
+    assert cos["BA"].terms() == ["THE BOEING COMPANY", "BOEING SERVICE COMPANY"]
+    assert cos["NVDA"].terms() == ["NVIDIA"]  # no list: name parts, as before
+    url = usaspending.SEARCH_URL
+    posts = {(url, "THE BOEING COMPANY", "contracts"): (200, json.dumps(USA_BA).encode(), {})}
+    f, t = make_fetcher(engine, {}, posts)
+    r = usaspending.run(
+        engine,
+        f,
+        {"BA": BA, "NVDA": NVDA},
+        NOW,
+        budget(),
+    )
+    assert r.no_list == ["NVDA"]
+    rec = {x["recipient_id"]: x["how"] for x in engine.execute("SELECT * FROM usa_recipient")}
+    # a listed name maps by name at once; the unlisted one still waits for its profile
+    assert rec["r-ba-C"] == "name" and rec["r-bsc-C"] == "name" and rec["r-bpg-R"] == "none"
+    sent = {c[1]["filters"]["recipient_search_text"][0] for c in t.post_calls}
+    assert sent == {"THE BOEING COMPANY", "BOEING SERVICE COMPANY", "NVIDIA"}
+
+
+def test_weekly_item_gets_final_rules_and_new_laws(db):
+    from engine.news import digest
+
+    engine, _ = db
+    week = digest.last_week_start(NOW)  # Mon 2026-10-05
+    seen = (week + timedelta(days=2)).isoformat(timespec="seconds")
+    tid = engine.execute("SELECT theme_id FROM theme WHERE key = 'quantum'").fetchone()[0]
+    docs = [  # (number, type, prominent, published)
+        ("R-1", "Rule", 1, "2026-10-06"),  # in: final rule, phrase in title/abstract
+        ("R-2", "Rule", 0, "2026-10-06"),  # out: body-only mention
+        ("N-1", "Notice", 1, "2026-10-06"),  # out: notices stay on the page
+        ("R-3", "Rule", 1, "2026-08-01"),  # out: published long before the week
+    ]
+    for num, typ, prom, pub in docs:
+        engine.execute("INSERT INTO fedreg_doc (document_number, doc_type, title, agencies, "
+                       "publication_date, url, abstract, first_seen_at, updated_at) VALUES "
+                       "(?, ?, ?, 'Industry and Security Bureau', ?, NULL, NULL, ?, ?)",
+                       (num, typ, f"{num} quantum computing export rule", pub, seen, seen))  # fmt: skip
+        engine.execute("INSERT INTO official_theme VALUES ('fedreg', ?, ?, 'quantum computing', ?, ?)",
+                       (num, tid, seen, prom))  # fmt: skip
+    for bid, status, action_date, enacted in (
+        ("119-s-900", "enacted", "2026-10-02", seen),  # in
+        ("119-s-100", "enacted", "2025-01-10", seen),  # out: an old law first seen now
+        ("119-hr-5", "introduced", "2026-10-06", None),  # out
+    ):
+        engine.execute("INSERT INTO congress_bill (bill_id, congress, bill_type, number, title, "
+                       "latest_action_date, latest_action, status, first_seen_at, updated_at, "
+                       "enacted_seen_at) VALUES (?, 119, 'S', ?, 'Quantum Act', ?, 'Became Public Law', "
+                       "?, ?, ?, ?)", (bid, bid.split('-')[-1], action_date, status, seen, seen, enacted))  # fmt: skip
+        engine.execute("INSERT INTO official_theme VALUES ('congress', ?, ?, 'qubit', ?, NULL)",
+                       (bid, tid, seen))  # fmt: skip
+    ev = digest.official_events(engine, week)
+    assert [(e["kind"], e["ref"]) for e in ev] == [("law", "119-s-900"), ("rule", "R-1")]
+    p = digest.build(engine, week, {})
+    assert p is not None and len(p["official"]) == 2 and p["themes"] == []
+    assert digest.propose_week(engine, week, {}, NOW) == "queued"
+    reason = engine.execute("SELECT reason FROM review_queue WHERE kind = 'm02_news'").fetchone()[0]
+    assert "2 final rule(s) / law(s)" in reason

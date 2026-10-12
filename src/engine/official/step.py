@@ -78,6 +78,7 @@ def _run(engine, companies, now, rep, fetcher, congress_key, budgets, arxiv_requ
         rep.lines.append(
             f"Federal Register: {r.phrases} phrase(s) searched, {r.seen} document(s) seen, "
             f"{r.new} new" + (f"; newest 200 only for: {', '.join(r.capped)}" if r.capped else "")
+            + (f"; {r.filled} older match(es) marked title/abstract or body" if r.filled else "")
             + _stop(r.stopped)
         )  # fmt: skip
     if "congress" in sources:
@@ -99,6 +100,11 @@ def _run(engine, companies, now, rep, fetcher, congress_key, budgets, arxiv_requ
             f"new; recipient profiles read {r.profiles}, mapped by parent {r.by_parent}"
             + _stop(r.stopped)
         )  # fmt: skip
+        if r.no_list:
+            rep.lines.append(
+                "  no exact recipient list (searched by name parts; add `usaspending = [...]` "
+                "to config/aliases.toml): " + ", ".join(r.no_list)
+            )
     if "arxiv" in sources:
         r = arxiv.run(engine, fetcher, phrases, now, budget("arxiv"), max_requests=arxiv_requests)
         rep.failures += [f"arXiv {f}" for f in r.failures]
