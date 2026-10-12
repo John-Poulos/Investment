@@ -65,6 +65,21 @@ class Clock:
         self.t += seconds
 
 
+@pytest.fixture(autouse=True)
+def no_network(request, monkeypatch):
+    """Fixture tests never reach a live endpoint (CLAUDE.md): every `requests` call fails
+    unless the test is marked `live` (M04 Part 1b: a script test once reached SEC)."""
+    if request.node.get_closest_marker("live"):
+        return
+
+    def blocked(self, method, url, *args, **kwargs):
+        raise AssertionError(f"network call in a fixture test: {method} {url}")
+
+    import requests
+
+    monkeypatch.setattr(requests.Session, "request", blocked)
+
+
 @pytest.fixture
 def clock() -> Clock:
     return Clock()

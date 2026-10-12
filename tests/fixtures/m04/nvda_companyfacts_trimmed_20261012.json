@@ -1,0 +1,40 @@
+{
+ "cik": 1045810,
+ "entityName": "fixture",
+ "facts": {
+  "us-gaap": {
+   "PaymentsToAcquirePropertyPlantAndEquipment": {
+    "units": {
+     "USD": [
+      {
+       "start": "2011-01-31",
+       "end": "2012-01-29",
+       "val": 100000000,
+       "accn": "0001045810-12-900001",
+       "fy": 2012,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2012-03-14"
+      }
+     ]
+    }
+   },
+   "PaymentsToAcquireProductiveAssets": {
+    "units": {
+     "USD": [
+      {
+       "start": "2021-02-01",
+       "end": "2022-01-30",
+       "val": 976000000,
+       "accn": "0001045810-22-900002",
+       "fy": 2022,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2022-03-16"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

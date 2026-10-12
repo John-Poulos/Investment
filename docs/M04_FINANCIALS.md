@@ -224,6 +224,12 @@ Sentence sources include M02's `supply_link` (L2 sentences with revenue share, L
 ### Core trend information rows (outline "Analyze the financials" 1–4)
 `rev_yoy`, `rev_cagr3`, `fcf_growth` (on total capex and on owner earnings = OCF − maintenance capex − SBC), `gm_trend_pp`, `opex_vs_sales`: each against own history and as peer robust z; near-zero bases → not meaningful (S2.1); no vote in CvD or confluence until Part 8 (D-M04-6, -11).
 
+**As built (Part 1b; choices in M04_BUILD_LOG "Notes per part").**
+- *Capex (D-M04-3, -78):* the company-definition row is M02's shown actual (`moneyflow/actuals.py`); total capex = the definition (PP&E payments, or the broader productive-assets tag incl. NVIDIA's FY2013–21 extension read from instances) with more fiscal years; a year on the other definition reads "definition changed" and is not scored; fiscal-year values only at the company's year end.
+- *Split (D-M04-6):* rung chosen on the latest year of an 8-year window (depreciation, else D&A; disclosed and project-level have no finder yet), capped at total capex, "not split" where the rung's fact is missing; Greenwald (five prior yearly PP&E ÷ revenue ratios, net and gross) shown only inside 0…total capex, with "out of range in n of m years"; "useful-life change?" when depreciation falls ≥ 20%† while gross PP&E grows. Rows: FCF on total capex, FCF on maintenance capex, owner earnings (information).
+- *Trends:* TTM when a TTM a year earlier exists, else fiscal years; opex = gross profit − operating income; gross profit derived from cost of revenue where untagged, labelled. ROIC per S6.5 on fiscal years; debt and short-term-investment terms without a fact are taken as none and named; display only until Part 8a.
+- *Guidance record (D-M04-10, -79):* `guidance/record.py`, stored in `guidance_outcome`; scored on the latest guide before period end (owner > release > call on the same day), GAAP actuals first-filed, "unspecified" basis scored on GAAP and labelled, non-GAAP missing until a reconciliation store exists; not-ended periods `pending` with M02's freshness state (extended to every metric family); removals per release against the same fiscal quarter's release a year earlier, reason searched in this and the prior release and calls.
+
 ## Signals out
 Every row: `cik` (key; ticker for display, D-M04-74), one row per timeframe, `value` for numbers, `value_text` for states with `value` NULL, missing = both empty and `method` = "missing: <reason>", `evidence_grade` = weakest deciding input, `source_ref` = newest accession "+N", full inputs in `method` (D-M04-9). ✓ = may carry weight once D13 weights exist, subject to the red-flag D13 column; info = weight 0. One computation serves all timeframes; profiles differ in weights and, later, in persistence windows; profile parameters are recorded in `method` (S1.5). M04's own windows are fixed (3 years: D-M04-29, -49, -64). * = name proposed at the redraft, confirmed at build (Open questions).
 
@@ -238,8 +244,8 @@ Every row: `cik` (key; ticker for display, D-M04-74), one row per timeframe, `va
 | `normalized_ep_cur`*, `normalized_ep_cyc`* | $; text "not used: <state>" | NEP on current and cycle-average revenue | info | info | info |
 | `overreaction_gap` | pp | Price change − NEP change, 4 quarters | ✓ | ✓ | info |
 | `market_share_chg_pp`* | pp; grade B or A | Q2 share row | ✓ | ✓ | info |
-| `guidance_hit_rate` | %; n in `method` | Q2 guidance row | ✓ | ✓ | info |
-| `guidance_removed` | text: removed / expired | Quiet removal event (S1.7) | info | info | info |
+| `guidance_hit_rate` | % (0–100); n, misses, revisions, "repeated" in `method` | Q2 guidance row; built Part 1b (as_of = newest actual's filing date) | ✓ | ✓ | info |
+| `guidance_removed` | text: removed / expired | Quiet removal event (S1.7); one row per release date, metrics in `method`; built Part 1b | info | info | info |
 | `customer_signal` | text: intact / weakening / info | Q2 customer row | ✓ | ✓ | info |
 | `customer_at_stake`, `customer_hhi` | share; index | Disclosed customer exposure | info | info | info |
 | `lifecycle_stage` | text: stage, "unconfirmed" | Routing only | info | info | info |
@@ -273,8 +279,8 @@ Every row: `cik` (key; ticker for display, D-M04-74), one row per timeframe, `va
 | `gm_delta_pp`, `gm_delta_pp_ex_items`, `inventory_sales_gap` | pp | Margin and inventory | ✓ | ✓ | info |
 | `unit_gp`, `unit_gp_ex_credits`, `unit_gp_trend`, `unit_cost_vs_cumulative`, `rev_per_unit_vs_cost`, `units_falling_burn`* | $ per unit; text flag | Young unit economics | ✓ | info | info |
 | `production_gap`, `credit_share_of_gp`, `sga_vs_revenue` | %; ratio; text flag | Young / growth flags | ✓ | ✓ | info |
-| `rev_yoy`, `rev_cagr3`, `fcf_growth`, `fcf_growth_oe`*, `gm_trend_pp`, `opex_vs_sales` | % / pp; peer z in `method` | Core trends | info | info | info |
-| `capex_maint`, `capex_growth`, `owner_earnings`* | $; method tag | `capex_split` context | info | info | info |
+| `rev_yoy`, `rev_cagr3`, `fcf_growth`, `fcf_growth_oe`, `gm_trend_pp`, `opex_vs_sales` | ratio (growth) / pp; text `not_meaningful`; own history in `method`, peer z from Part 2 | Core trends; built Part 1b | info | info | info |
+| `capex_maint`, `capex_growth`, `owner_earnings` | $; rung and total-capex tag in `method` | `capex_split` context, latest fiscal year; built Part 1b | info | info | info |
 
 ## Review queue (D8)
 - **Order** (D-M04-71): 1 survival · 2 CvD review (AMBIGUOUS; also STUMBLE and CYCLE_PLUS_DAMAGE, Classification) and stage changes · 3 events · 4 restatement · 5 dilution · 6 margin, customer, unit KPI · 7 estimate and M-score.

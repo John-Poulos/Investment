@@ -234,7 +234,7 @@ def create_app(settings: UiSettings) -> FastAPI:
             ctx["awards"] = off_views.company_awards(engine, cik, datetime.now(UTC).date())
         elif tab == "financials":
             ctx["tables"] = services.financials(engine, cik)
-            ctx["m04"] = m04_views.company_view(engine, cik, datetime.now(UTC).date())
+            ctx["m04"] = m04_views.company_view(engine, cik, datetime.now(UTC).date(), corpus)
         elif tab == "insiders":
             ctx["txns"] = services.insider_txns(engine, cik)
         elif tab == "events":

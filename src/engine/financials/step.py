@@ -9,7 +9,13 @@ Two hooks in `scripts/run_refresh.py`, both inside the refresh lock and timed:
   owner (`scripts/run_financials.py data`).
 - **Local pass, after prices (0 SEC requests; also when prices are skipped):**
   `filing_status` for every covered company from the calendar, and the `filing_status`,
-  `shares_cover` and `implied_float_shares` signals.
+  `shares_cover` and `implied_float_shares` signals (Part 1a); Part 1b recomputes the
+  capex split (`capex_split`), the core trend rows and the guidance record
+  (`guidance_outcome`) and writes their signals (`capex_maint`, `capex_growth`,
+  `owner_earnings`, `rev_yoy`, `rev_cagr3`, `fcf_growth`, `fcf_growth_oe`, `gm_trend_pp`,
+  `opex_vs_sales`, `guidance_hit_rate`, `guidance_removed`). NVIDIA's FY2013–21 capex
+  instances are a one-off owner backfill (`scripts/run_financials.py capex`), never fetched
+  here (D-M04-70).
 
 Never fails the run: errors are reported in its lines; writes are short transactions.
 """
@@ -19,9 +25,11 @@ from __future__ import annotations
 import sqlite3
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from engine.financials import shares, status
+from engine.financials import capex, shares, status, trends
+from engine.guidance import record
 from engine.sec.client import SecClient
 from engine.sec.cover import fetch_cover, r1_done
 from engine.sec.results import Failed, NotFound, Ok
@@ -163,6 +171,93 @@ def share_signals(engine: sqlite3.Connection, cik: str, ticker: str | None, toda
     return n
 
 
+TREND_SIGNALS = ("rev_yoy", "rev_cagr3", "fcf_growth", "fcf_growth_oe", "gm_trend_pp",
+                 "opex_vs_sales")  # fmt: skip
+
+
+def capex_signals(
+    engine: sqlite3.Connection, cik: str, ticker: str | None, view: capex.CapexView, today: str
+) -> int:
+    """`capex_maint`, `capex_growth`, `owner_earnings` for the latest fiscal year (info)."""
+    n = 0
+    y = view.years[-1] if view.years else None
+    for name, attr in (("capex_maint", "maintenance"), ("capex_growth", "growth"),
+                       ("owner_earnings", "owner_earnings")):  # fmt: skip
+        if y is None:
+            n += write_signal(engine, cik=cik, ticker=ticker, module_id=MODULE, signal=name,
+                              as_of=today, method="capex split (D-M04-6)",
+                              missing="no total capex stored", info=("MY", "PT", "ST"))  # fmt: skip
+            continue
+        t = y.total
+        srcs = [Source(t.accession, t.filed, "A", f"total capex {t.tag}")] if t else []
+        method = (f"{y.label}: {y.method}; total capex {t.value / 1e6:,.0f}M on {t.tag}"
+                  + (f" [{t.mark}]" if t.mark else "") if t else y.label)  # fmt: skip
+        if attr == "owner_earnings":
+            method += "; owner earnings = OCF − maintenance capex − SBC (information, D-M04-6)"
+        v = getattr(y, attr)
+        if v is None:
+            n += write_signal(engine, cik=cik, ticker=ticker, module_id=MODULE, signal=name,
+                              as_of=y.filed or y.end, method=method, missing=y.missing(attr),
+                              sources=srcs, info=("MY", "PT", "ST"))  # fmt: skip
+        else:
+            n += write_signal(engine, cik=cik, ticker=ticker, module_id=MODULE, signal=name,
+                              as_of=y.filed or y.end, value=round(v), method=method,
+                              sources=srcs, info=("MY", "PT", "ST"))  # fmt: skip
+    return n
+
+
+def trend_signals(
+    engine: sqlite3.Connection, cik: str, ticker: str | None, view: trends.TrendsView
+) -> int:
+    """The core trend rows as information signals (D-M04-11: no vote until Part 8)."""
+    n = 0
+    for s in view.signals:
+        srcs = [Source(a, f, "A") for a, f in s.sources if a]
+        common = dict(engine=engine, cik=cik, ticker=ticker, module_id=MODULE, signal=s.name,
+                      as_of=s.as_of, info=("MY", "PT", "ST"))  # fmt: skip
+        if s.missing is not None or not srcs:
+            n += write_signal(**common, method=s.method, missing=s.missing or "no inputs",
+                              sources=srcs)  # fmt: skip
+        else:
+            n += write_signal(**common, method=s.method, value=s.value, value_text=s.text,
+                              sources=srcs)  # fmt: skip
+    return n
+
+
+@dataclass
+class Part1b:
+    capex: capex.CapexView
+    trends: trends.TrendsView
+    record: record.Record
+
+
+def part1b(
+    engine: sqlite3.Connection,
+    corpus: sqlite3.Connection | None,
+    cik: str,
+    ticker: str | None,
+    now: datetime,
+) -> Part1b:
+    """Recompute capex split, trend rows and the guidance record; store and signal them."""
+    today = now.date()
+    cv = capex.capex_view(engine, cik, today.isoformat())
+    tv = trends.trends_view(engine, cik, today.isoformat(), cv)
+    rec = record.record_for(engine, corpus, cik, today)
+    engine.execute("BEGIN")
+    try:
+        at = now.isoformat(timespec="seconds")
+        capex.store_split(engine, cv, at)
+        record.store(engine, rec, at)
+        capex_signals(engine, cik, ticker, cv, today.isoformat())
+        trend_signals(engine, cik, ticker, tv)
+        record.write_signals(engine, rec, ticker, today)
+        engine.execute("COMMIT")
+    except Exception:
+        engine.execute("ROLLBACK")
+        raise
+    return Part1b(cv, tv, rec)
+
+
 def run_local_part(
     engine: sqlite3.Connection,
     corpus: sqlite3.Connection | None,
@@ -175,6 +270,7 @@ def run_local_part(
     t0 = clock()
     lines: list[str] = []
     counts = {"current": 0, "stale": 0, "overdue": 0, "none": 0}
+    p1b = {"companies": 0, "split": 0, "scored": 0, "removed": 0}
     alerts = []
     for ticker, cik in sorted(companies.items()):
         try:
@@ -193,6 +289,13 @@ def run_local_part(
             except Exception:
                 engine.execute("ROLLBACK")
                 raise
+            got = part1b(engine, corpus, cik, ticker, now)
+            p1b["companies"] += 1
+            p1b["split"] += sum(1 for y in got.capex.years if y.maintenance is not None)
+            p1b["scored"] += got.record.scored
+            p1b["removed"] += sum(
+                1 for o in got.record.outcomes if o.kind == "removal" and o.outcome == "removed"
+            )
         except Exception as e:  # one company's error must not stop the others
             if engine.in_transaction:
                 engine.execute("ROLLBACK")
@@ -201,7 +304,12 @@ def run_local_part(
         f"filing status: current {counts['current']}, stale {counts['stale']}, "
         f"overdue {counts['overdue']}, no periodic reports {counts['none']}"
     )
+    summary += (
+        f"; capex/trends/guidance recomputed for {p1b['companies']} companies "
+        f"({p1b['split']} split years, {p1b['scored']} scored guides, "
+        f"{p1b['removed']} removed guides)"
+    )
     lines.insert(0, summary)
     lines[1:1] = alerts
-    head = f"M04 financials — local pass (Part 1a, 0 SEC requests) ({clock() - t0:.1f} s):"
+    head = f"M04 financials — local pass (Parts 1a–1b, 0 SEC requests) ({clock() - t0:.1f} s):"
     return [head, *lines]

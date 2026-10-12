@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Trimmed: NVIDIA FY2013 10-K instance nvda-20130127.xml (0001045810-13-000008); one context, one unit, the capex extension fact (probe S4: 183.3M) and one us-gaap fact (kept out of `fact` by the extension-only reader). -->
+<xbrli:xbrl xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:iso4217="http://www.xbrl.org/2003/iso4217" xmlns:us-gaap="http://fasb.org/us-gaap/2012-01-31" xmlns:nvda="http://www.nvidia.com/20130127">
+ <xbrli:context id="FY2013"><xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">0001045810</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:startDate>2012-01-30</xbrli:startDate><xbrli:endDate>2013-01-27</xbrli:endDate></xbrli:period></xbrli:context>
+ <xbrli:unit id="usd"><xbrli:measure>iso4217:USD</xbrli:measure></xbrli:unit>
+ <nvda:PurchasesOfPropertyAndEquipmentAndIntangibleAssets contextRef="FY2013" unitRef="usd" decimals="-5">183300000</nvda:PurchasesOfPropertyAndEquipmentAndIntangibleAssets>
+ <us-gaap:PaymentsToAcquireMarketableSecurities contextRef="FY2013" unitRef="usd" decimals="-5">2378400000</us-gaap:PaymentsToAcquireMarketableSecurities>
+</xbrli:xbrl>

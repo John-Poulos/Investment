@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Trimmed: NVIDIA FY2021 10-K extracted instance nvda-20210131_htm.xml (0001045810-21-000010); the capex extension fact (probe S4: 1,128.0M). -->
+<xbrli:xbrl xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:iso4217="http://www.xbrl.org/2003/iso4217" xmlns:nvda="http://www.nvidia.com/20210131">
+ <xbrli:context id="FY2021"><xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">0001045810</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:startDate>2020-01-27</xbrli:startDate><xbrli:endDate>2021-01-31</xbrli:endDate></xbrli:period></xbrli:context>
+ <xbrli:unit id="usd"><xbrli:measure>iso4217:USD</xbrli:measure></xbrli:unit>
+ <nvda:PurchasesOfPropertyAndEquipmentAndIntangibleAssets contextRef="FY2021" unitRef="usd" decimals="-6">1128000000</nvda:PurchasesOfPropertyAndEquipmentAndIntangibleAssets>
+</xbrli:xbrl>
