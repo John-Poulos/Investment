@@ -1,6 +1,6 @@
 # M00 — User interface
 
-Status: approved (D29, owner 2026-10-08) · Updated: 2026-10-08 · Serves: all modules · Depends on: M00 data, storage, search, LLM · Sources: S66–S70
+Status: approved (D29, owner 2026-10-08) · Updated: 2026-10-12 · Serves: all modules · Depends on: M00 data, storage, search, LLM · Sources: S66–S70
 
 ## Purpose
 One screen to see everything the engine knows about an equity, with every number one click from its source, and one place to clear the review queue. TradingView-like layout (D3).
@@ -32,7 +32,7 @@ Before sharing (not now): login, HTTPS behind a reverse proxy, CSRF protection o
 - **Details (bottom half), tabs:**
   - *Overview:* identity, latest filings, signals (D13) once modules emit them; modules not yet built say so.
   - *Guidance (R19):* ledger by period with basis, quote link, flags; code-computed changes; stored Gemini reasons with their quotes; **Analyze** button.
-  - *Financials (M04):* XBRL facts and series (data exists; red flags when M04 is built).
+  - *Financials (M04):* XBRL quarterly and balance-sheet tables, then the M04 sections (D-UI-22): Filing status, Share counts (per-class cover rows), Marker legend, and "M04 rows still to come" (one row per later part, "missing: not built, Part n").
   - *Insiders (M07):* Form 4 transactions (data exists; classification when M07 is built).
   - *News (M02 part 7a, D-M02-58):* headlines from the company's IR feed, 8-K releases, Finnhub/Massive and trade press, deduped, graded, with theme phrases; first mention of each accepted theme.
   - *Events & filings:* 8-K events by category and severity, filing list with SEC links.
@@ -120,6 +120,8 @@ Nightly run reports, guidance scan summary, Gemini call log with tokens and cost
 - D-UI-20 (2026-10-09, M02 part 4, D-M02-21/22): Source labels. Guidance tab: "Source" column (release · A / call · oral · grade B or A / IR document · A), the capex clause and "same figure in company document …" under the value, direction-only rows, a line listing the company's calls (or quarters still without a transcript), and the note that all guidance is a forecast, not a commitment. Reader and source pages show a source banner for `AV-`/`IR-` documents and no SEC link; the reader's section list shows each speaker turn. Search hits and Gemini citations from calls carry "call · oral, grade B". Review: cross release/call conflicts show "Release (stands)" vs "Call (not stored)" without "Keep other value"; `m02_ir_download` items have "I downloaded it" (`/review/<id>/pickup` → newest PDF in `ENGINE_DOWNLOADS_DIR`, default the user's Downloads; `/review/<id>/ingest` stores it on confirm, owner only).
 
 - D-UI-21 (2026-10-09, M02 part 4b, D-M02-24): Guidance tab: owner-only "wrong?" link per row (`/c/<ticker>/guidance/<id>/wrong`: reason + note; the row is removed and stays out of re-scans) and a "check" link per call (`/c/<ticker>/calls/check`: what is sent, estimated cost, run / use stored result). Review: `guidance_audit` (weekly sample or Gemini) and `guidance_implausible` items show the sentence, what the parser stored or why it skipped it, and correct / wrong (with reason) or not guidance / missed. Runs page: "Guidance accuracy" per parser version. "Wrong" and "missed" forms carry optional correction fields (stored as an owner-entered row for the same sentence); the Guidance tab lists "Your corrections and checks" with Undo (`/labels/<id>/undo`), and Reopen on an answered check undoes its label.
+
+- D-UI-22 (2026-10-12, M04 Part 1a; mock-up option a approved by the owner): the Financials tab keeps its quarterly and balance-sheet tables (the M04 share rows are not repeated there) and adds below them: **Filing status** (company, filer category carried with its source on hover, period, form, due date with days to go or since and the deadline, filed date linked to the filing, current / stale / overdue, note; the row of record highlighted; last 6 periods), **Share counts** (cover shares of all classes on the cover date with per-class sub-rows, period-end shares, basic and diluted weighted average, SBC, implied float shares yearly labelled "implied"; latest value plus up to 3 earlier; hover shows tag, accession, first and latest filed; split-guard and fallback notes under the value; "missing: <reason>" where absent, e.g. "missing: multi-class, no total tag (R1 page not read yet)"), **Marker legend** ("≈ broader tag: <what it adds>", narrower tag / alias, first filed / latest, implied, split-adjusted ×n, "missing: <reason>"), and **M04 rows still to come** (one row per later build part, each "missing: not built, Part n"; D10). Data from `financials/views.py` (U4). Checked on a scratch database built from the Part 1a fixtures (port 8799).
 
 ## Open questions
 - Phone-sized layout: not planned while local-only.

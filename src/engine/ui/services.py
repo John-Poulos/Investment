@@ -172,13 +172,18 @@ class FinancialTable:
     # (concept, unit kind, one cell per period: {value, accession, filed, method} or None)
 
 
+# Shown in the M04 "Share counts" block below these tables (D-UI-22), not repeated here.
+M04_SHARE_ROWS = frozenset({"shares_period_end", "shares_cover", "shares_basic_wavg",
+                            "shares_diluted_wavg", "sbc", "public_float"})  # fmt: skip
+
+
 def financials(engine: sqlite3.Connection, cik: str, quarters: int = 8) -> list[FinancialTable]:
     tables = []
     for title, kind, ptype in (
         ("Quarterly results", "flow", "Q"),
         ("Balance sheet", "instant", "I"),
     ):
-        concepts = [c for c in CONCEPTS if c.kind == kind]
+        concepts = [c for c in CONCEPTS if c.kind == kind and c.name not in M04_SHARE_ROWS]
         names = [c.name for c in concepts]
         marks = ", ".join("?" * len(names))
         rows = engine.execute(

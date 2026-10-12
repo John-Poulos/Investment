@@ -1,0 +1,6 @@
+{"cik":1652044,"taxonomy":"us-gaap","tag":"NetIncomeLoss","label":"Net Income (Loss) Attributable to Parent","description":"Hand-built companyconcept fixture (see README).","entityName":"Alphabet Inc.","units":{"USD":[
+{"start":"2023-01-01","end":"2023-12-31","val":73795000000,"accn":"0001652044-24-000022","fy":2023,"fp":"FY","form":"10-K","filed":"2024-01-31"},
+{"start":"2023-01-01","end":"2023-12-31","val":73795000000,"accn":"0001652044-25-000014","fy":2024,"fp":"FY","form":"10-K","filed":"2025-02-05"},
+{"start":"2023-01-01","end":"2023-12-31","val":73795000000,"accn":"0001652044-26-000018","fy":2025,"fp":"FY","form":"10-K","filed":"2026-02-04"},
+{"start":"2023-01-01","end":"2023-12-31","val":73795000000,"accn":"0001308179-26-000342","fy":2025,"fp":"FY","form":"DEF 14A","filed":"2026-04-24"}
+]}}

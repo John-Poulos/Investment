@@ -138,6 +138,31 @@ def official_step(engine, report) -> str:
     return "\n" + "\n".join(rep.lines) + "\n"
 
 
+def financials_sec_step(client, engine, report) -> str:
+    """M04 SEC part after the official feeds (M04_BUILD_LOG logon constraints, D-M04-70):
+    per-new-filing work only (Part 1a: R1 cover pages of new annual reports and of a
+    multi-class filer's 10-Qs). Never fails the run."""
+    from engine.financials.step import run_sec_part
+
+    try:
+        lines = run_sec_part(client, engine, companies_of(report), datetime.now(UTC))
+    except Exception as e:  # must not break the run report
+        lines = [f"M04 financials — SEC part: error — {type(e).__name__}: {e}"]
+    return "\n" + "\n".join(lines) + "\n"
+
+
+def financials_local_step(engine, corpus, report) -> str:
+    """M04 local pass after prices, also when prices are skipped (0 SEC requests):
+    filing status from the calendar for every covered company (D-M04-61). Never fails."""
+    from engine.financials.step import run_local_part
+
+    try:
+        lines = run_local_part(engine, corpus, companies_of(report), datetime.now(UTC))
+    except Exception as e:  # must not break the run report
+        lines = [f"M04 financials — local pass: error — {type(e).__name__}: {e}"]
+    return "\n" + "\n".join(lines) + "\n"
+
+
 def seasonal_step(engine, corpus, report, background: bool):
     """D-M02-51: a due seasonal pass is mined here, locally (no SEC), and a background run
     then asks Yes/No after releasing the lock. Manual runs and a pass declined today get
@@ -359,11 +384,13 @@ def _run(args, engine, folder):
     calls += financing_step(client, engine, corpus, report)
     calls += news_step(engine, corpus, report)
     calls += official_step(engine, report)
+    calls += financials_sec_step(client, engine, report)
     background = args.scheduled or args.if_missed
     season_text, prep = seasonal_step(engine, corpus, report, background)
     calls += season_text
     skipped = "\nPrices (Tiingo): skipped (--skip-prices)\n"
     prices = skipped if args.skip_prices else prices_step(engine, report)
+    prices += financials_local_step(engine, corpus, report)
     text = format_report(report) + calls + prices
     logs = ROOT / "logs"
     logs.mkdir(exist_ok=True)

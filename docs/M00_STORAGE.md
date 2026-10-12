@@ -16,7 +16,7 @@ Settings: WAL mode, `busy_timeout` 5 s, foreign keys on, `synchronous=NORMAL`. W
 ## Core tables (engine.db)
 | Table | Key | Notes |
 |---|---|---|
-| entity | cik | name, SIC, fiscal year end, exchange |
+| entity | cik | name, SIC, fiscal year end, exchange, filer category (submissions `category`) |
 | ticker | ticker, valid_from | maps to cik; keeps ticker history |
 | peer_group / peer_member | group_id, cik | source = SIC or owner (D19) |
 | filing | accession | cik (first lister), form, filed, accepted_at, report_date, 8-K items, primary_doc, is_xbrl, is_inline_xbrl, size, ingested_at |
@@ -26,7 +26,10 @@ Settings: WAL mode, `busy_timeout` 5 s, foreign keys on, `synchronous=NORMAL`. W
 | frame_value | taxonomy, tag, unit, frame, cik | peer-median source |
 | insider_txn | accession, line | issuer, owner, role, code, shares, price, shares_after, 10b5-1 flag, ownership nature, derivative terms, referenced footnotes |
 | form4_doc | accession | one row per parsed Form 4: issuer, doc type, period, all reporting owners (JSON), 10b5-1 checkbox, parser version |
-| signal | ticker, module_id, signal, timeframe, as_of | D13 record |
+| signal | cik, module_id, signal, timeframe, as_of | D13 record; ticker for display; `value` numbers only, `value_text` states; missing = both empty + "missing: <reason>" (D-M04-9, -74; D-STO-19) |
+| entity_link | predecessor_cik, successor_cik, kind | predecessor CIKs and de-SPAC shell periods with their boundary date (D-STO-19) |
+| cover_shares | accession, class_label | per-class cover counts from R1 pages, cover date, error-correction flag (D-M04-2) |
+| filing_status | cik, period_end, form | category carried and its source, deadline, due date, NT, filed, current/stale/overdue, note (D-M04-36, -61) |
 | llm_call / llm_observation / llm_citation | ids | every owner-initiated LLM call (model, prompt version, tokens, cost, raw reply); its observations (verified or rejected with reason); citations by accession, file, offsets, quote, doc sha256 (M00_SEARCH D-SRCH-19). The 0001 `extraction` table is unused. |
 | guidance / guidance_scan | id; accession, filename | R19 ledger parsed by code: metric, basis, period, value (low/high/point/spread), prior, stated_on, exact quote + offsets, period source, doc sha256, parser version; one scan row per release (parsed/none/review) |
 | event | accession, item, cik | one row per 8-K item: category, severity, title, consuming modules, amended flag, catalog version |
@@ -51,7 +54,9 @@ Freshness is event-driven (SEC data changes only when a company files); backstop
 | Data | Backstop age |
 |---|---|
 | Filing index (submissions) | 1 day |
-| Company facts | 7 days, or immediately after a new 10-K/10-Q/8-K Item 2.02 |
+| Company facts | 7 days, or immediately after a new 10-K/10-Q/10-KT/20-F/40-F, an XBRL 6-K or an 8-K Item 2.02 |
+| R1 cover page | Never (one read per filing; outcome kept in `refresh_state` r1:<accession>) |
+| Filing status | Recomputed from the calendar on every run (local) |
 | Frames (peer medians) | 30 days; refresh in earnings season |
 | Documents | Never (immutable; amendments are new accessions) |
 | Ticker map | 1 day |
@@ -103,6 +108,7 @@ Freshness is event-driven (SEC data changes only when a company files); backstop
 - D-STO-16 (2026-10-08): engine migration 0011 adds `llm_call`, `llm_observation`, `llm_citation` (D-SRCH-19).
 - D-STO-17 (2026-10-08): engine migration 0012 adds `price_bar` and `price_fetch` (M00_UI D-UI-8).
 - D-STO-18 (2026-10-08): engine migration 0013 adds review_queue `resolved_by`, `note` and rebuilds `guidance` to allow source 'owner' (owner-entered rows, D-UI-12).
+- D-STO-19 (2026-10-12, M04 Part 1a): engine migration 0029_m04_data rebuilds `signal` keyed by CIK (D-M04-74) with `value_text` and CHECKs (no text in `value`; an empty row needs "missing: …"; grade and source NULL only on missing rows; D-M04-9); existing rows get the CIK of the ticker span covering their `as_of` (else the latest span, else 0000000000 with a note) and text in `value` moves to `value_text`. Adds `entity_link` (three seeded links), `cover_shares`, `filing_status` and `entity.category`.
 
 ## Open questions
 - Backfill universe: watchlist size and peers per group.

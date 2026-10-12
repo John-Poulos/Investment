@@ -17,5 +17,6 @@ Byte-exact (`tests/fixtures/** -text` in .gitattributes).
 | sec/form4/joint_gift_exercise.xml | Synthetic 4/A joint filing (two owners), gift without price, option exercise, a holding row |
 | sec/form_idx_sample.idx | Synthetic quarterly form.idx in EDGAR's fixed-width layout (10-K/A, co-registrants, SC 13D, Form 4) |
 | sec/throttle_page.html | Synthetic; replace with a recorded block page if one is ever received |
+| m04/* | Hand-built from real figures in the M04 docs (companyconcept files, R1 cover pages); sources and placeholders per file in m04/README.md |
 
 Replace synthetic files with recorded responses once the live tests have run.

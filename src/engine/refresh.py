@@ -41,7 +41,7 @@ from engine.sec.submissions import (
     stored_filings,
     sync_filings,
 )
-from engine.sec.xbrl_facts import sync_facts
+from engine.sec.xbrl_facts import REFRESH_FORMS, XBRL_6K_FORMS, forces_facts, sync_facts
 from engine.themes import proposals, tiers
 
 DAILY_INDEX_URL = "https://www.sec.gov/Archives/edgar/daily-index/{year}/QTR{q}/master.{ymd}.idx"
@@ -49,7 +49,25 @@ INDEX_TTL_S = 86400
 # SEC's daily index is per US Eastern business day; dates must be Eastern, not UTC
 # (live 2026-10-07: a 21:32 ET run is already the next day in UTC).
 MARKET_TZ = ZoneInfo("America/New_York")
-FACT_FORMS = {"10-K", "10-K/A", "10-Q", "10-Q/A", "20-F", "20-F/A", "40-F"}
+# Forms that force a facts sync (SB.11): periodic forms incl. transition reports; a 6-K
+# forces one only when its filing row says it carries XBRL (`facts_due`).
+FACT_FORMS = set(REFRESH_FORMS)
+
+
+def facts_due(engine: sqlite3.Connection, entries: list[IndexEntry]) -> bool:
+    """A new filing in today's index that forces a companyfacts sync. Read after the
+    filing index sync, so a 6-K's `is_xbrl` flag is known (GFS: a 6-K without XBRL
+    waits for the 7-day backstop)."""
+    for e in entries:
+        if e.form in FACT_FORMS:
+            return True
+        if e.form in XBRL_6K_FORMS:
+            row = engine.execute(
+                "SELECT is_xbrl FROM filing WHERE accession = ?", (e.accession,)
+            ).fetchone()
+            if row is not None and forces_facts(e.form, row["is_xbrl"]):
+                return True
+    return False
 
 
 # --- Config --------------------------------------------------------------------
@@ -293,7 +311,7 @@ def _process_company(
                 f"{r['shares'] or 0:,.0f} @ {price} [{plan}]"
             )
 
-    force_facts = rep.backfilled or any(e.form in FACT_FORMS for e in entries)
+    force_facts = rep.backfilled or facts_due(engine, entries)
     facts = sync_facts(client, engine, cik, now, force=force_facts)
     if isinstance(facts, NotFound):
         rep.facts = "no XBRL company facts (fund, foreign filer or no XBRL)"
@@ -354,7 +372,7 @@ def _process_tracked(
     _check(sync_filings(client, engine, cik, now, fresh=bool(entries)), "filings", fails)
     rep.new_filings = [f"{e.form} {e.accession}" for e in entries]
     _check(build_events(engine, cik), "events", fails)
-    force = rep.backfilled or any(e.form in FACT_FORMS for e in entries)
+    force = rep.backfilled or facts_due(engine, entries)
     facts = sync_facts(client, engine, cik, now, force=force)
     if isinstance(facts, NotFound):
         rep.facts = "no XBRL company facts"

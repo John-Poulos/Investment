@@ -243,7 +243,9 @@ Every row: `cik` (key; ticker for display, D-M04-74), one row per timeframe, `va
 | `customer_signal` | text: intact / weakening / info | Q2 customer row | ✓ | ✓ | info |
 | `customer_at_stake`, `customer_hhi` | share; index | Disclosed customer exposure | info | info | info |
 | `lifecycle_stage` | text: stage, "unconfirmed" | Routing only | info | info | info |
-| `filing_status` | text: current / stale / overdue; days in `method` | Filing age | ✓ | ✓ | ✓ |
+| `filing_status` | text: current / stale / overdue; days in `method` | Filing age; built Part 1a (as_of = filed date, period end or due date) | ✓ | ✓ | ✓ |
+| `shares_cover` | shares (all classes, split-adjusted); classes and tag in `method` | Cover count on its cover date (D-M04-2); built Part 1a | info | info | info |
+| `implied_float_shares` | shares; float, close and date in `method` | Float ÷ close, yearly, "implied" (D-M04-2; M07 owns R22); built Part 1a | info | info | info |
 | `survival_gate` | text: pass / warn / fail / incomplete / not_applicable | Gate verdict; trigger or missing inputs in `method` | ✓ | ✓ | ✓ |
 | `runway_q` | quarters, or text "self-funding"; tier in `method` | Runway at D-M04-32 burn | ✓ | ✓ | info |
 | `maturity_wall` | ratio | (12-month debt + 4 × burn) ÷ liquidity | ✓ | ✓ | info |
