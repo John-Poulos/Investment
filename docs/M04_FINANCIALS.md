@@ -1,6 +1,6 @@
 # M04 — Financials & red flags
 
-Status: CvD profile approved; design review in progress (Rounds 1–5 done) · Updated: 2026-10-12 · Outline headings: Analyze the financials; Financial red flags · Depends on: M00 (SEC data), M02 (peer data), M06, M11 (R19 ledger) · Sources: S02–S04, S13, S20, S25, S32–S37, S43–S45
+Status: CvD profile approved; design review complete (D-M04-2…75); doc redraft pending · Updated: 2026-10-12 · Outline headings: Analyze the financials; Financial red flags · Depends on: M00 (SEC data), M02 (peer data), M06, M11 (R19 ledger) · Sources: S02–S04, S13, S20, S25, S32–S37, S43–S45
 
 ## Purpose
 Judge financial health and earnings quality, and classify a slowdown as a cyclical trough or a structural decline (CvD) for M01's entry and exit rules.
@@ -135,6 +135,33 @@ Price drawdown vs drop in normalized earnings power (cycle-average operating mar
 - D-M04-49 (2026-10-12, review 5.11a): Contracted RPO — "weakening" when RPO is below its 3-year minimum for 2 quarters; a break in RPO ÷ revenue alone opens a review.
 - D-M04-50 (2026-10-12, review 5.12a): Revenue-at-stake weight — design-in customer vote = min(1, revenue at stake ÷ 0.25) (starting value); contracted 1; transactional 0; missing excluded.
 - Round 5 suggestions S5.1–S5.16 accepted (docs/m04_review/R5_brief.md).
+- D-M04-51 (2026-10-12, review 6.1a): Calibration test set — the owner blind-labels 24 CvD episodes (15 up to FY2017, 9 from 2018) plus 4 controls; tuning covers only activation, the z cut, the majority rule and the gauge threshold; information rows are reported, not tuned; episode prices per D-M04-72.
+- D-M04-52 (2026-10-12, review 6.2a; amends D-M04-1 peer z): Few-peer statistics — robust z on MAD × 1.4826 × the small-sample factor b_n for 5–9 peers (IQR ÷ 1.35 kept for ≥ 10); fixed-gap fallback below 5; drop |z| > 3 once before scoring.
+- D-M04-53 (2026-10-12, review 6.3a; amends D-M04-1 health score): F-quality (0–4, extended to 0–5 by D-M04-59) is the only health-score vote (≥ 3 intact, 2 neutral, ≤ 1 weakening); Piotroski F and Mohanram G are shown, not voted.
+- D-M04-54 (2026-10-12, review 6.4a; amends D-M04-1 rows): Profile corrections — normalized earnings power on both bases (current revenue and cycle-average revenue); Q2 intensity row uses total capex intensity and the R&D level; trough comparisons use 5 pp turning points, write-down adjusted; ROIC must agree with gross margin for "intact".
+- D-M04-55 (2026-10-12, review 6.5a; amends D-M04-1): Activation and zones — CvD is active when TTM revenue falls, gross margin falls ≥ 3 pp, or operating income falls ≥ 25% (also D-M04-67); otherwise state NO_SLOWDOWN. "Shared" needs peers falling too; z zones are open-ended; readings between the cycle and company-specific zones are neutral.
+- D-M04-56 (2026-10-12, review 6.6a; amends D-M04-1 "disagree → AMBIGUOUS"): Missing rows leave the denominator; ≥ 2 rows must be present; a question resolves on a 2/3 majority of present weight (customer row weighted per D-M04-50; the R12 vote counts only when it fires); cvd_confidence = the lower of the two questions' winning shares; coverage is shown beside it.
+- D-M04-57 (2026-10-12, review 6.7a): Overreaction gauge — gap = 4-quarter price change − change in normalized earnings power on current revenue, same 4 quarters; flagged at ≤ −25 pp (starting value); the cycle-average base shown beside it.
+- D-M04-58 (2026-10-12, review 6.8a): How M01 reads CvD — only CYCLICAL_TROUGH with a gate pass adds rule-7 (D27) strength; NO_SLOWDOWN allows tranches; AMBIGUOUS, STUMBLE, CYCLE_PLUS_DAMAGE, STRUCTURAL_DECLINE and overdue block tranches. Recorded in M01 as D-M01-5.
+- D-M04-59 (2026-10-12, review 6.9a): CFO > 0 joins F-quality (0–5: ≥ 4 intact, 3 neutral, ≤ 2 weakening).
+- D-M04-60 (2026-10-12, review 6.10a): Restatement, `special_items`, `financing_pressure`, `distress_score` and the Red Flag 1 row are shown and reviewed with no D13 weight until ≥ 20 owner-labelled episodes exist (same rule as D-M04-45).
+- D-M04-61 (2026-10-12, review 6.11a): Overdue and stale — an overdue filing (S1.6) makes the gate incomplete and raises an exit warning (D16); "stale" (D-M04-1) marks the carried CvD state once a period has ended unfiled, and later tranches wait for the filing.
+- D-M04-62 (2026-10-12, review 6.12a): Rule-7 strength does not need the overreaction gauge; the gap is shown ("informs, never overrides").
+- D-M04-63 (2026-10-12, review 6.13a): Intel regression expectation — AMBIGUOUS → owner review until the share and moat rows exist; the owner's answer is the expected state.
+- D-M04-64 (2026-10-12, review 6.14a): Capex surge into falling revenue — total capex ÷ revenue > 1.5× its own 3-year average while revenue falls → the Q2 capex row reads neutral, with a pointer to M05.
+- D-M04-65 (2026-10-12, review 6.15a): Equity point in the health vote — Round 3 measure (D-M04-22, -23), routed by tag then stage (D-M04-27); lost only on extreme or serial issuance (D-M04-26), for `issuance_funded` only when `financing_pressure` warns (D-M04-25); unconfirmed stage → missing.
+- D-M04-66 (2026-10-12, review 6.16a): One-time items in normalized earnings power — reported and ex-items both shown (D-M04-48); an item is excluded only if nothing similar occurred in the prior 10 years; repeats feed `special_items` (D-M04-19).
+- D-M04-67 (2026-10-12, review 6.17a): Activation on the latest quarter — CvD is also active when the latest quarter's revenue is ≥ 10% below a year earlier (starting value).
+- D-M04-68 (2026-10-12, review 6.18a, new): Market share — owner-entered third-party share (grade B) or share computed from a stated industry total (grade A); Q2 "falling" = down ≥ 1 pp over 4 quarters in a flat or growing market; Red Flag 1 "no gains" (D-M04-30) = up < 1 pp (illustrative, set at Part 8); otherwise "missing: no share data".
+- Round 6 suggestions accepted as in docs/m04_review/R6_brief.md (incl. S6.15: a Tiingo symbol counts only when its name and dates match the SEC company).
+- D-M04-69 (2026-10-12, build B.1a): One `scripts/run_financials.py` with a subcommand per part, `--no-sec`, the lock via `run_script`, and a log of requests, MB and seconds per fetch type.
+- D-M04-70 (2026-10-12, build B.2a): The logon refresh runs per-new-filing work only (~350–390 requests a year; heaviest day under a minute); finders run on stored text; backfills are owner-run.
+- D-M04-71 (2026-10-12, build B.3a): Review order — survival; CvD AMBIGUOUS and stage changes; events; restatement; dilution; margin, customer, unit KPI; estimate and M-score. Existing hits are baselined except items filed in the last 12 months and a current gate fail or incomplete. The setup batch (15 stages, peer shortlists) is outside the weekly cap of 5 and comes before Part 3.
+- D-M04-72 (2026-10-12, build B.4a): Delisted and recycled tickers — a Tiingo symbol is used only when its name and dates match the SEC company (BBBYQ, RADCQ, NVTAQ, SHLDQ, RSH/RSHCQ, FIT, BTUUQ, GPRO); last real trade found first; BTU and CHK checked for splices; J.C. Penney "missing: no prices"; ≤ 34 Tiingo requests.
+- D-M04-73 (2026-10-12, build B.6a): Red-flag labels — the owner blind-labels red flags during Parts 3–7 on Round 6's episodes plus GE, Invitae, RadioShack, Sears, Rivian, MSTR, Target, Tesla (controls Lockheed, Alphabet); weights are set at a High-effort review after Part 8b.
+- D-M04-74 (2026-10-12, build B.7a; extends D13): `signal` gains `cik` for all modules, in the same migration as `value_text`; the ticker is for display.
+- D-M04-75 (2026-10-12, build B.9a): Peer and episode facts — one companyfacts download per company, keep only M04's tags, then drop the cache file.
+- Build-part suggestions SB.1–SB.18 accepted (docs/m04_review/BP_brief.md); B.5, B.8 settled by D-M04-11, D-M04-2.
 
 ## Open questions
 - Peer groups: approved as D19; owner overrides to be entered at setup.
