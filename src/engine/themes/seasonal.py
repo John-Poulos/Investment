@@ -50,7 +50,9 @@ SCREEN_PAGES = 1
 TEST_PAGES = 10
 TEST_CAP = 30
 PROPOSE_CAP = 10
-OVERLAP_MIN = 0.30
+# live check 3: AI wording shared 19–29% of its passages with AI infrastructure, the
+# phrases that were not themes 0–12% (D-M02-56)
+OVERLAP_MIN = 0.15
 COVER_SHARE = 0.90
 SAME_FILERS = 0.80  # Jaccard of the latest window's fetched filers: one phrase per group
 TIME_BUDGET_S = 45 * 60
@@ -440,7 +442,7 @@ def _rowids(corpus: sqlite3.Connection, query: str, limit: int = 2000) -> set[in
 def assign_theme(engine: sqlite3.Connection, corpus: sqlite3.Connection,
                  phrase: str) -> tuple[int | None, float | None]:  # fmt: skip
     """The active theme whose phrases share the most of this phrase's corpus passages, if
-    ≥ 30% of them; else None (a new theme)."""
+    ≥ OVERLAP_MIN (15%) of them; else None (a new theme)."""
     own = _rowids(corpus, _fts(phrase))
     if not own:
         return None, None

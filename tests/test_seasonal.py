@@ -473,6 +473,14 @@ def test_candidate_sections_and_cosmetic_renames():
     assert flags.submission_flags(data, "0000000001", date(2026, 3, 10))[0].startswith("renamed")
 
 
+def test_clause_fragments_and_cautionary_wording_are_not_mined():
+    got = mining.phrases_in("References to past events are provided by way of example.")
+    assert "events are provided" not in got and "internet of things" in mining.phrases_in(
+        "the internet of things")  # fmt: skip
+    assert mining.BOILERPLATE.search("These statements reflect our beliefs and opinions.")
+    assert seasonal.OVERLAP_MIN == 0.15
+
+
 def test_renames_read_in_date_order():
     """SEC lists former names newest first; each is compared with its successor in time."""
     data = {"name": "SharonAI Holdings Inc.", "formerNames": [

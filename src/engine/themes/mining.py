@@ -24,12 +24,17 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
-MINER_VERSION = "mine-3"
+MINER_VERSION = "mine-4"
 MAX_KEYS = 3_000_000
 SKIP_SECTIONS = ("call analyst", "call operator", "call other")
 BOILERPLATE = re.compile(
-    r"forward-looking statements?|safe harbor|private securities litigation reform act", re.I
-)
+    r"forward-looking statements?|safe harbor|private securities litigation reform act|"
+    r"cautionary (?:statement|note|language)|beliefs and opinions|references to past events",
+    re.I,
+)  # the last three: cautionary-statement wording seen in live check 3
+# a three-word phrase may carry one of these inside ("internet of things"); any other stop
+# word there makes it a clause fragment ("events are provided", live check 3)
+MIDDLE_OK = frozenset({"of", "and", "for", "in", "on", "to", "by", "with", "at", "as", "from"})
 _BREAK = re.compile(r"[.;:!?,()\[\]{}\"“”‘’'|/\n\t•·—–]+|\s-\s")
 _TOKEN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
@@ -102,6 +107,8 @@ def _emit(run: list[str], sizes: tuple[int, ...], out: set[str]) -> None:
         for i in range(len(run) - n + 1):
             gram = run[i : i + n]
             if gram[0] in STOP or gram[-1] in STOP:
+                continue
+            if any(w in STOP and w not in MIDDLE_OK for w in gram[1:-1]):
                 continue
             out.add(" ".join(gram))
 
