@@ -632,3 +632,18 @@ def test_run_financials_table_and_unbuilt_parts(capsys, monkeypatch):
         )
         == "companyconcept"
     )
+
+
+def test_class_label_cut_to_class_when_member_names_no_stock():
+    from engine.sec.cover import _clean_class
+
+    assert _clean_class("Class C share repurchases [Member]") == "Class C"
+    assert _clean_class("Class C Capital Stock [Member]") == "Class C Capital Stock"
+    assert _clean_class("Common Class A [Member]") == "Common Class A"
+
+
+def test_src_revenue_test_named_in_category_reason():
+    from engine.financials import status
+
+    assert status.next_category(None, 426.4e6, 20e6) == status.NON
+    assert status.next_category(None, 426.4e6, None) == status.ACCEL

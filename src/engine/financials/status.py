@@ -211,7 +211,12 @@ def derived_categories(
             continue
         rev = _fy_revenue(engine, cik, e)
         cat = next_category(prev, f, rev)
-        out[e] = (cat, f"{how} → {cat} (Rule 12b-2{', carried from ' + prev if prev else ''})")
+        src = (
+            f"revenue ${rev / 1e6:,.1f}M < $100M: smaller reporting company, "
+            if rev is not None and rev < SRC_REVENUE and f < ENTRY_LARGE
+            else ""
+        )
+        out[e] = (cat, f"{how} → {cat} ({src}Rule 12b-2{', carried from ' + prev if prev else ''})")
         prev = cat
     return out
 

@@ -214,8 +214,14 @@ def cover_summary(engine, comps: dict[str, str]) -> list[str]:
         parts = (" + ".join(f"{c} {n:,.0f}" for c, n in v.classes) + " = ") if v.classes else ""
         lines.append(f"  {ticker}: {parts}{v.value:,.0f} at {v.date} ({v.tag}; {v.accession})"
                      + (f"; {v.note}" if v.note else ""))  # fmt: skip
-    lines.append(f"Split-guard hits: {len(split_hits)}")
-    lines += split_hits[:40]
+    per_co: dict[str, int] = {}
+    for h in split_hits:
+        per_co[h.split()[0]] = per_co.get(h.split()[0], 0) + 1
+    lines.append(
+        f"Split-guard hits: {len(split_hits)} (older counts scaled to today; raw stored as filed)"
+    )
+    lines.append("  " + " · ".join(f"{k} {n}" for k, n in sorted(per_co.items())))
+    lines += [h for h in split_hits if not h.split()[0].startswith("AAPL")][:15]
     not_cover = engine.execute(
         "SELECT name, detail FROM refresh_state WHERE name LIKE 'r1:%' AND detail LIKE "
         '\'%"outcome": "not_cover"%\''

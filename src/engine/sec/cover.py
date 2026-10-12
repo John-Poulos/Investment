@@ -207,7 +207,17 @@ def _number(text: str) -> float | None:
 
 
 def _clean_class(label: str) -> str:
-    return " ".join(_FOOTNOTE.sub("", label).replace("[Member]", "").split())
+    """Class label as filed; a member label that names the class but not the stock
+    (Alphabet's "Class C share repurchases") is cut to the class (e.g. "Class C")."""
+    text = " ".join(_FOOTNOTE.sub("", label).replace("[Member]", "").split())
+    m = _CLASS_NAME.search(text)
+    if m and not _STOCK_WORDS.search(text):
+        return m.group(0)
+    return text
+
+
+_CLASS_NAME = re.compile(r"Class [A-Z]")
+_STOCK_WORDS = re.compile(r"(stock|common|capital|ordinary)", re.I)
 
 
 def _norm(label: str) -> str:
