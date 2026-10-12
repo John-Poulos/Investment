@@ -762,3 +762,12 @@ def test_financials_tab_shows_capex_trends_and_guidance(tmp_path):
                  "missing: not built, Part 1c"):  # fmt: skip
         assert text in html, text
     assert "object at 0x" not in html
+
+
+def test_fixture_tests_cannot_open_the_owner_data_folder():
+    import pytest
+
+    from engine.store.db import data_dir, open_db
+
+    with pytest.raises(AssertionError, match="owner's data folder"):
+        open_db("engine", data_dir())
