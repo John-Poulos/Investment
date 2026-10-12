@@ -20,7 +20,8 @@
 # `/rss/pressrelease.aspx`, Nasdaq IR `/news-events/press-releases/rss`, Notified
 # `/rss/news-releases.xml`, Drupal `/rss.xml`); a feed found goes to review, and confirmed
 # feeds are polled from the database. An entry here always wins.
-# None found (2026-10-12): MSTR (strategy.com refuses automated requests); ETV is a fund.
+# None found (2026-10-12): MSTR (strategy.com refuses automated requests), AVGO (Broadcom's
+# investor site answers HTTP 403); ETV is a fund. Blocked: GFS (below).
 
 [ir.NVDA]
 feeds = ["https://investor.nvidia.com/rss/pressrelease.aspx", "https://nvidianews.nvidia.com/releases.xml"]
@@ -43,9 +44,10 @@ domains = ["boeing.com"]
 checked = "2026-10-08"
 
 [ir.GFS]
-feeds = ["https://investors.gf.com/rss/news-releases.xml"]
+# investors.gf.com/rss/news-releases.xml opens in a browser but answers the engine with
+# HTTP 403 (2026-10-12): dropped, never fetched in disguise (D-M02-59 (3)); 8-K releases
+# cover GFS.
 domains = ["gf.com"]
-checked = "2026-10-08"
 
 [ir.INTC]
 feeds = ["https://www.intc.com/news-events/press-releases/rss"]
