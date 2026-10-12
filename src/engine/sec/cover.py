@@ -216,8 +216,8 @@ def _clean_class(label: str) -> str:
     return text
 
 
-_CLASS_NAME = re.compile(r"Class [A-Z]")
-_STOCK_WORDS = re.compile(r"(stock|common|capital|ordinary)", re.I)
+_CLASS_NAME = re.compile(r"\bClass [A-Z]\b")
+_STOCK_WORDS = re.compile(r"\b(stock|common|capital|ordinary)\b", re.I)
 
 
 def _norm(label: str) -> str:
