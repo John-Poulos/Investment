@@ -1,6 +1,6 @@
 # M04 — Financials & red flags
 
-Status: design complete 2026-10-12, D-M04-1…75; build parts in M04_BUILD_LOG.md · Updated: 2026-10-12 · Outline headings: Analyze the financials; Financial red flags · Depends on: M00 (SEC data), M02 (capex recipes and guided-vs-actual, allocation block, guidance freshness, DSO, supply links), M06, M11 (R19 ledger) · Sources: S02–S04, S13, S20, S25, S32–S37, S43–S45; review sources in M04_DESIGN_PACK.md (provisional IDs, mapped to S122 onward in build Part 0)
+Status: design complete 2026-10-12, D-M04-1…83; build parts in M04_BUILD_LOG.md · Updated: 2026-10-12 · Outline headings: Analyze the financials; Financial red flags · Depends on: M00 (SEC data), M02 (capex recipes and guided-vs-actual, allocation block, guidance freshness, DSO, supply links), M06, M11 (R19 ledger) · Sources: S02–S04, S13, S20, S25, S32–S37, S43–S45; review sources in M04_DESIGN_PACK.md (provisional IDs, mapped to S122 onward in build Part 0)
 
 Every rule cites its D-M04-n; suggestion IDs (S1.x–S6.x, SB.x) point to the round briefs in docs/m04_review/. Thresholds marked † are starting values, calibrated at Part 8b (D-M04-51) or, for red flags, at the High review after 8b (D-M04-73). Missing data stays missing (`method` = "missing: <reason>"), never zero (D-M04-9). Outputs are research signals; the owner decides (D8, D16).
 
@@ -504,6 +504,14 @@ No decision in this review overrode a research recommendation. These rows cover 
 - D-M04-73 (2026-10-12, build B.6a): Red-flag labels — the owner blind-labels red flags during Parts 3–7 on Round 6's episodes plus GE, Invitae, RadioShack, Sears, Rivian, MSTR, Target, Tesla (controls Lockheed, Alphabet); weights are set at a High-effort review after Part 8b.
 - D-M04-74 (2026-10-12, build B.7a; extends D13): `signal` gains `cik` for all modules, in the same migration as `value_text`; the ticker is for display.
 - D-M04-75 (2026-10-12, build B.9a): Peer and episode facts — one companyfacts download per company, keep only M04's tags, then drop the cache file.
+- D-M04-76 (2026-10-12, closing C.1a; = D-M01-6): First entry (R3, M01 rule 1) — a first entry needs a survival-gate pass (warn included), no overdue filing, and CvD not STRUCTURAL_DECLINE or CYCLE_PLUS_DAMAGE. A company whose gate cannot yet be computed (e.g. SPCX before inputs exist) gets no first entry until it computes.
+- D-M04-77 (2026-10-12, closing C.2a): 8-K events (M01 rule 6) — every 8-K event shows at once as an uncapped alert line on the M04 tab and in the end-of-run summary box; only the `m04_event` judgment item counts against the weekly cap (D-M04-71).
+- D-M04-78 (2026-10-12, closing C.3a): "Total capex" for the gate, FCF and Q2 rows is the own-history series of D-M04-3 (longest consistent tag); M02's company-definition OCF ÷ capex is shown beside it, labelled "company definition".
+- D-M04-79 (2026-10-12, closing C.4a; extends D-M04-10): Guidance rows — a floor is scored as a low end; ceilings and direction-only rows are unscored (as M02 ranks them, D-M02-28); rows with an open `guidance_implausible` or `guidance_conflict` item stay unscored until resolved; owner-corrected rows win (D-M02-24); an outcome takes its row's grade (call = B, D-M02-21).
+- D-M04-80 (2026-10-12, closing C.5a): Tier scope — full M04 for core and promoted names; tracked names get facts-only rows (gate numbers, CvD numeric rows), text rows read "missing: tracked tier, no documents", no peer fetches and no review items.
+- D-M04-81 (2026-10-12, closing C.6a): RIVN enters as a promoted name through the UI (D-M02-11); `config/watchlist.toml` stays the owner's.
+- D-M04-82 (2026-10-12, closing C.7a): Daily prices (Tiingo) carry evidence grade A in every module (exchange data), as M01 already does.
+- D-M04-83 (2026-10-12, closing C.8a): Cycle-average window for normalized earnings power — trough to trough using the 5 pp turning points (D-M04-54); with no completed cycle in XBRL, the longest available history, labelled. Needed before the M06 review.
 - Build-part suggestions SB.1–SB.18 accepted (docs/m04_review/BP_brief.md); B.5, B.8 settled by D-M04-11, D-M04-2.
 
 ## Decisions carried from DESIGN.md
