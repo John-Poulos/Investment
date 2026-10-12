@@ -60,6 +60,53 @@
   {% else %}<p class="empty">No stored news with this theme's phrases in the last {{ news.days }} days.</p>{% endif %}
   {% if news.firsts %}<p class="note">First mentions by watchlist/tracked companies: {% for f in news.firsts[:20] %}<a href="/c/{{ f.ticker }}?tab=news">{{ f.ticker }}</a> {{ f.dated }}{% if not f.baseline %} <span class="warn">new</span>{% endif %}{{ ' · ' if not loop.last }}{% endfor %}</p>{% endif %}
   <p class="note">Headlines matched by the theme's active phrases (headline and snippet only). Companies come from the feed, the news vendor's ticker or the legal names in <code>config/aliases.toml</code>. Attention, not money; never a signal on its own (D-M02-13).</p>
+  {% set ax = official.arxiv %}
+  <h2 style="margin-top:16px">Research momentum: new arXiv preprints per month</h2>
+  {% if ax.rows %}
+  <table class="data">
+    <tr><th>Phrase</th>{% for m in ax.months %}<th class="num">{{ m[2:] }}</th>{% endfor %}<th class="num">Last 12 months</th><th class="num">12 months before</th></tr>
+    {% for r in ax.rows %}
+    <tr><td>{{ r.phrase }}</td>{% for v in r.cells %}<td class="num">{{ v if v is not none else '—' }}</td>{% endfor %}
+      <td class="num">{{ r.last12 if r.last12 is not none else '—' }}</td><td class="num">{{ r.prior12 if r.prior12 is not none else '—' }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="empty">No active phrases.</p>{% endif %}
+  <p class="note">Preprints submitted to arXiv in each calendar month whose metadata contain the phrase (arXiv's own phrase search; counted once per month after it ends; — = not counted yet, never zero). Research momentum tracks academic interest, not money flow (D-M02-13, D-M02-15).</p>
+  <h2 style="margin-top:16px">Federal Register, last {{ official.days }} days</h2>
+  {% if official.fedreg %}
+  <table class="data">
+    <tr><th>Published</th><th>Type</th><th>Title</th><th>Agency</th><th>Phrase</th></tr>
+    {% for f in official.fedreg %}
+    <tr><td style="white-space:nowrap">{{ f.publication_date }}</td><td>{{ f.doc_type }}</td>
+      <td>{% if f.url %}<a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.title }}</a>{% else %}{{ f.title }}{% endif %}{% if f.abstract %}<div class="muted">{{ f.abstract }}</div>{% endif %}</td>
+      <td class="muted">{{ f.agencies or '—' }}</td><td class="muted">{{ f.phrase }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="empty">No stored Federal Register document with this theme's phrases in the last {{ official.days }} days.</p>{% endif %}
+  <p class="note">Rules, proposed rules and notices whose full text contains a phrase (Federal Register search) — the phrase may sit in one passing sentence; read the abstract. Grade A, government source; never a signal on its own.</p>
+  <h2 style="margin-top:16px">Bills in Congress</h2>
+  {% if official.bills %}
+  <table class="data">
+    <tr><th>Bill</th><th>Status</th><th>Title</th><th>Latest action</th><th>Phrase</th></tr>
+    {% for b in official.bills %}
+    <tr><td style="white-space:nowrap">{% if b.url %}<a href="{{ b.url }}" target="_blank" rel="noopener">{{ b.bill_type }} {{ b.number }}</a>{% else %}{{ b.bill_type }} {{ b.number }}{% endif %} <span class="muted">(Congress {{ b.congress }})</span></td>
+      <td>{% if b.status == 'enacted' %}<span class="warn">enacted</span>{% else %}introduced{% endif %}</td>
+      <td>{{ b.title }}{% if b.summary %}<div class="muted">{{ b.summary }}</div>{% endif %}</td>
+      <td class="muted">{% if b.latest_action %}{{ b.latest_action_date or '' }} {{ b.latest_action }}{% else %}not read yet{% endif %}</td><td class="muted">{{ b.phrase }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="empty">No stored bill with this theme's phrases in its title or summary.</p>{% endif %}
+  <p class="note">Bills of the current Congress whose title or summary contains a phrase (Congress.gov). Most bills never pass: shown as "introduced" unless the latest action says it became law (D-M02-15).</p>
+  <h2 style="margin-top:16px">Federal awards to linked companies (USAspending, last {{ official.days }} days)</h2>
+  {% if official.awards %}
+  <table class="data">
+    <tr><th>Company</th><th class="num">New awards</th><th class="num">Obligated</th><th>Latest award</th><th>Last checked</th></tr>
+    {% for a in official.awards %}
+    <tr><td><a href="/c/{{ a.ticker }}?tab=money">{{ a.ticker }}</a></td><td class="num">{{ a.n if a.checked else '—' }}</td><td class="num">{{ a.total | usd if a.checked else '—' }}</td><td>{{ a.latest or '—' }}</td><td class="muted">{{ a.checked or 'not yet' }}</td></tr>
+    {% endfor %}
+  </table>
+  <p class="note">{{ AWARD_NOTE }} Federal money to a company is not necessarily money for this theme: open the company's Money flow tab for each award's agency and description.</p>
+  {% else %}<p class="empty">No company linked to this theme yet.</p>{% endif %}
   <h2 style="margin-top:16px">Money flow</h2>
   <p class="note">Confirmed spenders only (a quoted sentence ties their spending to this theme, D-M02-5). Hypothesis, not backtested · guidance is a {{ FORECAST_NOTE }} · no totals: each spender keeps its own period and shows its own guided increase.{% if mf.open_links %} {{ mf.open_links }} compan{{ 'y' if mf.open_links == 1 else 'ies' }} with link sentences waiting in <a href="/review">review</a>.{% endif %}</p>
   {% if mf.ranked or mf.unranked %}

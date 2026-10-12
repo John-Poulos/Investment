@@ -22,6 +22,7 @@ Updated: 2026-10-12 · Read at the start of every module build. One line each, w
 - A section label match must be exact and form-specific: "Item 1" is the business in a 10-K but the financial statements in a 10-Q (D-M02-54).
 - News vendors often link through their own redirect (Finnhub), so URL dedupe misses the same story; fall back to headline + date, and to near-identical headlines of the same company (an IR headline vs the 8-K exhibit's first line) (D-M02-58).
 - Feeds may carry relative links (SpaceX's Q4 Inc feed); resolve them against the feed URL before storing or deduping (D-M02-59).
+- A date window on an award API matches any action in the window: USAspending returned 1993 and 2011 contracts (cumulative "Award Amount") for a 2026 window; ask for new awards explicitly and label amounts as obligated to date (D-M02-60).
 - A first-time scan is a baseline, not news: record what is already there before reporting "first mentions", or a newly tracked company or newly accepted theme floods the digest (D-M02-58).
 - Calibrate a cut-off on known cases before enforcing it: 50% / 75% industry concentration would have rejected 12 of 36 real seed themes, because value chains span related industries and finance filers mention themes as holdings or risks (D-M02-52).
 

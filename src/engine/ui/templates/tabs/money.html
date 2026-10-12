@@ -139,3 +139,35 @@
 </table>
 <p class="note">Compared with the company's own history only (contracts ≤ 1 year may be excluded, S79){% if m.rpo.own_median_yoy is not none %}: median growth {{ '%+.0f' | format(100 * m.rpo.own_median_yoy) }}%{% if m.rpo.latest_vs_own is not none %}, latest {{ '%+.0f' | format(100 * m.rpo.latest_vs_own) }} pts vs that{% endif %}{% endif %}.</p>
 {% else %}<p class="empty">RPO not reported (common for hardware sellers) — never shown as zero.</p>{% endif %}
+
+{% set aw = awards %}
+<h2 style="margin-top:16px">Federal awards (USAspending)</h2>
+{% if not aw.checked and not aw.mapped %}
+<p class="empty">Not searched yet — unknown, not "none" (the refresh searches each watchlist/tracked company weekly).</p>
+{% else %}
+<p class="note">Last searched {{ aw.checked or '—' }}{% if aw.detail %} ({{ aw.detail }}){% endif %} · obligated in new awards, last 365 days: <b>{{ aw.total_365 | usd }}</b></p>
+{% if aw.mapped %}
+<table class="data">
+  <tr><th>First obligation</th><th>Award</th><th>Type</th><th>Agency</th><th>Recipient (as stated)</th><th class="num">Obligated to date</th><th>Last modified</th></tr>
+  {% for a in aw.mapped %}
+  <tr><td style="white-space:nowrap">{{ a.base_date or '—' }}</td>
+    <td><a href="https://www.usaspending.gov/award/{{ a.award_key | urlencode }}" target="_blank" rel="noopener">{{ a.award_id }}</a>{% if a.description %}<div class="muted">{{ a.description }}</div>{% endif %}</td>
+    <td>{{ a.award_type or a.award_group }}</td><td>{{ a.agency or '—' }}{% if a.sub_agency and a.sub_agency != a.agency %}<div class="muted">{{ a.sub_agency }}</div>{% endif %}</td>
+    <td>{{ a.recipient_name }}{% if a.how == 'parent' %}<div class="muted">via parent {{ a.parent_name or '' }}</div>{% endif %}</td>
+    <td class="num">{{ a.amount | usd }}</td><td class="muted">{{ (a.last_modified or '')[:10] or '—' }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}<p class="empty">No award mapped to this company in the searched window.</p>{% endif %}
+{% if aw.unmapped %}
+<h3 style="margin-top:12px">Found by the search, not mapped to this company</h3>
+<table class="data">
+  <tr><th>Recipient (as stated)</th><th>Parent (USAspending)</th><th>Award</th><th>Agency</th><th class="num">Obligated to date</th></tr>
+  {% for a in aw.unmapped %}
+  <tr><td>{{ a.recipient_name }}</td><td class="muted">{% if a.profile_at %}{{ a.parent_name or 'none stated' }}{% else %}not read yet{% endif %}</td>
+    <td>{{ a.award_id }}</td><td>{{ a.agency or '—' }}</td><td class="num">{{ a.amount | usd }}</td></tr>
+  {% endfor %}
+</table>
+<p class="note">The recipient search is fuzzy (search term "{{ aw.unmapped[0].search_term }}"); these names did not equal the company's names or its parent's, so they are not counted. A subsidiary under another name belongs here until its USAspending parent shows the company.</p>
+{% endif %}
+<p class="note">{{ AWARD_NOTE }} Grade A, government source; not scored.</p>
+{% endif %}
