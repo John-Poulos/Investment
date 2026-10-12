@@ -40,6 +40,7 @@ Units: pp = percentage points. Peer z = (company value − peer median) ÷ (peer
 Stickiness classes (owner sets per company; engine proposes): contracted/recurring · design-in/qualified · transactional. No universal customer-loss threshold was found in research; the ≥10% line is a disclosure rule, not a significance test.
 
 ### Survival gate (overrides the grid)
+Amended in review (2026-10-12): Altman Z/Z''/O leave the gate as a `distress_score` warning (D-M04-31); runway and wall rules per D-M04-32, -33; text and 8-K triggers D-M04-34, -37; scope by model tag D-M04-8, -13, -35. The original text below is kept until the doc is redrafted at the end of the review.
 Altman Z in the distress zone (original Z for manufacturers, Z'' otherwise; not for financials), or runway (cash + undrawn credit ÷ quarterly burn) < 6 quarters, or next-12-month debt maturities > liquidity → no adds; warning.
 
 ### Classification
