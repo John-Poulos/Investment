@@ -24,6 +24,8 @@ Updated: 2026-10-12 · Read at the start of every module build. One line each, w
 - Feeds may carry relative links (SpaceX's Q4 Inc feed); resolve them against the feed URL before storing or deduping (D-M02-59).
 - A date window on an award API matches any action in the window: USAspending returned 1993 and 2011 contracts (cumulative "Award Amount") for a 2026 window; ask for new awards explicitly and label amounts as obligated to date (D-M02-60).
 - A first-time scan is a baseline, not news: record what is already there before reporting "first mentions", or a newly tracked company or newly accepted theme floods the digest (D-M02-58).
+- Point-in-time reads filter by filing date first, then pick among tags: a tag switch otherwise hides a value that was known (Micron FY2018 revenue), and proxy statements and 8-Ks re-file old values that must never become "latest" (D-SEC-19).
+- Multi-class filers report the cover share count per class only (a dimension), so companyfacts has no total; the filing's R1 page has every class on the cover date (D-M04-2, D-SEC-19).
 - Calibrate a cut-off on known cases before enforcing it: 50% / 75% industry concentration would have rejected 12 of 36 real seed themes, because value chains span related industries and finance filers mention themes as holdings or risks (D-M02-52).
 
 ## Rate limits and budgets

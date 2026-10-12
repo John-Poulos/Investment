@@ -1,0 +1,4 @@
+{"cik":106040,"taxonomy":"us-gaap","tag":"Revenues","label":"Revenues","description":"Hand-built companyconcept fixture (see README).","entityName":"WESTERN DIGITAL CORP","units":{"USD":[
+{"start":"2022-07-02","end":"2023-06-30","val":12318000000,"accn":"0000106040-23-000024","fy":2023,"fp":"FY","form":"10-K","filed":"2023-08-25"},
+{"start":"2022-07-02","end":"2023-06-30","val":12318000000,"accn":"0000106040-24-000022","fy":2024,"fp":"FY","form":"10-K","filed":"2024-08-20"}
+]}}

@@ -17,7 +17,7 @@ Owner's old engine (pharma app) in `reference/old_engine/`: read-only source for
 Windows 11 · Python via uv · SQLite (WAL) in data/ · repo at C:\dev\Investment
 
 ## Commands
-`uv sync` · `uv run pytest` · nightly refresh: `uv run python scripts/run_refresh.py` (tasks: `.\scripts\register_tasks.ps1`) · live SEC tests (owner runs, sends log): `uv run python scripts/run_live.py <label>` · call transcripts (owner runs): `uv run python scripts/run_calls.py --fetch N` · `uv run ruff check --fix .` · `uv run ruff format .` · `uv run pre-commit run --all-files`
+`uv sync` · `uv run pytest` · nightly refresh: `uv run python scripts/run_refresh.py` (tasks: `.\scripts\register_tasks.ps1`) · live SEC tests (owner runs, sends log): `uv run python scripts/run_live.py <label>` · call transcripts (owner runs): `uv run python scripts/run_calls.py --fetch N` · M04 live checks (owner runs, one subcommand per part, `--no-sec` for local re-runs, `--list` for the table): `uv run python scripts/run_financials.py <subcommand>` · `uv run ruff check --fix .` · `uv run ruff format .` · `uv run pre-commit run --all-files`
 
 ## Module docs (read when working on that module)
 `docs/M00_SEC_DATA.md` · `docs/M00_STORAGE.md` · `docs/M00_SEARCH.md` · `docs/M00_UI.md` · `docs/M01_TIMEFRAMES.md` · `docs/M02_THEMES.md` · `docs/M04_FINANCIALS.md` · `docs/SOURCES.md` · `docs/DATA_SOURCES.md` (data gaps; check at each module build) · `docs/LESSONS.md` (cross-module lessons; read at every build) · `docs/M02_BUILD_LOG.md` (M02 parts) · `docs/M04_BUILD_LOG.md` (M04 parts)

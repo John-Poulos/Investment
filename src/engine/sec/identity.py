@@ -68,6 +68,18 @@ class Entity:
     tickers: tuple[str, ...]
     entity_type: str | None
     state_of_inc: str | None
+    category: str | None = None  # filer category, e.g. "Large accelerated filer" (S1.6)
+
+
+@dataclass(frozen=True)
+class EntityLink:
+    """A predecessor CIK or a shell period (table entity_link, M04 Part 1a)."""
+
+    predecessor_cik: str
+    successor_cik: str
+    boundary_date: str
+    kind: str  # predecessor | spac_shell
+    name: str | None
 
 
 def normalize_ticker(value: str) -> str:
@@ -139,7 +151,40 @@ def parse_submissions(cik: str, data: dict[str, Any]) -> Entity:
         tickers=tuple(str(x) for x in data.get("tickers") or [] if x),
         entity_type=text("entityType"),
         state_of_inc=text("stateOfIncorporation"),
+        category=text("category"),
     )
+
+
+def entity_links(conn: sqlite3.Connection, cik: str) -> list[EntityLink]:
+    """Links where `cik` is the successor: predecessor CIKs and shell periods (S1.1)."""
+    norm = normalize_cik(cik) or cik
+    return [
+        EntityLink(
+            r["predecessor_cik"], r["successor_cik"], r["boundary_date"], r["kind"], r["name"]
+        )  # fmt: skip
+        for r in conn.execute(
+            "SELECT * FROM entity_link WHERE successor_cik = ? ORDER BY boundary_date", (norm,)
+        )
+    ]
+
+
+def stored_category(corpus: sqlite3.Connection, cik: str) -> tuple[str | None, str | None]:
+    """Filer category from the cached submissions JSON, whatever its age (0 requests).
+
+    Returns (category, fetched_at); (None, None) when no copy is cached."""
+    norm = normalize_cik(cik) or cik
+    row = corpus.execute(
+        "SELECT body, fetched_at FROM http_cache WHERE cache_key = ? AND outcome = 'ok'",
+        (SUBMISSIONS_URL.format(cik=norm),),
+    ).fetchone()
+    if row is None:
+        return None, None
+    try:
+        data = json.loads(bytes(row["body"]))
+    except ValueError:
+        return None, None
+    value = data.get("category") if isinstance(data, dict) else None
+    return (str(value).strip() or None) if value else None, row["fetched_at"]
 
 
 # --- Ticker map --------------------------------------------------------------
@@ -440,14 +485,14 @@ def load_entity(
 
     conn.execute(
         "INSERT INTO entity (cik, name, sic, sic_description, fiscal_year_end, exchanges, "
-        "tickers, entity_type, state_of_inc, source_ref, fetched_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "tickers, entity_type, state_of_inc, source_ref, fetched_at, category) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
         "ON CONFLICT (cik) DO UPDATE SET name = excluded.name, sic = excluded.sic, "
         "sic_description = excluded.sic_description, "
         "fiscal_year_end = excluded.fiscal_year_end, exchanges = excluded.exchanges, "
         "tickers = excluded.tickers, entity_type = excluded.entity_type, "
         "state_of_inc = excluded.state_of_inc, source_ref = excluded.source_ref, "
-        "fetched_at = excluded.fetched_at",
+        "fetched_at = excluded.fetched_at, category = excluded.category",
         (
             entity.cik,
             entity.name,
@@ -460,6 +505,7 @@ def load_entity(
             entity.state_of_inc,
             url,
             iso(now),
+            entity.category,
         ),
     )
     return Ok(entity, source_ref=url, fetched_at=iso(now), from_cache=res.from_cache)
@@ -476,4 +522,5 @@ def _entity_from_row(row: sqlite3.Row) -> Entity:
         tickers=tuple(json.loads(row["tickers"] or "[]")),
         entity_type=row["entity_type"],
         state_of_inc=row["state_of_inc"],
+        category=row["category"],
     )

@@ -12,7 +12,11 @@
    contiguous discrete quarters, else missing. Per-share and other non-additive
    concepts are never derived or summed.
 4. `series` keeps first-reported and latest value per period (point-in-time).
-   Missing stays missing; nothing is coerced to zero.
+   Missing stays missing; nothing is coerced to zero. `series` is for display; M04
+   signals read `sec/asof.py` (`facts_as_of`, S1.1).
+5. A tag that means something broader or narrower than its concept is marked in the
+   method ("≈ broader tag: <what it adds>", S1.4, D-M04-3); per-company aliases apply
+   to one CIK only (GE, NVDA; SB.18) and are marked too.
 """
 
 from __future__ import annotations
@@ -32,8 +36,13 @@ from engine.sec.results import Empty, Failed, Ok, Probe, Result
 FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
 FACTS_BACKSTOP = timedelta(days=7)
 CACHE_TTL_S = 6 * 3600
-PARSER_VERSION = "facts-1"
-REFRESH_FORMS = ("10-K", "10-K/A", "10-Q", "10-Q/A", "20-F", "20-F/A", "40-F")
+# facts-2 (M04 Part 1a): share series, sbc, public float, `da` and `ppe_net` fixes, tag
+# marks. Series are rebuilt from stored `fact` rows (no download): `rebuild_series`.
+PARSER_VERSION = "facts-2"
+# Forms whose filing makes companyfacts due (SB.11); an XBRL 6-K counts too (see _due).
+REFRESH_FORMS = ("10-K", "10-K/A", "10-Q", "10-Q/A", "10-KT", "10-KT/A", "10-QT", "10-QT/A",
+                 "20-F", "20-F/A", "40-F", "40-F/A")  # fmt: skip
+XBRL_6K_FORMS = ("6-K", "6-K/A")
 
 _CURRENCY = re.compile(r"^[A-Z]{3}$")
 
@@ -45,6 +54,15 @@ class Concept:
     unit: str  # currency | shares | per_share
     kind: str  # flow | instant
     additive: bool = True  # quarters may be derived and summed into TTM
+    marks: tuple[tuple[str, str, str], ...] = ()  # (taxonomy, tag, mark shown in the method)
+
+    def mark(self, taxonomy: str, tag: str) -> str:
+        return next((m for t, g, m in self.marks if (t, g) == (taxonomy, tag)), "")
+
+    def label(self, taxonomy: str, tag: str) -> str:
+        """`us-gaap:Tag` plus its mark, e.g. `[≈ broader tag: includes intangibles]`."""
+        mark = self.mark(taxonomy, tag)
+        return f"{taxonomy}:{tag}" + (f" [{mark}]" if mark else "")
 
 
 def _gaap(*tags: str) -> tuple[tuple[str, str], ...]:
@@ -56,6 +74,11 @@ def _ifrs(*tags: str) -> tuple[tuple[str, str], ...]:
 
 
 C, F, I = "currency", "flow", "instant"  # noqa: E741
+S = "shares"
+_FL = "PropertyPlantAndEquipmentAndFinanceLeaseRightOfUseAsset"
+BROADER_PPE = ("us-gaap", f"{_FL}AfterAccumulatedDepreciationAndAmortization")
+BROADER_PPE_GROSS = ("us-gaap", f"{_FL}BeforeAccumulatedDepreciationAndAmortization")
+_MATURITY = "LongTermDebtMaturitiesRepaymentsOfPrincipal"
 
 # Initial concept map (M00_SEC_DATA). Tags within a concept must mean the same thing;
 # a broader tag (e.g. LongTermDebt incl. current portion) is not a fallback.
@@ -77,18 +100,26 @@ CONCEPTS: tuple[Concept, ...] = (
             + _ifrs("ResearchAndDevelopmentExpense"), C, F),
     Concept("sga", _gaap("SellingGeneralAndAdministrativeExpense")
             + _ifrs("SellingGeneralAndAdministrativeExpense"), C, F),
+    # `DepreciationAndAmortization` is the nonproduction concept (INTC $200M vs $9,204M
+    # depreciation, S1.3): dropped. `Depreciation` alone is the last, marked fallback.
     Concept("da", _gaap("DepreciationDepletionAndAmortization",
-            "DepreciationAmortizationAndAccretionNet", "DepreciationAndAmortization")
-            + _ifrs("DepreciationAndAmortisationExpense"), C, F),
+            "DepreciationAmortizationAndAccretionNet")
+            + _ifrs("DepreciationAndAmortisationExpense") + _gaap("Depreciation"), C, F,
+            marks=(("us-gaap", "Depreciation", "≈ narrower tag: depreciation only, "
+                    "no amortization"),)),
     Concept("capex", _gaap("PaymentsToAcquirePropertyPlantAndEquipment",
             "PaymentsToAcquireProductiveAssets")
-            + _ifrs("PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"), C, F),
+            + _ifrs("PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"), C, F,
+            marks=(("us-gaap", "PaymentsToAcquireProductiveAssets",
+                    "≈ broader tag: includes software and intangibles"),)),
     Concept("operating_cash_flow", _gaap("NetCashProvidedByUsedInOperatingActivities")
             + _ifrs("CashFlowsFromUsedInOperatingActivities"), C, F),
     Concept("interest_expense", _gaap("InterestExpense", "InterestExpenseNonoperating",
             "InterestExpenseDebt"), C, F),
     Concept("ppe_net", _gaap("PropertyPlantAndEquipmentNet")
-            + _ifrs("PropertyPlantAndEquipment"), C, I),
+            + _ifrs("PropertyPlantAndEquipment") + (BROADER_PPE,), C, I,
+            marks=((*BROADER_PPE, "≈ broader tag: includes finance-lease right-of-use "
+                    "assets"),)),
     Concept("inventory", _gaap("InventoryNet") + _ifrs("Inventories"), C, I),
     Concept("receivables", _gaap("AccountsReceivableNetCurrent")
             + _ifrs("TradeAndOtherCurrentReceivables"), C, I),
@@ -107,11 +138,132 @@ CONCEPTS: tuple[Concept, ...] = (
     Concept("equity", _gaap("StockholdersEquity",
             "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest")
             + _ifrs("EquityAttributableToOwnersOfParent"), C, I),
+    # Legacy display row: mixes balance-sheet and cover dates. M04 reads the four share
+    # series below instead (D-M04-2).
     Concept("shares_outstanding", _gaap("CommonStockSharesOutstanding")
-            + (("dei", "EntityCommonStockSharesOutstanding"),), "shares", I, additive=False),
+            + (("dei", "EntityCommonStockSharesOutstanding"),), S, I, additive=False),
     Concept("rpo", _gaap("RevenueRemainingPerformanceObligation"), C, I),
+    # Share series (D-M04-2). Cover counts carry the cover date, not the balance-sheet
+    # date; multi-class filers without a total read their R1 page (`sec/cover.py`).
+    Concept("shares_period_end", _gaap("CommonStockSharesOutstanding"), S, I, additive=False),
+    Concept("shares_cover", (("dei", "EntityCommonStockSharesOutstanding"),), S, I,
+            additive=False),
+    Concept("shares_basic_wavg", _gaap("WeightedAverageNumberOfSharesOutstandingBasic")
+            + _ifrs("WeightedAverageShares"), S, F, additive=False),
+    Concept("shares_diluted_wavg", _gaap("WeightedAverageNumberOfDilutedSharesOutstanding")
+            + _ifrs("AdjustedWeightedAverageShares"), S, F, additive=False),
+    Concept("sbc", _gaap("ShareBasedCompensation", "AllocatedShareBasedCompensationExpense")
+            + _ifrs("AdjustmentsForSharebasedPayments"), C, F,
+            marks=(("us-gaap", "AllocatedShareBasedCompensationExpense",
+                    "≈ expense tag: may differ from the cash-flow add-back"),)),
+    # $ value of non-affiliate equity at the end of the second fiscal quarter (10-K cover).
+    Concept("public_float", (("dei", "EntityPublicFloat"),), C, I),
 )  # fmt: skip
 CONCEPT_BY_NAME = {c.name: c for c in CONCEPTS}
+
+# M04 extra concepts (S1.3): read through `facts_as_of`, never written to `series`; a
+# company without any of the tags is listed in the extra-tag report, never read as zero.
+EXTRA_CONCEPTS: tuple[Concept, ...] = (
+    Concept("depreciation", _gaap("Depreciation") + _ifrs("DepreciationExpense"), C, F),
+    Concept("income_tax", _gaap("IncomeTaxExpenseBenefit")
+            + _ifrs("IncomeTaxExpenseContinuingOperations"), C, F),
+    Concept("pretax_income", _gaap(
+            "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+            "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments")
+            + _ifrs("ProfitLossBeforeTax"), C, F),
+    Concept("income_cont_ops", _gaap("IncomeLossFromContinuingOperations"), C, F),
+    Concept("debt_current", _gaap("DebtCurrent", "LongTermDebtCurrent"), C, I),
+    Concept("short_term_borrowings", _gaap("ShortTermBorrowings"), C, I),
+    Concept("commercial_paper", _gaap("CommercialPaper"), C, I),
+    Concept("long_term_debt_total", _gaap("LongTermDebt"), C, I),
+    Concept("debt_due_y1", _gaap(f"{_MATURITY}InNextTwelveMonths"), C, I),
+    Concept("debt_due_y2", _gaap(f"{_MATURITY}InYearTwo"), C, I),
+    Concept("debt_due_y3", _gaap(f"{_MATURITY}InYearThree"), C, I),
+    Concept("debt_due_y4", _gaap(f"{_MATURITY}InYearFour"), C, I),
+    Concept("debt_due_y5", _gaap(f"{_MATURITY}InYearFive"), C, I),
+    Concept("debt_due_after5", _gaap(f"{_MATURITY}AfterYearFive"), C, I),
+    Concept("credit_capacity", _gaap("LineOfCreditFacilityRemainingBorrowingCapacity"), C, I),
+    Concept("restricted_cash", _gaap("RestrictedCashCurrent", "RestrictedCash"), C, I),
+    Concept("contract_liabilities", _gaap("ContractWithCustomerLiabilityCurrent",
+            "DeferredRevenueCurrent"), C, I,
+            marks=(("us-gaap", "DeferredRevenueCurrent", "≈ pre-2018 tag (before ASC 606)"),)),
+    Concept("contract_assets", _gaap("ContractWithCustomerAssetNetCurrent",
+            "UnbilledContractsReceivable"), C, I,
+            marks=(("us-gaap", "UnbilledContractsReceivable",
+                    "≈ pre-2018 alias (before ASC 606)"),)),
+    Concept("revenue_prior_obligations",
+            _gaap("ContractWithCustomerPerformanceObligationSatisfiedInPreviousPeriod"), C, F),
+    Concept("proceeds_common", _gaap("ProceedsFromIssuanceOfCommonStock"), C, F),
+    Concept("proceeds_plans", _gaap(
+            "ProceedsFromIssuanceOfSharesUnderIncentiveAndShareBasedCompensationPlans",
+            "ProceedsFromStockOptionsExercised"), C, F),
+    Concept("proceeds_lt_debt", _gaap("ProceedsFromIssuanceOfLongTermDebt"), C, F),
+    Concept("lt_investments", _gaap("LongTermInvestments"), C, I),
+    Concept("preferred_value", _gaap("PreferredStockValue"), C, I),
+    Concept("accrued_taxes", _gaap("AccruedIncomeTaxesCurrent"), C, I),
+    Concept("investing_cf", _gaap("NetCashProvidedByUsedInInvestingActivities")
+            + _ifrs("CashFlowsFromUsedInInvestingActivities"), C, F),
+    Concept("financing_cf", _gaap("NetCashProvidedByUsedInFinancingActivities")
+            + _ifrs("CashFlowsFromUsedInFinancingActivities"), C, F),
+    Concept("acquisitions", _gaap("PaymentsToAcquireBusinessesNetOfCashAcquired"), C, F),
+    Concept("divestiture_proceeds", _gaap("ProceedsFromDivestitureOfBusinessesNetOfCashDivested",
+            "ProceedsFromDivestitureOfBusinesses"), C, F),
+    Concept("asset_sale_proceeds", _gaap("ProceedsFromSaleOfPropertyPlantAndEquipment"), C, F),
+    Concept("inventory_writedown", _gaap("InventoryWriteDown"), C, F),
+    Concept("impairment", _gaap("AssetImpairmentCharges"), C, F),
+    Concept("goodwill_impairment", _gaap("GoodwillImpairmentLoss"), C, F),
+    Concept("restructuring", _gaap("RestructuringCharges"), C, F),
+    Concept("advertising", _gaap("AdvertisingExpense"), C, F),
+    Concept("nonoperating", _gaap("NonoperatingIncomeExpense"), C, F),
+    Concept("equity_securities_gain", _gaap("EquitySecuritiesFvNiGainLoss"), C, F),
+    Concept("valuation_allowance_change",
+            _gaap("IncomeTaxReconciliationChangeInDeferredTaxAssetsValuationAllowance"), C, F),
+    Concept("crypto_unrealized", _gaap("CryptoAssetUnrealizedLossOperating"), C, F),
+    Concept("crypto_fair_value", _gaap("CryptoAssetFairValue"), C, I),
+    Concept("ppe_gross", _gaap("PropertyPlantAndEquipmentGross") + (BROADER_PPE_GROSS,), C, I,
+            marks=((*BROADER_PPE_GROSS, "≈ broader tag: includes finance-lease right-of-use "
+                    "assets"),)),
+)  # fmt: skip
+ALL_CONCEPTS = {c.name: c for c in CONCEPTS + EXTRA_CONCEPTS}
+
+
+@dataclass(frozen=True)
+class Alias:
+    """A tag read for one company only (SB.18): never part of a general concept."""
+
+    concept: str
+    taxonomy: str
+    tag: str
+    mark: str
+
+
+# Per-company aliases, lowest priority, always marked. `us-gaap:CommodityContractAssetNoncurrent`
+# is a derivative concept: GE double-tagged its FY2016 contract assets with it (probe S5);
+# it is never mapped for anyone else. Extension tags (`ge:`, `nvda:`) exist only where the
+# filing instance was read (`moneyflow/instance.py`).
+ALIASES: dict[str, tuple[Alias, ...]] = {
+    "0000040545": (  # GE
+        Alias("contract_assets", "us-gaap", "CommodityContractAssetNoncurrent",
+              "alias, GE only: FY2016 contract assets double-tagged as a derivative concept"),
+        Alias("contract_assets", "ge", "ContractAsset", "alias, GE only: company extension tag"),
+    ),
+    "0001045810": (  # NVIDIA (probe L2: 51,951 at FY2026 under the extension)
+        Alias("short_term_investments", "nvda", "MarketableSecuritiesAndEquitySecuritiesFVNI",
+              "alias, NVDA only: company extension tag (instance read)"),
+    ),
+}  # fmt: skip
+
+
+def concept_for(cik: str, concept: Concept) -> Concept:
+    """The concept with this company's aliases appended (lowest priority, marked)."""
+    extra = [a for a in ALIASES.get(normalize_cik(cik) or cik, ()) if a.concept == concept.name]
+    if not extra:
+        return concept
+    return replace(
+        concept,
+        tags=concept.tags + tuple((a.taxonomy, a.tag) for a in extra),
+        marks=concept.marks + tuple((a.taxonomy, a.tag, a.mark) for a in extra),
+    )
 
 
 # --- Periods -----------------------------------------------------------------
@@ -166,6 +318,18 @@ def store_facts(engine: sqlite3.Connection, cik: str, data: dict[str, Any]) -> t
         rows,
     )
     return len(rows), engine.total_changes - before
+
+
+CONCEPT_URL = "https://data.sec.gov/api/xbrl/companyconcept/CIK{cik}/{taxonomy}/{tag}.json"
+
+
+def store_concept(engine: sqlite3.Connection, cik: str, data: dict[str, Any]) -> tuple[int, int]:
+    """Insert the facts of one companyconcept JSON (one tag, all units). Returns (seen, new).
+
+    Used for companies whose full companyfacts file is not wanted (fixtures per tag, SB.6;
+    the Part 1a WDC as-of check). Caller owns the transaction."""
+    wrapped = {"facts": {data["taxonomy"]: {data["tag"]: {"units": data.get("units") or {}}}}}
+    return store_facts(engine, cik, wrapped)
 
 
 # --- Series --------------------------------------------------------------------
@@ -237,16 +401,32 @@ def _start_ord(p: Point) -> int:
     return date.fromisoformat(p.start).toordinal() if p.start else 0
 
 
-def build_concept(engine: sqlite3.Connection, cik: str, concept: Concept) -> ConceptResult | None:
-    """Normalized points for one concept, or None if no candidate tag has facts."""
-    rank = {tag: i for i, tag in enumerate(concept.tags)}
+def concept_rows(engine: sqlite3.Connection, ciks: list[str], concept: Concept) -> list[Any]:
+    """Every stored fact of the concept's tags for these CIKs (with form and cik)."""
     clauses = " OR ".join("(taxonomy = ? AND tag = ?)" for _ in concept.tags)
-    args: list[Any] = [cik] + [x for pair in concept.tags for x in pair]
-    rows = engine.execute(
-        "SELECT taxonomy, tag, unit, period_start, period_end, value, accession, filed "
-        f"FROM fact WHERE cik = ? AND ({clauses})",
+    marks = ",".join("?" * len(ciks))
+    args: list[Any] = [*ciks] + [x for pair in concept.tags for x in pair]
+    return engine.execute(
+        "SELECT cik, taxonomy, tag, unit, period_start, period_end, value, accession, filed, "
+        f"form FROM fact WHERE cik IN ({marks}) AND ({clauses})",
         args,
     ).fetchall()
+
+
+def build_concept(engine: sqlite3.Connection, cik: str, concept: Concept) -> ConceptResult | None:
+    """Normalized points for one concept, or None if no candidate tag has facts."""
+    concept = concept_for(cik, concept)
+    return points_from_rows(concept, concept_rows(engine, [cik], concept))
+
+
+def points_from_rows(
+    concept: Concept, rows: list[Any], *, first_any_tag: bool = False
+) -> ConceptResult | None:
+    """Points from fact rows (keys: taxonomy, tag, unit, period_start, period_end, value,
+    accession, filed). Per period the highest-priority tag gives the value; with
+    `first_any_tag` the first version is the earliest filed under any tag (S1.1: tag
+    priority after time), named in the method when its tag differs."""
+    rank = {tag: i for i, tag in enumerate(concept.tags)}
     if not rows:
         return None
 
@@ -263,20 +443,28 @@ def build_concept(engine: sqlite3.Connection, cik: str, concept: Concept) -> Con
         if _unit_ok(concept, r["unit"], currency):
             by_period[(r["period_start"], r["period_end"])].append(r)
     reported: dict[tuple[str | None, str], tuple[str, Version, Version]] = {}
+    used: set[str] = set()
     for period, group in by_period.items():
         best = min(rank[(r["taxonomy"], r["tag"])] for r in group)
         chosen = sorted(
             (r for r in group if rank[(r["taxonomy"], r["tag"])] == best),
             key=lambda r: (r["filed"], r["accession"]),
         )
-        tag = f"{chosen[0]['taxonomy']}:{chosen[0]['tag']}"
+        used.add(f"{chosen[0]['taxonomy']}:{chosen[0]['tag']}")
+        tag = concept.label(chosen[0]["taxonomy"], chosen[0]["tag"])
         first, last = chosen[0], chosen[-1]
+        if first_any_tag:
+            earliest = min(group, key=lambda r: (r["filed"], r["accession"]))
+            if (earliest["filed"], earliest["accession"]) < (first["filed"], first["accession"]):
+                first = earliest
+                tag += (f"; first filed {earliest['filed']} under "
+                        f"{concept.label(earliest['taxonomy'], earliest['tag'])}")  # fmt: skip
         reported[period] = (
             tag,
             Version(first["value"], first["accession"], first["filed"]),
             Version(last["value"], last["accession"], last["filed"]),
         )
-    tags_used = tuple(sorted({t for t, _, _ in reported.values()}))
+    tags_used = tuple(sorted(used))
 
     points: list[Point] = []
     if concept.kind == "instant":
@@ -407,10 +595,34 @@ def _due(engine: sqlite3.Connection, cik: str, now: datetime) -> bool:
     newer = engine.execute(
         "SELECT 1 FROM filing f JOIN filing_cik c ON c.accession = f.accession "
         f"WHERE c.cik = ? AND f.filed >= ? AND (f.form IN ({marks}) "
+        "OR (f.form IN ('6-K', '6-K/A') AND f.is_xbrl = 1) "
         "OR (f.form IN ('8-K', '8-K/A') AND ',' || f.items || ',' LIKE '%,2.02,%')) LIMIT 1",
         (cik, fetched.date().isoformat(), *REFRESH_FORMS),
     ).fetchone()
     return newer is not None
+
+
+def forces_facts(form: str, is_xbrl: bool | int | None) -> bool:
+    """Whether a new filing of this form forces a companyfacts sync (SB.11): periodic
+    forms, and a 6-K only when it carries XBRL (GFS 2024 Q1–Q2 6-Ks had none)."""
+    if form in REFRESH_FORMS:
+        return True
+    return form in XBRL_6K_FORMS and bool(is_xbrl)
+
+
+def rebuild_series(engine: sqlite3.Connection, cik: str) -> tuple[int, int]:
+    """Rebuild a company's `series` from stored facts with the current concept map (0 SEC
+    requests; used after a parser-version change). Returns (concepts built, rows)."""
+    norm = normalize_cik(cik) or cik
+    results = [r for c in CONCEPTS if (r := build_concept(engine, norm, c)) and r.points]
+    engine.execute("BEGIN")
+    try:
+        rows = write_series(engine, norm, results)
+        engine.execute("COMMIT")
+    except Exception:
+        engine.execute("ROLLBACK")
+        raise
+    return len(results), rows
 
 
 def sync_facts(

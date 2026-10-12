@@ -25,6 +25,7 @@ from fastapi.templating import Jinja2Templates
 
 from engine import review
 from engine.calls import ir_inbox
+from engine.financials import views as m04_views
 from engine.financing import links as fin_links
 from engine.financing import views as fin_views
 from engine.guidance import labels
@@ -147,6 +148,7 @@ def create_app(settings: UiSettings) -> FastAPI:
     templates.env.filters["num"] = fmt_number
     templates.env.globals["source_label"] = source_label  # D-M02-21 labels
     templates.env.globals["is_sec"] = is_sec
+    templates.env.globals["sec_filing_url"] = services.filing_index_url  # M04 Part 1a
     templates.env.globals["FORECAST_NOTE"] = FORECAST_NOTE
     templates.env.filters["money"] = mf_views.money  # M02 part 3
     templates.env.filters["usd"] = off_views.usd  # M02 part 7b
@@ -232,6 +234,7 @@ def create_app(settings: UiSettings) -> FastAPI:
             ctx["awards"] = off_views.company_awards(engine, cik, datetime.now(UTC).date())
         elif tab == "financials":
             ctx["tables"] = services.financials(engine, cik)
+            ctx["m04"] = m04_views.company_view(engine, cik, datetime.now(UTC).date())
         elif tab == "insiders":
             ctx["txns"] = services.insider_txns(engine, cik)
         elif tab == "events":

@@ -34,13 +34,44 @@ def test_failed_migration_rolls_back(tmp_path, monkeypatch):
 
 def test_signal_record_constraints(tmp_path):
     conn = open_db("engine", tmp_path)
-    row = ("XYZ", "M07", "opportunistic_buy", "MY", "2026-09-12", 1, "A", "Form 4 x", "filter")
-    sql = "INSERT INTO signal VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    cols = ("cik, ticker, module_id, signal, timeframe, as_of, value, value_text, "
+            "evidence_grade, source_ref, method")  # fmt: skip
+    sql = f"INSERT INTO signal ({cols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    row = ("0000000042", "XYZ", "M07", "opportunistic_buy", "MY", "2026-09-12", 1, None, "A",
+           "Form 4 x", "filter")  # fmt: skip
     conn.execute(sql, row)
     with pytest.raises(sqlite3.IntegrityError):
-        conn.execute(sql, (*row[:3], "XX", *row[4:]))  # bad timeframe
+        conn.execute(sql, (*row[:4], "XX", *row[5:]))  # bad timeframe
     with pytest.raises(sqlite3.IntegrityError):
-        conn.execute(sql, (*row[:4], "2026-09-13", 1, "D", *row[7:]))  # bad grade
+        conn.execute(sql, (*row[:5], "2026-09-13", 1, None, "D", *row[9:]))  # bad grade
+    with pytest.raises(sqlite3.IntegrityError):  # text never in value (D-M04-9)
+        conn.execute(sql, (*row[:5], "2026-09-14", "CYCLICAL_TROUGH", None, *row[8:]))
+    with pytest.raises(sqlite3.IntegrityError):  # empty row must say why it is missing
+        conn.execute(sql, (*row[:5], "2026-09-15", None, None, None, None, "filter"))
+    conn.execute(sql, (*row[:5], "2026-09-15", None, None, None, None, "missing: not filed"))
+
+
+def test_migration_0029_moves_signal_rows_to_cik(tmp_path, monkeypatch):
+    conn = connect(tmp_path / "engine.db")
+    all_engine = migrations("engine")
+    monkeypatch.setattr(db, "migrations", lambda name: all_engine[:28])
+    migrate(conn, "engine")
+    conn.execute("INSERT INTO ticker (ticker, cik, valid_from, valid_to, source) VALUES "
+                 "('BBBY', '0000886158', '2000-01-01', '2023-09-29', 't'), "
+                 "('BBBY', '0001130713', '2025-08-25', NULL, 't')")  # fmt: skip
+    conn.execute("INSERT INTO signal VALUES ('BBBY', 'M04', 'cvd_state', 'MY', '2022-05-01', "
+                 "'STRUCTURAL_DECLINE', 'A', '10-K x', 'grid')")  # fmt: skip
+    conn.execute(
+        "INSERT INTO signal VALUES ('ZZZ', 'M04', 'x', 'MY', '2022-05-01', 2, 'A', 'r', 'm')"
+    )
+    monkeypatch.setattr(db, "migrations", lambda name: all_engine)
+    migrate(conn, "engine")
+    rows = {r["ticker"]: r for r in conn.execute("SELECT * FROM signal")}
+    old = rows["BBBY"]
+    assert old["cik"] == "0000886158"  # the ticker's holder on as_of, not today's
+    assert old["value"] is None and old["value_text"] == "STRUCTURAL_DECLINE"
+    assert rows["ZZZ"]["cik"] == "0000000000" and rows["ZZZ"]["method"].startswith("cik unresolved")
+    assert conn.execute("SELECT count(*) FROM entity_link").fetchone()[0] == 3
 
 
 def test_fact_key_treats_instants_as_one_key(tmp_path):

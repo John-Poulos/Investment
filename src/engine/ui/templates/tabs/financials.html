@@ -16,4 +16,58 @@
 {% else %}<p class="empty">No {{ t.title | lower }} values stored.</p>{% endif %}
 {% endfor %}
 {% if not tables | selectattr('rows') | list %}<p class="note">No XBRL values stored for this company (e.g. funds filing N-CSR have none).</p>{% endif %}
-<p class="note">Values from SEC XBRL company facts, latest filed version. Hover a value for its filing and method; click to open the filing on SEC. Red flags arrive with M04.</p>
+<p class="note">Values from SEC XBRL company facts, latest filed version. Hover a value for its filing and method; click to open the filing on SEC.</p>
+{% if m04 %}
+<h2>Filing status <span class="muted">(M04)</span></h2>
+{% if m04.status %}
+<table class="data">
+  <tr><th>Company</th><th>Filer category carried</th><th>Period</th><th>Form</th><th>Due date</th><th>Filed</th><th>Status</th><th>Note</th></tr>
+  {% for r in m04.status %}
+  <tr{% if r is sameas m04.record %} class="hl"{% endif %}>
+    <td>{{ company.name if company else ticker }}</td>
+    <td title="{{ r['category_source'] }}">{{ r['category'] or 'unknown' }}{% if r['category_source'].startswith('missing') %} <span class="muted">({{ r['category_source'] }})</span>{% endif %}</td>
+    <td>{{ r['period_end'] }}</td>
+    <td>{{ r['form'] }}</td>
+    <td>{{ r['due_date'] }}{% if r is sameas m04.record and m04.days_to_due is not none %} <span class="muted">({% if m04.days_to_due >= 0 %}in {{ m04.days_to_due }} days{% else %}{{ -m04.days_to_due }} days ago{% endif %})</span>{% endif %}{% if r['deadline_days'] %} <span class="muted" title="deadline">· {{ r['deadline_days'] }} d</span>{% endif %}</td>
+    <td>{% if r['accession'] %}<a href="{{ sec_filing_url(cik, r['accession']) }}" target="_blank" rel="noopener" title="{{ r['accession'] }}">{{ r['filed'] }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+    <td><b>{{ r['status'] }}</b></td>
+    <td>{{ r['note'] }}</td>
+  </tr>
+  {% endfor %}
+</table>
+<p class="note">Due date = period end + the deadline for the filer category (10-K 60/75/90 days, 10-Q 40/40/45, 20-F four months; an NT filing adds 15 or 5 days). Stale = a period has ended unfiled, not yet due; overdue = due date passed unfiled (D-M04-36, D-M04-61). Re-checked on every refresh.</p>
+{% else %}<p class="empty">missing: no 10-K, 10-Q or 20-F stored for this company (filing status not evaluated).</p>{% endif %}
+
+<h2>Share counts <span class="muted">(M04)</span></h2>
+<table class="data">
+  <tr><th>Series</th><th>Latest</th><th>Date</th><th>Earlier</th></tr>
+  {% for row in m04.shares %}
+  {% set unit = 'currency' if row.series == 'sbc' else 'shares_exact' %}
+  {% if row.values %}
+  {% set v = row.values[0] %}
+  <tr>
+    <td>{{ row.label }}</td>
+    <td class="num"><span title="{{ v.tag }} · {{ v.accession }} · first filed {{ v.first_filed }} / latest {{ v.latest_filed }}">{% if v.value is none %}<span class="muted">—</span>{% else %}{{ v.value | num(unit) }}{% endif %}</span>{% if v.note %}<br><span class="muted">{{ v.note }}</span>{% endif %}</td>
+    <td>{{ v.date }}{% if v.ptype in ('Q', 'FY') %} <span class="muted">{{ v.ptype }}</span>{% endif %}</td>
+    <td>{% for e in row.values[1:] %}<span title="{{ e.tag }} · {{ e.accession }} · first filed {{ e.first_filed }} / latest {{ e.latest_filed }}{% if e.note %} · {{ e.note }}{% endif %}">{{ e.date }}{% if e.ptype in ('Q', 'FY') %} {{ e.ptype }}{% endif %}: {% if e.value is none %}—{% else %}{{ e.value | num(unit) }}{% endif %}</span>{% if not loop.last %} · {% endif %}{% endfor %}</td>
+  </tr>
+  {% for cls, n in v.classes %}
+  <tr class="sub"><td>&nbsp;&nbsp;{{ cls }}</td><td class="num">{{ n | num('shares_exact') }}</td><td>{{ v.date }}</td><td class="muted">R1 cover page</td></tr>
+  {% endfor %}
+  {% else %}
+  <tr><td>{{ row.label }}</td><td colspan="3" class="muted">{{ row.missing }}</td></tr>
+  {% endif %}
+  {% endfor %}
+</table>
+<p class="note">Four share series that are never mixed: cover count on its own cover date (all classes; multi-class filers from the filing's R1 page), balance-sheet count, basic and diluted weighted averages, plus share-based compensation (D-M04-2). Hover a value for its tag, accession and filing dates.</p>
+
+<h2>Marker legend</h2>
+<table class="data">
+  {% for mark, meaning in m04.legend %}<tr><td><b>{{ mark }}</b></td><td>{{ meaning }}</td></tr>{% endfor %}
+</table>
+
+<h2>M04 rows still to come</h2>
+<table class="data">
+  {% for what, why in m04.todo %}<tr><td>{{ what }}</td><td class="muted">{{ why }}</td></tr>{% endfor %}
+</table>
+{% endif %}

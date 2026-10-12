@@ -1,0 +1,4 @@
+{"cik":723125,"taxonomy":"us-gaap","tag":"RevenueFromContractWithCustomerExcludingAssessedTax","label":"Revenue from Contract with Customer, Excluding Assessed Tax","description":"Hand-built companyconcept fixture (see README).","entityName":"MICRON TECHNOLOGY INC","units":{"USD":[
+{"start":"2017-09-01","end":"2018-08-30","val":30391000000,"accn":"0000723125-19-000043","fy":2019,"fp":"FY","form":"10-K","filed":"2019-10-17"},
+{"start":"2018-08-31","end":"2019-08-29","val":23406000000,"accn":"0000723125-19-000043","fy":2019,"fp":"FY","form":"10-K","filed":"2019-10-17","frame":"CY2019"}
+]}}
