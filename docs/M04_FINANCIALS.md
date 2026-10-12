@@ -1,6 +1,6 @@
 # M04 — Financials & red flags
 
-Status: CvD profile approved; rest draft · Updated: 2026-10-06 · Outline headings: Analyze the financials; Financial red flags · Depends on: M00 (SEC data), M02 (peer data), M06, M11 (R19 ledger) · Sources: S02–S04, S13, S20, S25, S32–S37, S43–S45
+Status: CvD profile approved; design review in progress (Round 1) · Updated: 2026-10-12 · Outline headings: Analyze the financials; Financial red flags · Depends on: M00 (SEC data), M02 (peer data), M06, M11 (R19 ledger) · Sources: S02–S04, S13, S20, S25, S32–S37, S43–S45
 
 ## Purpose
 Judge financial health and earnings quality, and classify a slowdown as a cyclical trough or a structural decline (CvD) for M01's entry and exit rules.
@@ -9,7 +9,7 @@ Judge financial health and earnings quality, and classify a slowdown as a cyclic
 - Red flags are stage-aware; ambiguous stage → review queue. (R2)
 - Rivian = unit-economics case; GE = earnings-quality case. (R11)
 - Revenue up + margins collapsing → identify the cause. (R12)
-- Capex split: disclosed → project-level → Greenwald (default) → D&A; every value method-tagged. (A2)
+- Capex split: disclosed → project-level → Greenwald (default) → D&A; every value method-tagged. (A2; default changed to depreciation by D-M04-6)
 
 ## Cycle vs. Decline (CvD) profile
 Thresholds are starting values; calibrate by backtest. Indicators that disagree within a question → AMBIGUOUS → review queue (D8).
@@ -80,6 +80,12 @@ Price drawdown vs drop in normalized earnings power (cycle-average operating mar
 
 ## Decisions
 - D-M04-1 (2026-10-06): CvD profile approved with owner changes — revenue gap scaled by peer dispersion (robust z); customer signal by stickiness class and own history, weighted by revenue at stake.
+- D-M04-2 (2026-10-12, review 1.1a): Shares concepts — four series `shares_period_end`, `shares_cover` (on its own cover date), `shares_basic_wavg`, `shares_diluted_wavg`, plus `sbc`. Multi-class filers without a non-dimensional count (GOOG, META, MSTR, SPCX) get the class-summed cover count from the filing's R1 page (~37 requests for 3 years, then 1 per new filing in the logon refresh); older history uses basic weighted average, labelled. Float shares for R22 = `dei:EntityPublicFloat` ÷ close on its date, yearly, labelled "implied" (M07 owns R22).
+- D-M04-3 (2026-10-12, review 1.2a): Capex definitions, one per use — display: the company's own definition (capex_definitions.toml, D-M02-29/-32) with the standard-tag value beside it and a visible "≈ broader tag" marker plus legend; own-history rows: the longest consistent tag series, a switch inside the window reads "definition changed" and is not scored; peer statistics: PP&E tag only, fallback-only peers (AMZN, NVDA from FY2022) listed "not like-for-like" and excluded. Closes the 2026-10-07 fallback-tag item.
+- D-M04-4 (2026-10-12, review 1.3a): Peer discovery — engine proposes peers from 4-digit SIC (`entity.sic`, submissions `sic`) plus one owner-run browse-by-SIC probe per SIC; owner confirms or edits in `peer_group` via `m04_peer` items and adds product-market peers outside SIC (e.g. QCOM, WDC); non-SEC peers stored by name as "missing". Closes the SIC peer-discovery item (D19).
+- D-M04-5 (2026-10-12, review 1.4a): Peer period offset — TTM ±45 days; quarters and instants ±40 days (starting values; calibrated in Part 8). Outside → "no comparable period", counts toward the < 5-peer fallback; each peer's end date shown, 53-week years flagged. Tightens D-SEC-9's 45-day match for M04 quarter and instant comparisons.
+- D-M04-6 (2026-10-12, review 1.5a): Capex split (amends A2) — M04 owns `capex_split` in the data layer (Part 1), M05 reuses it. Ladder: disclosed → project-level → depreciation (default, capped at total capex) → D&A (marked as last rung) → "not split"; Greenwald shown beside it as a cross-check only when inside 0…total capex. One method per company for the displayed window, tagged on every value. Consumers (runway burn, FCF after SBC, Q2 capex row) use total capex; maintenance capex is information only ("owner earnings" = OCF − maintenance capex − SBC; "runway without growth capex"). M05 owns growth capex × ROIC (outline CAPEX 3–4). Why: Greenwald is out of range in 6 of 8 Micron and 4 of 4 Intel years, and calls 77.7% of Microsoft's FY2026 build-out maintenance. Risk kept as a failure mode: useful-life changes move depreciation (Intel 2023 −29.5%).
+- Round 1 suggestions S1.1–S1.6, S1.8, S1.9, S1.11, S1.12 accepted (owner "rest ok"; texts in docs/m04_review/R1_brief.md); S1.7 and S1.10 follow 1.9 and 1.6/1.11.
 
 ## Open questions
 - Peer groups: approved as D19; owner overrides to be entered at setup.
