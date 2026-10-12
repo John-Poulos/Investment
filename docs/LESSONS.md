@@ -20,6 +20,8 @@ Updated: 2026-10-12 · Read at the start of every module build. One line each, w
 - A year-over-year comparison inside a stored corpus measures what was stored, not what changed: 220 documents vs 32 made "inline xbrl" and "cash flow" rise; compare each company with its own documents of the same kind a year earlier (D-M02-52).
 - New accounting standards and tax laws make every filer adopt the same wording in the same year; a "new phrase" miner must read narrative sections (business, risk factors, MD&A), not financial-statement notes, and drop accounting/tax/legal words (D-M02-54).
 - A section label match must be exact and form-specific: "Item 1" is the business in a 10-K but the financial statements in a 10-Q (D-M02-54).
+- News vendors often link through their own redirect (Finnhub), so URL dedupe misses the same story; fall back to headline + date, and to near-identical headlines of the same company (an IR headline vs the 8-K exhibit's first line) (D-M02-58).
+- A first-time scan is a baseline, not news: record what is already there before reporting "first mentions", or a newly tracked company or newly accepted theme floods the digest (D-M02-58).
 - Calibrate a cut-off on known cases before enforcing it: 50% / 75% industry concentration would have rejected 12 of 36 real seed themes, because value chains span related industries and finance filers mention themes as holdings or risks (D-M02-52).
 
 ## Rate limits and budgets

@@ -1,0 +1,134 @@
+# News feeds (M02 part 7a; D-M02-13, D-M02-58). Hand-edited by the owner; the app never
+# writes here. Only headline, link, date and a snippet of at most 300 characters are
+# stored, even when a feed carries full text (D-M02-2). News is evidence for the weekly
+# digest and the theme pages, never a signal on its own.
+#
+# Grades (D14): company IR feeds and 8-K releases A; trade press B; Finnhub/Massive items
+# graded by their original source: a company domain below A, an outlet in [grades] B,
+# anything else C.
+
+# --- Company IR RSS (grade A) ------------------------------------------------------------
+# RSS is published for automated readers, so it is polled even where site terms bar robots
+# for pages (owner, D-M02-13). Headline/link/date only for Q4 Inc feeds (no description).
+# [ir.TICKER]
+# feeds = ["https://…"]       # one or more
+# domains = ["example.com"]  # company domains: Finnhub/Massive items from these are grade A
+# checked = "YYYY-MM-DD"     # date the URL was checked by hand
+#
+# No feed recorded yet (8-K releases and Finnhub still cover them): AAPL, TSLA, MSFT, AMZN,
+# GOOG, MRVL, MSTR, SPCX, ETV, INFQ. Discovery rule: `<link type="application/rss+xml">` on
+# the company's press page, then vendor patterns (Q4 Inc `/rss/pressrelease.aspx`, Notified
+# `/rss/news-releases.xml`).
+
+[ir.NVDA]
+feeds = ["https://investor.nvidia.com/rss/pressrelease.aspx", "https://nvidianews.nvidia.com/releases.xml"]
+domains = ["nvidia.com"]
+checked = "2026-10-08"
+
+[ir.MU]
+feeds = ["https://investors.micron.com/rss/pressrelease.aspx"]
+domains = ["micron.com"]
+checked = "2026-10-08"
+
+[ir.META]
+feeds = ["https://investor.atmeta.com/rss/pressrelease.aspx"]
+domains = ["meta.com", "atmeta.com", "fb.com"]
+checked = "2026-10-08"
+
+[ir.BA]
+feeds = ["https://investors.boeing.com/rss/pressrelease.aspx"]
+domains = ["boeing.com"]
+checked = "2026-10-08"
+
+[ir.GFS]
+feeds = ["https://investors.gf.com/rss/news-releases.xml"]
+domains = ["gf.com"]
+checked = "2026-10-08"
+
+[ir.INTC]
+feeds = ["https://www.intc.com/news-events/press-releases/rss"]
+domains = ["intc.com", "intel.com"]
+checked = "2026-10-08"
+
+# Company domains without a feed (grade A when Finnhub/Massive cite them).
+[ir.AAPL]
+domains = ["apple.com"]
+[ir.TSLA]
+domains = ["tesla.com"]
+[ir.MSFT]
+domains = ["microsoft.com"]
+[ir.AMZN]
+domains = ["amazon.com", "aboutamazon.com"]
+[ir.GOOG]
+domains = ["abc.xyz", "blog.google"]
+[ir.MRVL]
+domains = ["marvell.com"]
+
+# --- Trade press (grade B), 11 feeds approved in D-M02-13 ---------------------------------
+# Excluded for terms: TrendForce, Utility Dive (Industry Dive), PR Newswire, Business Wire,
+# Google News RSS.
+[trade.semiengineering]
+name = "SemiEngineering"
+url = "https://semiengineering.com/feed/"
+
+[trade.eetimes]
+name = "EE Times"
+url = "https://www.eetimes.com/feed/"
+
+[trade.servethehome]
+name = "ServeTheHome"
+url = "https://www.servethehome.com/feed/"
+
+[trade.tomshardware]
+name = "Tom's Hardware"
+url = "https://www.tomshardware.com/feeds.xml"
+
+[trade.datacenterdynamics]
+name = "Data Center Dynamics"
+url = "https://www.datacenterdynamics.com/en/rss/"
+
+[trade.datacenterfrontier]
+name = "Data Center Frontier"
+url = 'https://www.datacenterfrontier.com/__rss/website-scheduled-content.xml?input={"sectionAlias":"home"}'
+
+[trade.spacenews]
+name = "SpaceNews"
+url = "https://spacenews.com/feed/"
+
+[trade.nasaspaceflight]
+name = "NASASpaceflight"
+url = "https://www.nasaspaceflight.com/feed/"
+
+[trade.quantumcomputingreport]
+name = "Quantum Computing Report"
+url = "https://quantumcomputingreport.com/feed/"
+
+[trade.thequantuminsider]
+name = "The Quantum Insider"
+url = "https://thequantuminsider.com/feed/"
+
+[trade.therobotreport]
+name = "The Robot Report"
+url = "https://www.therobotreport.com/feed/"
+
+# --- Grades for Finnhub / Massive items ---------------------------------------------------
+[grades]
+# Outlets graded B ("credible report", D14), by domain (Massive gives the article URL) and
+# by Finnhub's source name (Finnhub often links through its own redirect). The trade-press
+# domains above are added automatically. Anything not listed is C — edit to taste.
+outlets = [
+    "reuters.com", "bloomberg.com", "wsj.com", "ft.com", "cnbc.com", "apnews.com",
+    "marketwatch.com", "barrons.com", "nytimes.com", "theinformation.com",
+    "economist.com", "axios.com", "techcrunch.com", "theverge.com", "arstechnica.com",
+]
+sources = [
+    "Reuters", "Bloomberg", "WSJ", "Wall Street Journal", "Financial Times", "CNBC",
+    "MarketWatch", "Barron's", "AP", "Associated Press", "The Information", "TechCrunch",
+]
+
+[finnhub]
+first_days = 30     # history fetched the first time a symbol is seen (free tier: 1 year)
+overlap_days = 2    # each later request starts this many days before the last success
+
+[massive]
+max_per_run = 10    # backup only, when Finnhub fails for a symbol (free tier: 5/min)

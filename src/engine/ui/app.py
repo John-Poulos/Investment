@@ -35,6 +35,7 @@ from engine.llm.runs import cached_call
 from engine.llm.runs import run as llm_run
 from engine.moneyflow import allocation as mf_allocation
 from engine.moneyflow import views as mf_views
+from engine.news import views as news_views
 from engine.prices import store as prices
 from engine.prices.tiingo import MissingKey, TiingoClient, token_from_env
 from engine.store.db import connect, migrate
@@ -87,6 +88,7 @@ TABS = (
     ("financials", "Financials", True),
     ("insiders", "Insiders", True),
     ("events", "Events and filings", True),
+    ("news", "News", True),  # M02 part 7a
     ("search", "Search", True),
     ("themes", "Themes", True),  # M02 part 1
     ("ask", "Ask", False),  # reserved (D-SRCH-18)
@@ -150,6 +152,7 @@ def create_app(settings: UiSettings) -> FastAPI:
     templates.env.filters["mark_phrase"] = themes.mark_phrase  # M02 part 6 samples
     templates.env.globals["fin_kinds"] = fin_views.KIND_LABELS  # M02 part 5b
     templates.env.globals["dso_band"] = fin_views.credit.band
+    templates.env.globals["news_channel"] = lambda c: news_views.CHANNEL_LABELS.get(c, c)
 
     for db in ("engine", "corpus"):  # bring schemas up to date once, at start
         conn = connect(settings.data_dir / f"{db}.db")
@@ -187,6 +190,7 @@ def create_app(settings: UiSettings) -> FastAPI:
         bar: str = "D",
         msg: str = "",
         detail: str = "",
+        only: str = "",
     ):
         ticker = ticker.upper()
         bar = "W" if bar.upper() == "W" else "D"
@@ -236,6 +240,8 @@ def create_app(settings: UiSettings) -> FastAPI:
                     | {e["accession"] for e in ctx["events"]}
                 ),
             )
+        elif tab == "news":
+            ctx["news"] = news_views.company_view(engine, cik, themed_only=only == "themed")
         elif tab == "themes":
             ctx["ct"] = themes.company_themes(engine, cik, ticker)
             ctx["member"] = tiers.member(engine, cik)
@@ -373,7 +379,8 @@ def create_app(settings: UiSettings) -> FastAPI:
             raise HTTPException(404, f"Unknown theme {key}.")
         row = engine.execute("SELECT theme_id FROM theme WHERE key = ?", (key,)).fetchone()
         mf = mf_views.theme_view(engine, row["theme_id"], key, datetime.now(UTC).date())
-        ctx = frame(engine) | {"viewer": viewer, "d": d, "mf": mf,
+        news = news_views.theme_view(engine, row["theme_id"], datetime.now(UTC).date())
+        ctx = frame(engine) | {"viewer": viewer, "d": d, "mf": mf, "news": news,
                                "crowd": themes.theme_crowding(engine, row["theme_id"])}  # fmt: skip
         return templates.TemplateResponse(request, "theme.html", ctx)
 

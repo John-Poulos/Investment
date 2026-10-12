@@ -115,6 +115,18 @@ def financing_step(client, engine, corpus, report) -> str:
     return "\n".join(lines) + "\n"
 
 
+def news_step(engine, corpus, report) -> str:
+    """News after financing (M02 part 7a): IR RSS, trade press, 8-K releases, Finnhub
+    (Massive backup), first mentions, last week's news item. Never fails the run."""
+    from engine.news.step import run_news_step
+    from engine.news.vendors import key_from_env
+
+    rep = run_news_step(engine, corpus, companies_of(report), datetime.now(UTC),
+                        finnhub_key=key_from_env("FINNHUB_API_KEY"),
+                        massive_key=key_from_env("MASSIVE_API_KEY"))  # fmt: skip
+    return "\n" + "\n".join(rep.lines) + "\n"
+
+
 def seasonal_step(engine, corpus, report, background: bool):
     """D-M02-51: a due seasonal pass is mined here, locally (no SEC), and a background run
     then asks Yes/No after releasing the lock. Manual runs and a pass declined today get
@@ -334,6 +346,7 @@ def _run(args, engine, folder):
     calls += money_step(client, engine, corpus, report)
     calls += supply_step(client, engine, corpus, report)
     calls += financing_step(client, engine, corpus, report)
+    calls += news_step(engine, corpus, report)
     background = args.scheduled or args.if_missed
     season_text, prep = seasonal_step(engine, corpus, report, background)
     calls += season_text

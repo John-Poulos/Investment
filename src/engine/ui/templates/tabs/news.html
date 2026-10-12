@@ -1,0 +1,30 @@
+<section>
+  <h2>News{% if news.themed_only %} on accepted themes{% endif %}</h2>
+  <p class="muted">{% if news.themed_only %}<a href="/c/{{ ticker }}?tab=news">Show all</a>{% else %}<a href="/c/{{ ticker }}?tab=news&amp;only=themed">Only items with a theme phrase</a>{% endif %}</p>
+  {% if news.items %}
+  <table class="data">
+    <tr><th>Date</th><th>Grade</th><th>Headline</th><th>Sources</th><th>Themes</th></tr>
+    {% for n in news.items %}
+    <tr><td style="white-space:nowrap" {% if n.undated %}title="The source gives no date: the date first seen is shown"{% endif %}>{{ n.date }}{% if n.undated %}*{% endif %}</td>
+      <td>{{ n.grade }}</td>
+      <td>{% if n.url %}<a href="{{ n.url }}" target="_blank" rel="noopener">{{ n.title }}</a>{% else %}{{ n.title }}{% endif %}{% if n.snippet %}<div class="muted">{{ n.snippet }}</div>{% endif %}{% if n.tickers | length > 1 %}<div class="muted">Also names: {{ n.tickers | reject('equalto', ticker) | join(', ') }}</div>{% endif %}</td>
+      <td class="muted">{{ n.sources | join(' · ') }}</td>
+      <td>{% for t in n.themes %}<a href="/themes/{{ t.key }}" title="phrase: {{ t.phrase }}">{{ t.name }}</a>{{ ', ' if not loop.last }}{% endfor %}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="empty">No news stored for this company{% if news.themed_only %} with a theme phrase{% endif %}.</p>{% endif %}
+</section>
+{% if news.firsts %}
+<section>
+  <h2 style="margin-top:16px">First mention of each accepted theme</h2>
+  <table class="data">
+    <tr><th>Theme</th><th>Phrase</th><th>First stored mention</th><th>Where</th></tr>
+    {% for f in news.firsts %}
+    <tr><td><a href="/themes/{{ f.key }}">{{ f.name }}</a></td><td>{{ f.phrase }}</td><td>{{ f.dated }}{% if not f.baseline %} <span class="warn">new</span>{% endif %}</td>
+      <td>{% if f.source == 'document' %}<a href="/source/{{ f.accession }}/{{ f.filename }}" title="{{ f.quote }}">{{ f.section or f.accession }}</a>{% else %}IR headline: {{ f.quote }}{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+  <p class="note">Earliest stored document of this company (filings, releases, call transcripts, IR headlines) naming a theme phrase. "new" = a first mention found after the theme and company were already being watched; those reach the weekly news item (D-M02-58).</p>
+</section>
+{% endif %}
+<p class="note">Headline, date, link and a short snippet only. Grades: A = the company's own feed or 8-K release, B = trade press or a known outlet, C = other sources (edit the outlet list in <code>config/news.toml</code>). The same release from several sources is one row. News is evidence, never a signal on its own (D-M02-13). Finnhub data: personal use only; do not share.</p>

@@ -45,6 +45,21 @@
   </table>
   <p class="note">Documents in new fund registrations (forms N-1A and 485APOS) naming the phrase, seasonal pass {{ crowd.season }}. Thematic funds launch near peak attention and have trailed afterwards (S90): a rise is a caution, not a sell signal (D-M02-10).</p>
   {% endif %}
+  <h2 style="margin-top:16px">News, last {{ news.days }} days</h2>
+  {% if news.companies %}<p>Companies named in news with a theme phrase: {{ news.companies | length }} — {% for label, n in news.companies[:30] %}{{ label }} ({{ n }}){{ ', ' if not loop.last }}{% endfor %}{% if news.companies | length > 30 %} …{% endif %}</p>{% endif %}
+  {% if news.items %}
+  <table class="data">
+    <tr><th>Date</th><th>Grade</th><th>Headline</th><th>Companies</th><th>Phrase</th><th>Sources</th></tr>
+    {% for n in news.items %}{% set t = n.themes | selectattr('key', 'equalto', d.key) | first %}
+    <tr><td style="white-space:nowrap">{{ n.date }}</td><td>{{ n.grade }}</td>
+      <td>{% if n.url %}<a href="{{ n.url }}" target="_blank" rel="noopener">{{ n.title }}</a>{% else %}{{ n.title }}{% endif %}</td>
+      <td>{% for tk in n.tickers %}<a href="/c/{{ tk }}?tab=news">{{ tk }}</a>{{ ', ' if not loop.last }}{% endfor %}</td>
+      <td class="muted">{{ t.phrase if t else '' }}</td><td class="muted">{{ n.sources | join(' · ') }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="empty">No stored news with this theme's phrases in the last {{ news.days }} days.</p>{% endif %}
+  {% if news.firsts %}<p class="note">First mentions by watchlist/tracked companies: {% for f in news.firsts[:20] %}<a href="/c/{{ f.ticker }}?tab=news">{{ f.ticker }}</a> {{ f.dated }}{% if not f.baseline %} <span class="warn">new</span>{% endif %}{{ ' · ' if not loop.last }}{% endfor %}</p>{% endif %}
+  <p class="note">Headlines matched by the theme's active phrases (headline and snippet only). Companies come from the feed, the news vendor's ticker or the legal names in <code>config/aliases.toml</code>. Attention, not money; never a signal on its own (D-M02-13).</p>
   <h2 style="margin-top:16px">Money flow</h2>
   <p class="note">Confirmed spenders only (a quoted sentence ties their spending to this theme, D-M02-5). Hypothesis, not backtested · guidance is a {{ FORECAST_NOTE }} · no totals: each spender keeps its own period and shows its own guided increase.{% if mf.open_links %} {{ mf.open_links }} compan{{ 'y' if mf.open_links == 1 else 'ies' }} with link sentences waiting in <a href="/review">review</a>.{% endif %}</p>
   {% if mf.ranked or mf.unranked %}
