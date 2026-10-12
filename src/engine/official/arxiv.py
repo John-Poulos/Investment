@@ -48,7 +48,9 @@ def query(phrase: str, month: str) -> str:
     y, m = int(month[:4]), int(month[5:7])
     last = monthrange(y, m)[1]
     words = " ".join(phrase.replace('"', " ").split())
-    return f'all:"{words}" AND submittedDate:[{y:04d}{m:02d}010000 TO {y:04d}{m:02d}{last:02d}2359]'
+    span = f"submittedDate:[{y:04d}{m:02d}010000 TO {y:04d}{m:02d}{last:02d}2359]"
+    # title and abstract only (D-M02-61 (2)): `all:` also matched authors and comments
+    return f'(ti:"{words}" OR abs:"{words}") AND {span}'
 
 
 def parse_total(body: bytes) -> int | str:

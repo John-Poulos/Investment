@@ -78,10 +78,11 @@ def theme_view(engine: sqlite3.Connection, theme_id: int, today: date,
                days: int = 365) -> ThemeOfficial:  # fmt: skip
     since = (today - timedelta(days=days)).isoformat()
     fed = [dict(r) for r in engine.execute(
-        "SELECT d.*, o.phrase FROM fedreg_doc d JOIN official_theme o "
+        "SELECT d.*, o.phrase, o.prominent FROM fedreg_doc d JOIN official_theme o "
         "ON o.source = 'fedreg' AND o.ref = d.document_number "
         "WHERE o.theme_id = ? AND d.publication_date >= ? "
-        "ORDER BY d.publication_date DESC LIMIT 40", (theme_id, since))]  # fmt: skip
+        "ORDER BY coalesce(o.prominent, 1) DESC, d.publication_date DESC LIMIT 80",
+        (theme_id, since))]  # fmt: skip
     bills = [dict(r) for r in engine.execute(
         "SELECT b.*, o.phrase FROM congress_bill b JOIN official_theme o "
         "ON o.source = 'congress' AND o.ref = b.bill_id WHERE o.theme_id = ? "

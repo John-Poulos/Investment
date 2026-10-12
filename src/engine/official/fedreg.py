@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
 from engine.news.fetch import Fetcher
+from engine.news.match import phrase_pattern
 from engine.official.common import (
     Budget,
     Phrase,
@@ -51,7 +52,8 @@ class Doc:
     agencies: str | None
     published: str
     url: str | None
-    abstract: str | None
+    abstract: str | None  # stored, ≤ 300 characters
+    full_abstract: str = ""  # not stored; for the title/abstract check (D-M02-61 (4))
 
 
 def parse(body: bytes) -> tuple[list[Doc], int] | str:
@@ -81,6 +83,7 @@ def parse(body: bytes) -> tuple[list[Doc], int] | str:
                 str(d["publication_date"])[:10],
                 d.get("html_url") or None,
                 snip(d.get("abstract")),
+                " ".join(str(d.get("abstract") or "").split()),
             )
         )
     return out, int(data.get("total_pages") or (1 if out else 0))
@@ -111,8 +114,33 @@ def store(engine: sqlite3.Connection, docs: list[Doc], phrase: Phrase, now: date
                  iso(now), iso(now)),
             )  # fmt: skip
             new += cur.rowcount
-            link_theme(engine, "fedreg", d.number, phrase.theme_id, phrase.phrase, now)
+            link_theme(engine, "fedreg", d.number, phrase.theme_id, phrase.phrase, now,
+                       prominent=prominent(phrase.phrase, d.title, d.full_abstract))  # fmt: skip
     return new
+
+
+def prominent(phrase: str, title: str, abstract: str | None) -> bool:
+    """The phrase in the title or abstract (a passing mention in the body is not)."""
+    return bool(phrase_pattern(phrase).search(f"{title}\n{abstract or ''}"))
+
+
+def fill_prominence(engine: sqlite3.Connection) -> int:
+    """Mark links stored before D-M02-61 from the stored title and abstract."""
+    rows = engine.execute(
+        "SELECT o.ref, o.theme_id, o.phrase, d.title, d.abstract FROM official_theme o "
+        "JOIN fedreg_doc d ON d.document_number = o.ref "
+        "WHERE o.source = 'fedreg' AND o.prominent IS NULL"
+    ).fetchall()
+    if rows:
+        with write(engine):
+            for r in rows:
+                engine.execute(
+                    "UPDATE official_theme SET prominent = ? WHERE source = 'fedreg' "
+                    "AND ref = ? AND theme_id = ?",
+                    (int(prominent(r["phrase"], r["title"], r["abstract"])), r["ref"],
+                     r["theme_id"]),
+                )  # fmt: skip
+    return len(rows)
 
 
 @dataclass
@@ -123,6 +151,7 @@ class FedRegResult:
     failures: list[str] = field(default_factory=list)
     capped: list[str] = field(default_factory=list)  # phrases with more than MAX_PAGES pages
     stopped: str = ""
+    filled: int = 0  # older links given their title/abstract mark this run
 
 
 def run(
@@ -133,6 +162,7 @@ def run(
     budget: Budget,
 ) -> FedRegResult:
     res = FedRegResult()
+    res.filled = fill_prominence(engine)
     today = now.date()
     for ph in phrases:
         if budget.spent("fedreg"):

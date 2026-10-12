@@ -108,9 +108,14 @@ def link_theme(
     theme_id: int,
     phrase: str,
     now: datetime,
+    prominent: bool | None = None,
 ) -> None:
+    """prominent: the phrase is in the title or abstract (Federal Register, D-M02-61 (4))."""
+    p = None if prominent is None else int(prominent)
     engine.execute(
-        "INSERT OR IGNORE INTO official_theme (source, ref, theme_id, phrase, found_at) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (source, ref, theme_id, phrase, iso(now)),
+        "INSERT INTO official_theme (source, ref, theme_id, phrase, found_at, prominent) "
+        "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT DO UPDATE SET "
+        "prominent = CASE WHEN excluded.prominent IS NULL THEN prominent "
+        "ELSE max(coalesce(prominent, 0), excluded.prominent) END",
+        (source, ref, theme_id, phrase, iso(now), p),
     )

@@ -74,16 +74,22 @@
   <p class="note">Preprints submitted to arXiv in each calendar month whose metadata contain the phrase (arXiv's own phrase search; counted once per month after it ends; — = not counted yet, never zero). Research momentum tracks academic interest, not money flow (D-M02-13, D-M02-15).</p>
   <h2 style="margin-top:16px">Federal Register, last {{ official.days }} days</h2>
   {% if official.fedreg %}
+  {% set lead = official.fedreg | rejectattr('prominent', 'equalto', 0) | list %}
+  {% set body = official.fedreg | selectattr('prominent', 'equalto', 0) | list %}
+  {% macro fr_table(rows) %}
   <table class="data">
     <tr><th>Published</th><th>Type</th><th>Title</th><th>Agency</th><th>Phrase</th></tr>
-    {% for f in official.fedreg %}
+    {% for f in rows %}
     <tr><td style="white-space:nowrap">{{ f.publication_date }}</td><td>{{ f.doc_type }}</td>
       <td>{% if f.url %}<a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.title }}</a>{% else %}{{ f.title }}{% endif %}{% if f.abstract %}<div class="muted">{{ f.abstract }}</div>{% endif %}</td>
       <td class="muted">{{ f.agencies or '—' }}</td><td class="muted">{{ f.phrase }}</td></tr>
     {% endfor %}
   </table>
+  {% endmacro %}
+  {% if lead %}<p class="muted">Phrase in the title or abstract: {{ lead | length }}</p>{{ fr_table(lead) }}{% else %}<p class="empty">No document names a phrase in its title or abstract.</p>{% endif %}
+  {% if body %}<details style="margin-top:6px"><summary>{{ body | length }} passing mention(s) in the body only</summary>{{ fr_table(body) }}</details>{% endif %}
   {% else %}<p class="empty">No stored Federal Register document with this theme's phrases in the last {{ official.days }} days.</p>{% endif %}
-  <p class="note">Rules, proposed rules and notices whose full text contains a phrase (Federal Register search) — the phrase may sit in one passing sentence; read the abstract. Grade A, government source; never a signal on its own.</p>
+  <p class="note">Rules, proposed rules and notices whose full text contains a phrase (Federal Register search). Documents naming the phrase in their title or abstract come first; body-only mentions are collapsed (D-M02-61). Final rules naming a phrase in their title or abstract also reach the weekly news item. Grade A, government source; never a signal on its own.</p>
   <h2 style="margin-top:16px">Bills in Congress</h2>
   {% if official.bills %}
   <table class="data">

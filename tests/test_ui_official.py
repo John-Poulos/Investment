@@ -38,16 +38,18 @@ def seed(e) -> None:
               "'Commerce Department', ?, 'https://www.federalregister.gov/d/2026-20023', 'The agency asks about quantum computing risks.', ?, ?)",
               (pub, T, T))  # fmt: skip
     e.execute(
-        "INSERT INTO official_theme VALUES ('fedreg', '2026-20023', ?, 'quantum computing', ?)",
+        "INSERT INTO official_theme VALUES ('fedreg', '2026-20023', ?, 'quantum computing', ?, 1)",
         (tid, T),
     )
     e.execute("INSERT INTO congress_bill VALUES ('119-hr-1234', 119, 'HR', '1234', 'National Quantum Computing Workforce Act', NULL, "
-              "'2026-09-20', 'Referred to committee.', 'introduced', 'https://www.congress.gov/bill/119th-congress/house-bill/1234', '2026-09-21', ?, ?)",
+              "'2026-09-20', 'Referred to committee.', 'introduced', 'https://www.congress.gov/bill/119th-congress/house-bill/1234', '2026-09-21', ?, ?, NULL)",
               (T, T))  # fmt: skip
     e.execute("INSERT INTO congress_bill VALUES ('119-s-900', 119, 'S', '900', 'Quantum Sandbox Act', 'Creates a qubit testbed.', "
-              "'2026-08-01', 'Became Public Law No: 119-55.', 'enacted', NULL, '2026-08-02', ?, ?)", (T, T))  # fmt: skip
+              "'2026-08-01', 'Became Public Law No: 119-55.', 'enacted', NULL, '2026-08-02', ?, ?, ?)", (T, T, T))  # fmt: skip
     for ref, ph in (("119-hr-1234", "quantum computing"), ("119-s-900", "qubit")):
-        e.execute("INSERT INTO official_theme VALUES ('congress', ?, ?, ?, ?)", (ref, tid, ph, T))
+        e.execute(
+            "INSERT INTO official_theme VALUES ('congress', ?, ?, ?, ?, NULL)", (ref, tid, ph, T)
+        )
     base = (TODAY - timedelta(days=40)).isoformat()
     e.executemany(
         "INSERT INTO usa_award (award_key, award_id, award_group, award_type, recipient_name, recipient_uei, "
@@ -120,3 +122,32 @@ def test_money_tab_not_searched_is_unknown_not_none(client):  # noqa: F811
     assert "Not searched yet — unknown, not" in html
     html = client.get("/themes").text  # the themes list still renders
     assert "object at 0x" not in html
+
+
+def test_body_only_matches_collapsed_and_weekly_item_section(official):
+    from engine.news import digest
+
+    e = open_db("engine", official.app.state.settings.data_dir)
+    tid = e.execute("SELECT theme_id FROM theme WHERE key = 'quantum'").fetchone()[0]
+    week = digest.last_week_start(datetime.now(UTC))
+    seen = (week + timedelta(days=2)).isoformat(timespec="seconds")
+    pub = (week + timedelta(days=1)).date().isoformat()
+    for num, typ, title, prom in (
+        ("2026-30001", "Notice", "Self-Regulatory Organizations; Nasdaq Fee Schedule", 0),
+        ("2026-30002", "Rule", "Quantum Computing Export Controls", 1),
+    ):
+        e.execute("INSERT INTO fedreg_doc VALUES (?, ?, ?, 'SEC', ?, NULL, NULL, ?, ?)",
+                  (num, typ, title, pub, seen, seen))  # fmt: skip
+        e.execute("INSERT INTO official_theme VALUES ('fedreg', ?, ?, 'quantum computing', ?, ?)",
+                  (num, tid, seen, prom))  # fmt: skip
+    assert digest.propose_week(e, week, {CIK: "META"}, datetime.now(UTC)) == "queued"
+    item = e.execute("SELECT item_id FROM review_queue WHERE kind = 'm02_news'").fetchone()[0]
+    e.close()
+    html = official.get("/themes/quantum").text
+    assert "Phrase in the title or abstract: 2" in html
+    assert "1 passing mention(s) in the body only" in html
+    assert html.index("Quantum Computing Export Controls") < html.index("Nasdaq Fee Schedule")
+    page = official.get(f"/review/{item}").text
+    assert "Final rules and new laws on accepted themes" in page
+    assert "Quantum Computing Export Controls" in page and "Nasdaq Fee Schedule" not in page
+    assert "object at 0x" not in page

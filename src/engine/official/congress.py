@@ -182,15 +182,17 @@ def _upsert(engine, b: Bill, summary: str | None, now: datetime, res: CongressRe
         engine.execute(
             "INSERT INTO congress_bill (bill_id, congress, bill_type, number, title, summary, "
             "latest_action_date, latest_action, status, url, update_date, first_seen_at, "
-            "updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "updated_at, enacted_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (b.id, b.congress, b.bill_type.upper(), b.number, b.title, summary, b.action_date,
              b.action, b.status, page_url(b.congress, b.bill_type, b.number), b.update_date,
-             iso(now), iso(now)),
+             iso(now), iso(now), iso(now) if b.status == "enacted" else None),
         )  # fmt: skip
         res.new += 1
         return
     if old["status"] != "enacted" and b.status == "enacted":
         res.enacted_new += 1
+        engine.execute("UPDATE congress_bill SET enacted_seen_at = ? WHERE bill_id = ?",
+                       (iso(now), b.id))  # fmt: skip
     engine.execute(
         "UPDATE congress_bill SET title = ?, latest_action_date = coalesce(?, latest_action_date), "
         "latest_action = coalesce(?, latest_action), status = CASE WHEN status = 'enacted' "

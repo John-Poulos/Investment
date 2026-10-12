@@ -29,11 +29,13 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import tomllib
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 from engine.news.fetch import Fetcher
-from engine.official.common import Budget, snip, state_get, state_set, write
+from engine.official.common import Budget, snip, state_detail, state_get, state_set, write
 from engine.sec.client import iso
 from engine.sec.results import Failed
 from engine.supply import aliases
@@ -51,6 +53,7 @@ EARLIEST = date(2007, 10, 1)  # the API's earliest search date
 RECHECK_DAYS = 7
 MAX_COMPANIES = 15
 MAX_TERMS = 3
+MAX_USA_TERMS = 6  # exact recipient names from config/aliases.toml (D-M02-61 (3))
 MAX_PAGES = 2
 PAGE = 100
 MAX_PROFILES = 20
@@ -79,14 +82,20 @@ class Company:
     ticker: str
     cik: str
     names: tuple[str, ...]  # SEC name first, then aliases
+    usa: tuple[str, ...] = ()  # exact USAspending recipient names (owner list, D-M02-61 (3))
 
     @property
     def keys(self) -> set[str]:
-        return {k for k in (norm(n) for n in self.names) if k}
+        return {k for k in (norm(n) for n in self.names + self.usa) if k}
 
     def terms(self) -> list[str]:
-        """Search terms: distinct normalised names, shortest covering ones only (a name
-        containing a shorter one as whole words is covered), ≥ 4 characters, ≤ MAX_TERMS."""
+        """Search terms. With an owner list: those exact recipient names (≤ MAX_USA_TERMS) —
+        USAspending's search matches parts of names, so "APPLE" alone brings back Apple Ten
+        Alabama Services and "INTEL" brings back Intellisense (live check 2026-10-12).
+        Without a list: distinct normalised names, shortest covering ones only, ≥ 4
+        characters, ≤ MAX_TERMS."""
+        if self.usa:
+            return list(dict.fromkeys(self.usa))[:MAX_USA_TERMS]
         keys = sorted(self.keys, key=len)
         out: list[str] = []
         for k in keys:
@@ -98,18 +107,32 @@ class Company:
         return out[:MAX_TERMS]
 
 
+def usa_lists(path: Path = aliases.ALIASES) -> dict[str, tuple[str, ...]]:
+    """ticker → exact USAspending recipient names (`usaspending = [...]` in aliases.toml)."""
+    if not path.exists():
+        return {}
+    with path.open("rb") as fh:
+        data = tomllib.load(fh)
+    return {
+        str(v.get("ticker") or k).upper(): tuple(v["usaspending"])
+        for k, v in data.items()
+        if isinstance(v, dict) and v.get("usaspending")
+    }
+
+
 def companies_for(engine: sqlite3.Connection, tickers: dict[str, str]) -> list[Company]:
     """ticker → cik for the run; names from the SEC registry and config/aliases.toml."""
     by_cik: dict[str, list[str]] = {}
     for c in aliases.load(engine):
         if c.cik:
             by_cik.setdefault(c.cik, []).extend(c.names)
+    usa = usa_lists()
     out = []
     for t, cik in sorted(tickers.items()):
         r = engine.execute("SELECT name FROM entity WHERE cik = ?", (cik,)).fetchone()
         names = ([r["name"]] if r else []) + by_cik.get(cik, [])
         if names:
-            out.append(Company(t, cik, tuple(dict.fromkeys(names))))
+            out.append(Company(t, cik, tuple(dict.fromkeys(names)), usa.get(t, ())))
     return out
 
 
@@ -291,6 +314,45 @@ class UsaResult:
     failures: list[str] = field(default_factory=list)
     stopped: str = ""
     left: int = 0  # companies due but not reached
+    no_list: list[str] = field(default_factory=list)  # searched by name parts (no owner list)
+    retermed: int = 0  # unmapped awards dropped because the company's search names changed
+
+
+def _last_terms(engine: sqlite3.Connection, co: Company) -> set[str]:
+    """Terms of the last successful search (stored since D-M02-61; before that, the terms
+    recorded on the company's awards)."""
+    saved = state_detail(engine, f"official:usaspending:{co.cik}:terms")
+    if saved:
+        try:
+            return set(json.loads(saved))
+        except ValueError:
+            pass
+    sql = "SELECT DISTINCT search_term FROM usa_award WHERE searched_cik = ?"
+    return {r[0] for r in engine.execute(sql, (co.cik,))}
+
+
+def terms_changed(engine: sqlite3.Connection, co: Company) -> bool:
+    old = _last_terms(engine, co)
+    return bool(old) and old != set(co.terms())
+
+
+def purge_old_terms(engine: sqlite3.Connection, co: Company) -> int:
+    """Drop awards that only an old search term found and that map to no company (name-part
+    hits such as Apple Ten Alabama Services); mapped awards are kept."""
+    terms = co.terms()
+    marks = ",".join("?" * len(terms))
+    with write(engine):
+        n = engine.execute(
+            f"DELETE FROM usa_award WHERE searched_cik = ? AND search_term NOT IN ({marks}) "
+            "AND (recipient_id IS NULL OR recipient_id NOT IN "
+            "(SELECT recipient_id FROM usa_recipient WHERE cik IS NOT NULL))",
+            (co.cik, *terms),
+        ).rowcount
+        engine.execute(
+            "DELETE FROM usa_recipient WHERE cik IS NULL AND recipient_id NOT IN "
+            "(SELECT recipient_id FROM usa_award WHERE recipient_id IS NOT NULL)"
+        )
+    return n
 
 
 def run(
@@ -305,9 +367,13 @@ def run(
     res = UsaResult()
     today = now.date()
     cos = companies_for(engine, tickers)
+    res.no_list = [c.ticker for c in cos if not c.usa]
     due = []
     for c in cos:
         last = state_get(engine, f"official:usaspending:{c.cik}")
+        if last and terms_changed(engine, c):
+            res.retermed += purge_old_terms(engine, c)
+            last = None  # new search names: search now, over the first-run window
         if last is None or date.fromisoformat(last[:10]) <= today - timedelta(days=RECHECK_DAYS):
             due.append((last or "", c))
     due.sort(key=lambda x: x[0])  # never checked first, then oldest
@@ -347,6 +413,8 @@ def run(
             note = f"{seen} award(s) since {start}, terms {', '.join(co.terms())}"
             with write(engine):
                 state_set(engine, f"official:usaspending:{co.cik}", SEARCH_URL, now, note)
+                state_set(engine, f"official:usaspending:{co.cik}:terms", SEARCH_URL, now,
+                          json.dumps(co.terms()))  # fmt: skip
     read, mapped, fails = map_parents(engine, fetcher, cos, now, budget)
     res.profiles, res.by_parent = read, mapped
     res.failures += fails
