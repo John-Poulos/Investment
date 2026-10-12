@@ -15,10 +15,12 @@
 # domains = ["example.com"]  # company domains: Finnhub/Massive items from these are grade A
 # checked = "YYYY-MM-DD"     # date the URL was checked by hand
 #
-# No feed recorded yet (8-K releases and Finnhub still cover them): AAPL, TSLA, MSFT, AMZN,
-# GOOG, MRVL, MSTR, SPCX, ETV, INFQ. Discovery rule: `<link type="application/rss+xml">` on
-# the company's press page, then vendor patterns (Q4 Inc `/rss/pressrelease.aspx`, Notified
-# `/rss/news-releases.xml`).
+# Discovery (D-M02-59): companies without a feed here are looked up automatically when they
+# enter a tier — known vendor feed addresses on investor./investors./ir. hosts (Q4 Inc
+# `/rss/pressrelease.aspx`, Nasdaq IR `/news-events/press-releases/rss`, Notified
+# `/rss/news-releases.xml`, Drupal `/rss.xml`); a feed found goes to review, and confirmed
+# feeds are polled from the database. An entry here always wins.
+# None found (2026-10-12): MSTR (strategy.com refuses automated requests); ETV is a fund.
 
 [ir.NVDA]
 feeds = ["https://investor.nvidia.com/rss/pressrelease.aspx", "https://nvidianews.nvidia.com/releases.xml"]
@@ -50,19 +52,53 @@ feeds = ["https://www.intc.com/news-events/press-releases/rss"]
 domains = ["intc.com", "intel.com"]
 checked = "2026-10-08"
 
-# Company domains without a feed (grade A when Finnhub/Massive cite them).
 [ir.AAPL]
+# investor.apple.com/rss/pressrelease.aspx exists but was empty on 2026-10-12; the Newsroom
+# carries Apple's own announcements (products, programmes) as well as results.
+feeds = ["https://investor.apple.com/rss/pressrelease.aspx", "https://www.apple.com/newsroom/rss-feed.rss"]
 domains = ["apple.com"]
+checked = "2026-10-12"
+
 [ir.TSLA]
+feeds = ["https://ir.tesla.com/rss.xml"]
 domains = ["tesla.com"]
+checked = "2026-10-12"
+
 [ir.MSFT]
+# Microsoft's newsroom ("Source"): mixed company posts (blogs, Xbox, LinkedIn); no
+# investor-relations feed found.
+feeds = ["https://news.microsoft.com/source/feed/"]
 domains = ["microsoft.com"]
+checked = "2026-10-12"
+
 [ir.AMZN]
+feeds = ["https://ir.aboutamazon.com/rss/pressrelease.aspx"]
 domains = ["amazon.com", "aboutamazon.com"]
+checked = "2026-10-12"
+
 [ir.GOOG]
+# "News from Google" (the company blog, several posts a day); abc.xyz has no feed.
+feeds = ["https://blog.google/rss/"]
 domains = ["abc.xyz", "blog.google"]
+checked = "2026-10-12"
+
 [ir.MRVL]
+feeds = ["https://investor.marvell.com/news-events/press-releases/rss"]
 domains = ["marvell.com"]
+checked = "2026-10-12"
+
+[ir.SPCX]
+feeds = ["https://ir.spacex.com/rss/pressrelease.aspx"]
+domains = ["spacex.com"]
+checked = "2026-10-12"
+
+[ir.INFQ]
+feeds = ["https://ir.infleqtion.com/news-events/press-releases/rss"]
+domains = ["infleqtion.com"]
+checked = "2026-10-12"
+
+[ir.MSTR]
+domains = ["strategy.com"]
 
 # --- Trade press (grade B), 11 feeds approved in D-M02-13 ---------------------------------
 # Excluded for terms: TrendForce, Utility Dive (Industry Dive), PR Newswire, Business Wire,

@@ -117,6 +117,7 @@ def test_company_news_tab(newsy):
     assert "IR feed · 8-K · Finnhub (Reuters)" in html
     assert "First mention of each accepted theme" in html and "10-Q Part I Item 2" in html
     assert "quarterly dividend" in html
+    assert "investor.atmeta.com/rss/pressrelease.aspx</a> (config/news.toml)" in html
     themed = newsy.get("/c/META?tab=news&only=themed").text
     assert "quarterly dividend" not in themed and "Show all" in themed
     assert "<function" not in html and "object at 0x" not in html

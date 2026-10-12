@@ -1,5 +1,6 @@
 <section>
   <h2>News{% if news.themed_only %} on accepted themes{% endif %}</h2>
+  {% set f = news.feed %}{% if f %}<p class="muted">IR feed: {% if f.source == 'config' %}{% for u in f.urls %}<a href="{{ u }}" target="_blank" rel="noopener">{{ u }}</a>{{ ', ' if not loop.last }}{% endfor %} (config/news.toml){% elif f.status == 'confirmed' %}<a href="{{ f.urls[0] }}" target="_blank" rel="noopener">{{ f.urls[0] }}</a> (found automatically, confirmed){% elif f.status == 'proposed' %}found {{ f.urls[0] }} — waiting for your answer in <a href="/review">review</a>{% elif f.status == 'rejected' %}the feed found ({{ f.urls[0] }}) was rejected; add the right one to config/news.toml{% elif f.status == 'none_found' %}none found on {{ f.domain or 'the company profile' }} ({{ f.tried or 0 }} addresses tried, {{ f.checked }}; checked again after 90 days) — add one to config/news.toml if you know it{% else %}{{ f.status }}{% endif %}</p>{% endif %}
   <p class="muted">{% if news.themed_only %}<a href="/c/{{ ticker }}?tab=news">Show all</a>{% else %}<a href="/c/{{ ticker }}?tab=news&amp;only=themed">Only items with a theme phrase</a>{% endif %}</p>
   {% if news.items %}
   <table class="data">

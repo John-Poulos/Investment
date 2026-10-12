@@ -128,7 +128,10 @@ def propose_week(
     preview: bool = False,
 ) -> str:
     """Queue the week's item: 'queued', 'overflow', 'suppressed' or 'empty'.
-    A preview (the current, unfinished week; owner's live check) has its own key."""
+    A preview (the current, unfinished week; owner's live check) has its own key; the
+    full week's item replaces it (a waiting preview is dropped, an open one closed)."""
+    if not preview:
+        _supersede_preview(engine, week_start.date().isoformat(), now)
     payload = build(engine, week_start, tiers)
     if payload is None:
         return "empty"
@@ -139,6 +142,22 @@ def propose_week(
               + f": {payload['events']} event(s) on {len(payload['themes'])} theme(s), "
               f"{len(payload['first_mentions'])} first mention(s)")  # fmt: skip
     return proposals.propose(engine, "m02_news", key, reason, payload, now)
+
+
+def _supersede_preview(engine: sqlite3.Connection, week: str, now: datetime) -> None:
+    pk = f"m02_news:{week}:preview"
+    row = engine.execute("SELECT status, item_id FROM m02_proposal WHERE prop_key = ?",
+                         (pk,)).fetchone()  # fmt: skip
+    if row is None:
+        return
+    if row["item_id"] is not None:
+        engine.execute(
+            "UPDATE review_queue SET resolved_at = ?, resolution = 'noted', resolved_by = "
+            "'engine', note = 'replaced by the full week''s news item' "
+            "WHERE item_id = ? AND resolved_at IS NULL",
+            (iso(now), row["item_id"]),
+        )
+    engine.execute("DELETE FROM m02_proposal WHERE prop_key = ?", (pk,))
 
 
 def last_week_start(now: datetime) -> datetime:

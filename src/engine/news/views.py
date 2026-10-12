@@ -70,10 +70,31 @@ class CompanyNews:
     items: list[dict[str, Any]] = field(default_factory=list)
     firsts: list[dict[str, Any]] = field(default_factory=list)
     themed_only: bool = False
+    feed: dict[str, Any] = field(default_factory=dict)  # IR feed status (D-M02-59)
+
+
+def feed_status(engine: sqlite3.Connection, ticker: str, cik: str) -> dict[str, Any]:
+    """Where the company's IR feed comes from: config, a discovered feed, or none yet."""
+    from engine.news.config import load
+
+    cfg = load()
+    if ticker in cfg.ir:
+        return {"source": "config", "urls": list(cfg.ir[ticker])}
+    r = engine.execute("SELECT * FROM ir_feed WHERE cik = ?", (cik,)).fetchone()
+    if r is None:
+        return {"source": "none", "status": "not looked up yet"}
+    urls = [r["url"]] if r["url"] else []
+    return {"source": "discovered", "status": r["status"], "urls": urls, "domain": r["domain"],
+            "checked": r["checked_at"][:10], "tried": r["tried"]}  # fmt: skip
 
 
 def company_view(
-    engine: sqlite3.Connection, cik: str, *, themed_only: bool = False, limit: int = 100
+    engine: sqlite3.Connection,
+    cik: str,
+    *,
+    ticker: str = "",
+    themed_only: bool = False,
+    limit: int = 100,
 ) -> CompanyNews:
     where = "i.item_id IN (SELECT item_id FROM news_company WHERE cik = ?)"
     if themed_only:
@@ -87,7 +108,8 @@ def company_view(
             (cik,),
         )
     ]
-    return CompanyNews(_items(engine, where, (cik,), limit), firsts, themed_only)
+    feed = feed_status(engine, ticker, cik) if ticker else {}
+    return CompanyNews(_items(engine, where, (cik,), limit), firsts, themed_only, feed)
 
 
 @dataclass

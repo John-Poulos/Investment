@@ -241,7 +241,9 @@ def create_app(settings: UiSettings) -> FastAPI:
                 ),
             )
         elif tab == "news":
-            ctx["news"] = news_views.company_view(engine, cik, themed_only=only == "themed")
+            ctx["news"] = news_views.company_view(
+                engine, cik, ticker=ticker, themed_only=only == "themed"
+            )
         elif tab == "themes":
             ctx["ct"] = themes.company_themes(engine, cik, ticker)
             ctx["member"] = tiers.member(engine, cik)

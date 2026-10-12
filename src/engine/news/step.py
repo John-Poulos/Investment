@@ -15,11 +15,11 @@ from __future__ import annotations
 
 import sqlite3
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 
 from engine.news import config as news_config
-from engine.news import digest, first_mentions, rss, sec8k, store, vendors
+from engine.news import digest, discover, first_mentions, rss, sec8k, store, vendors
 from engine.news.fetch import Fetcher
 from engine.news.match import CompanyMatcher, ThemeMatcher
 from engine.sec.client import iso
@@ -84,12 +84,15 @@ def _run(engine, corpus, companies, now, rep, fetcher, finnhub_key, massive_key,
     fetcher = fetcher or Fetcher(engine, secrets=tuple(k for k in (finnhub_key, massive_key) if k))
     themes, cos = ThemeMatcher(engine), CompanyMatcher(engine)
     ciks = set(companies.values())
+    extra, extra_domains = discover.confirmed(engine, companies, cfg)
+    if extra_domains:  # confirmed feeds' domains grade vendor items A, like config domains
+        cfg = replace(cfg, company_domains=extra_domains | cfg.company_domains)
 
     def put(label: str, items) -> None:
         _add(rep, label, store.store_all(engine, items, cfg, now, themes, cos))
 
     if feeds:
-        ir = cfg.ir_feeds(set(companies))
+        ir = cfg.ir_feeds(set(companies)) + extra
         trade = list(cfg.trade)
         for f in ir + trade:
             res = rss.fetch(
@@ -109,6 +112,8 @@ def _run(engine, corpus, companies, now, rep, fetcher, finnhub_key, massive_key,
 
     if vendor_news:
         _vendors(engine, companies, now, rep, fetcher, finnhub_key, massive_key, cfg, put)
+    if feeds:
+        rep.lines += discover.run(engine, fetcher, finnhub_key, companies, cfg, now)
 
     c = rep.counts
     rep.lines.append(

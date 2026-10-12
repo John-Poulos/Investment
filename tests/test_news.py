@@ -9,12 +9,13 @@ publishers' text stay off GitHub).
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
-from engine.news import digest, first_mentions, match, rss, sec8k, store, vendors
+from engine.news import digest, discover, first_mentions, match, rss, sec8k, store, vendors
 from engine.news.config import Feed, NewsConfig, load
 from engine.news.fetch import Fetcher
 from engine.news.items import RawItem, snippet, url_key
@@ -590,3 +591,111 @@ def test_run_news_step_without_keys_never_fails(db):
                         feeds=False)  # fmt: skip
     text = "\n".join(rep.lines)
     assert "Finnhub: skipped" in text and "Massive (backup): skipped" in text
+
+
+def test_full_week_replaces_its_preview(db):
+    engine, _ = db
+    week = digest.last_week_start(NOW)
+    seen = week + timedelta(days=2)
+    put(engine, [raw(channel="ir_rss", feed="NVDA", url="https://investor.nvidia.com/a",
+                     title="NVIDIA ships AI accelerator", published="2026-10-07T12:00:00+00:00",
+                     cik=NVDA)], now=seen)  # fmt: skip
+    tiers = {NVDA: "NVDA"}
+    assert digest.propose_week(engine, week, tiers, seen, preview=True) == "queued"
+    assert digest.propose_week(engine, week, tiers, NOW) == "queued"
+    rows = engine.execute("SELECT reason, resolution, resolved_by FROM review_queue "
+                          "WHERE kind = 'm02_news' ORDER BY item_id").fetchall()  # fmt: skip
+    assert "(so far)" in rows[0]["reason"] and rows[0]["resolved_by"] == "engine"
+    assert rows[1]["resolution"] is None
+    keys = [r[0] for r in engine.execute("SELECT prop_key FROM m02_proposal")]
+    assert keys == ["m02_news:2026-10-05"]
+    # a preview still waiting (overflow) is simply dropped
+    engine.execute("INSERT INTO m02_proposal (prop_key, kind, reason, payload, status, "
+                   "first_seen_at, last_seen_at) VALUES ('m02_news:2026-10-12:preview', "
+                   "'m02_news', 'r', '{}', 'overflow', 't', 't')")  # fmt: skip
+    digest.propose_week(engine, week + timedelta(days=7), tiers, NOW + timedelta(days=7))
+    assert engine.execute("SELECT count(*) FROM m02_proposal WHERE prop_key LIKE '%preview'"
+                          ).fetchone()[0] == 0  # fmt: skip
+
+
+# --- IR feed discovery (D-M02-59) ------------------------------------------------------------
+
+FEED_3 = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>Example Corp Press Releases</title>
+<item><title>Example Corp Reports Third Quarter Results</title><link>/news/q3</link><pubDate>Tue, 13 Oct 2026 20:05:00 GMT</pubDate></item>
+<item><title>Example Corp Opens AI Infrastructure Plant</title><link>/news/plant</link><pubDate>Mon, 05 Oct 2026 12:00:00 GMT</pubDate></item>
+<item><title>Example Corp Declares Dividend</title><link>https://ir.example.com/news/div</link><pubDate>Fri, 25 Sep 2026 12:00:00 GMT</pubDate></item>
+</channel></rss>"""
+EMPTY = b'<?xml version="1.0"?><rss version="2.0"><channel><title>Empty</title></channel></rss>'
+EX = "0000000055"
+
+
+def test_relative_links_resolved():
+    f = Feed("ir_rss", "EX", "EX", "https://ir.example.com/rss/news-releases.xml")
+    items = rss.parse(f, FEED_3)
+    assert items[0].url == "https://ir.example.com/news/q3"
+
+
+def test_discover_check_rules():
+    assert isinstance(discover.check(EMPTY, "u", "example.com"), str)  # empty feed fails
+    foreign = FEED_3.replace(b"/news/", b"https://other.org/")
+    assert "link to example.com" in discover.check(
+        foreign, "https://ir.example.com/x", "example.com"
+    )
+    got = discover.check(FEED_3, "https://ir.example.com/rss/news-releases.xml", "example.com")
+    assert got.title == "Example Corp Press Releases" and len(got.samples) == 3
+
+
+def test_discovery_proposes_then_confirmed_feed_is_polled(db):
+    engine, corpus = db
+    c = discover.candidates("example.com")
+    routes = {
+        discover.PROFILE_URL: (
+            200,
+            json.dumps({"weburl": "https://www.example.com/"}).encode(),
+            {},
+        ),
+        c[0]: (404, b"", {}),
+        c[1]: (200, EMPTY, {}),
+        c[2]: (200, FEED_3, {}),
+    }
+    fx, t = fetcher(engine, routes, secrets=("FHKEY",))
+    companies = {"NVDA": NVDA, "EX": EX}  # NVDA has a config feed: never looked up
+    lines = discover.run(engine, fx, "FHKEY", companies, CFG, NOW)
+    assert lines == [f"IR feed discovery EX: found {c[2]} → review"]
+    assert [u for u, _, _ in t.calls].count(discover.PROFILE_URL) == 1
+    item = engine.execute("SELECT item_id, kind, payload FROM review_queue").fetchone()
+    p = json.loads(item["payload"])
+    assert (
+        item["kind"] == "m02_ir_feed"
+        and p["feed"] == c[2]
+        and p["samples"][0].startswith("Example Corp Reports")
+    )
+    assert discover.due(engine, companies, CFG, NOW) == []
+    # the owner confirms → the next run polls it, and its items are grade A
+    from engine.themes import proposals
+
+    proposals.apply(engine, "m02_ir_feed", "confirm", p, EX, "owner", NOW)
+    feeds, domains = discover.confirmed(engine, companies, CFG)
+    assert [f.url for f in feeds] == [c[2]] and domains == {"example.com": "EX"}
+    rep = run_news_step(engine, corpus, companies, NOW, fetcher=fx, cfg=replace(CFG, ir={}, trade=()),
+                        vendor_news=False)  # fmt: skip
+    assert "feeds: IR 1 (ok 1" in "\n".join(rep.lines)
+    g = engine.execute("SELECT DISTINCT s.grade FROM news_source s WHERE s.feed = 'EX'").fetchall()
+    assert [r[0] for r in g] == ["A"]
+
+
+def test_discovery_none_found_rechecked_after_90_days(db):
+    engine, _ = db
+    routes = {
+        discover.PROFILE_URL: (200, json.dumps({"weburl": "https://example.com"}).encode(), {})
+    }
+    routes |= {u: (404, b"", {}) for u in discover.candidates("example.com")}
+    fx, _ = fetcher(engine, routes)
+    companies = {"EX": EX}
+    assert discover.run(engine, fx, "K", companies, CFG, NOW) == [
+        "IR feed discovery EX: none found on example.com (12 tried)"]  # fmt: skip
+    assert discover.due(engine, companies, CFG, NOW + timedelta(days=30)) == []
+    assert discover.due(engine, companies, CFG, NOW + timedelta(days=91)) == [("EX", EX)]
+    # without a Finnhub key nothing is fetched; the wait is reported
+    assert "FINNHUB_API_KEY not set" in discover.run(engine, fx, None, companies, CFG,
+                                                     NOW + timedelta(days=91))[0]  # fmt: skip

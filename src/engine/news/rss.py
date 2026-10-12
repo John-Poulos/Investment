@@ -12,6 +12,7 @@ import calendar
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from urllib.parse import urljoin
 
 import feedparser
 
@@ -58,7 +59,7 @@ def parse(feed: Feed, body: bytes, cik: str | None = None) -> list[RawItem] | st
         title = clean(e.get("title"))
         if not title:
             continue
-        link = e.get("link") or None
+        link = urljoin(feed.url, e["link"]) if e.get("link") else None  # relative links (Q4)
         out.append(
             RawItem(
                 channel=feed.channel,

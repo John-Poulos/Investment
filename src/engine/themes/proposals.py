@@ -30,7 +30,14 @@ MODULE = "M02"
 WEEKLY_CAP = 10
 # operational items (downloads, tag mapping, reconciliation gaps) are not capped
 UNCAPPED = frozenset(
-    {"m02_ir_download", "m02_tag", "m02_capex_gap", "m02_13f_issuer", "m02_fin_check"}
+    {
+        "m02_ir_download",
+        "m02_tag",
+        "m02_capex_gap",
+        "m02_13f_issuer",
+        "m02_fin_check",
+        "m02_ir_feed",
+    }
 )
 
 KIND_LABELS = {
@@ -50,6 +57,7 @@ KIND_LABELS = {
     "m02_fin_check": "M02: financing record failed a check",
     "m02_fin_alert": "M02: financing alert (weekly digest)",
     "m02_news": "M02: news on accepted themes (weekly digest)",
+    "m02_ir_feed": "M02: IR feed found for a company",
 }
 ACTIONS = {
     "m02_theme": ("accept", "reject"),
@@ -76,6 +84,7 @@ ACTIONS = {
     "m02_fin_check": ("keep_record", "wrong_record"),
     "m02_fin_alert": ("noted",),
     "m02_news": ("noted",),  # leave open to come back to it (D-M02-58 (2))
+    "m02_ir_feed": ("confirm", "reject"),  # D-M02-59
 }
 REJECTING = frozenset({"reject", "remove", "ignore"})
 
@@ -284,6 +293,10 @@ def apply(
         else:
             engine.execute("UPDATE fin_holding SET status = 'automatic' WHERE holding_id = ? "
                            "AND status = 'held'", (payload["holding_id"],))  # fmt: skip
+    elif kind == "m02_ir_feed" and cik and payload.get("feed"):
+        from engine.news.discover import decide as feed_decide
+
+        feed_decide(engine, cik, payload["feed"], action, by, now)
     # m02_ir_download / m02_capex_gap / m02_fin_alert: the resolution itself is the
     # record; the parts that create them (5, 4, 3) read it.
 
