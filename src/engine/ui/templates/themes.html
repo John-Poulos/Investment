@@ -16,7 +16,7 @@
       <td class="num">{{ share(t.latest) }}</td>
       <td class="num">{{ change(t.latest) }}</td>
       <td class="spark-cell">{{ spark(t.series) }}</td>
-      <td>{% if t.missing %}<span class="badge" title="a window failed; it stays missing">missing window</span>{% endif %}</td>
+      <td>{% if t.missing %}<span class="badge" title="a window failed; it stays missing">missing window</span>{% endif %}{% if t.key in crowded %} <span class="warn" title="new fund registrations naming a theme phrase rose beyond chance in the latest seasonal pass (D-M02-10); thematic funds cluster near peak attention (S90)">crowding</span>{% endif %}</td>
     </tr>
     {% endfor %}
   </table>

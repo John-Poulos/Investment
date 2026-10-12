@@ -33,7 +33,18 @@
     {% endfor %}
   </table>
   {% for n in d.notes %}<p class="note">{{ n }}</p>{% endfor %}
-  <p class="note">Each number is distinct filers (companies) whose {{ d.family }} filings in that window contain the phrase; click it for the filings. Mentions measure attention, not money (hypothesis until backtested); generic or boilerplate wording is screened in a later part (D-M02-8, D-M02-14).</p>
+  <p class="note">Each number is distinct filers (companies) whose {{ d.family }} filings in that window contain the phrase; click it for the filings. Mentions measure attention, not money (hypothesis until backtested); new phrases are mined and tested each season (Themes page, D-M02-53…56).</p>
+  {% if crowd %}
+  <h2 style="margin-top:16px">Crowding: new fund registrations{% if crowd.flagged %} <span class="warn">crowding</span>{% endif %}</h2>
+  <table class="data">
+    <tr><th>Phrase</th><th class="num">{{ crowd.prior[0] }} to {{ crowd.prior[1] }}</th><th class="num">{{ crowd.latest[0] }} to {{ crowd.latest[1] }}</th><th></th></tr>
+    {% for r in crowd.rows %}
+    <tr><td>{{ r.phrase }}</td><td class="num">{{ r.prior if r.prior is not none else '—' }}</td><td class="num">{{ r.latest if r.latest is not none else '—' }}</td>
+      <td>{% if r.flag %}<span class="warn">rose beyond chance (p {{ ('%.3f' % r.p) if r.p >= 0.001 else '< 0.001' }})</span>{% elif r.flag is none %}<span class="muted">not counted yet</span>{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+  <p class="note">Documents in new fund registrations (forms N-1A and 485APOS) naming the phrase, seasonal pass {{ crowd.season }}. Thematic funds launch near peak attention and have trailed afterwards (S90): a rise is a caution, not a sell signal (D-M02-10).</p>
+  {% endif %}
   <h2 style="margin-top:16px">Money flow</h2>
   <p class="note">Confirmed spenders only (a quoted sentence ties their spending to this theme, D-M02-5). Hypothesis, not backtested · guidance is a {{ FORECAST_NOTE }} · no totals: each spender keeps its own period and shows its own guided increase.{% if mf.open_links %} {{ mf.open_links }} compan{{ 'y' if mf.open_links == 1 else 'ies' }} with link sentences waiting in <a href="/review">review</a>.{% endif %}</p>
   {% if mf.ranked or mf.unranked %}

@@ -209,6 +209,53 @@ def window_label(start: str, end: str, today: date | None = None) -> str:
 # --- Seasonal pass (M02 part 6) ----------------------------------------------------------
 
 
+def theme_crowding(engine: sqlite3.Connection, theme_id: int) -> dict | None:
+    """New fund registrations (N-1A + 485APOS documents) naming each active phrase of a
+    theme in the newest seasonal pass, latest vs prior window, with the crowding flag
+    (rose beyond chance, D-M02-10). None before any pass counted them."""
+    from engine.themes.seasonal import FUND, P_MAX, p_rise
+
+    run = engine.execute("SELECT * FROM seasonal_run ORDER BY season DESC LIMIT 1").fetchone()
+    if run is None:
+        return None
+    rows = []
+    for r in engine.execute("SELECT phrase FROM theme_phrase WHERE theme_id = ? AND "
+                            "status = 'active' ORDER BY phrase_id", (theme_id,)):  # fmt: skip
+        ph = r[0].strip('"')
+        got = {}
+        for side, (s, e) in (("latest", (run["latest_start"], run["latest_end"])),
+                             ("prior", (run["prior_start"], run["prior_end"]))):  # fmt: skip
+            c = engine.execute(
+                "SELECT documents FROM seasonal_count WHERE season = ? AND "
+                "phrase = ? AND family = ? AND start_date = ? AND end_date = ? "
+                "AND max_pages = 1",
+                (run["season"], ph, FUND, s, e),
+            ).fetchone()
+            got[side] = c[0] if c else None
+        if got["latest"] is None or got["prior"] is None:
+            rows.append({"phrase": ph, "latest": got["latest"], "prior": got["prior"],
+                         "flag": None})  # fmt: skip
+            continue
+        p = p_rise(got["latest"], got["prior"])
+        rows.append({"phrase": ph, **got, "p": p,
+                     "flag": got["latest"] > got["prior"] and p <= P_MAX})  # fmt: skip
+    if all(r["latest"] is None for r in rows):
+        return None
+    return {"season": run["season"], "latest": (run["latest_start"], run["latest_end"]),
+            "prior": (run["prior_start"], run["prior_end"]), "rows": rows,
+            "flagged": [r["phrase"] for r in rows if r["flag"]]}  # fmt: skip
+
+
+def crowded_themes(engine: sqlite3.Connection) -> set[str]:
+    """Keys of active themes with at least one crowding-flagged phrase (Themes list tag)."""
+    out = set()
+    for t in engine.execute("SELECT theme_id, key FROM theme WHERE status = 'active'").fetchall():
+        c = theme_crowding(engine, t[0])
+        if c and c["flagged"]:
+            out.add(t[1])
+    return out
+
+
 def mark_phrase(text: str, phrase: str):
     """Escaped text with every use of the phrase in <mark> (template filter)."""
     import re

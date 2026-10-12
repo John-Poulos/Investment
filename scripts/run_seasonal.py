@@ -20,7 +20,6 @@ data/refresh.lock. Writes logs/seasonal_<YYYYMMDD-HHMMSS>.txt.
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -28,25 +27,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from engine.calls.transcripts import symbol_cik  # noqa: E402
-from engine.refresh import load_config  # noqa: E402
 from engine.store.db import open_db  # noqa: E402
-from engine.themes import industries, mining, seasonal, tiers, twins  # noqa: E402
+from engine.themes import industries, season_pass, seasonal, twins  # noqa: E402
 
 CALIBRATION = ("pillar two", "cybersecurity incident", "tariffs", "one big beautiful bill",
                "risk factors")  # fmt: skip
 
 
 def core_and_promoted(engine) -> dict[str, str]:
-    """cik → ticker for the owner's watchlist and promoted names (D-M02-52 (1))."""
-    out: dict[str, str] = {}
-    for t in load_config(ROOT / "config" / "watchlist.toml").tickers:
-        if cik := symbol_cik(engine, t):
-            out.setdefault(cik, t)
-    for m in tiers.members(engine):
-        if m.tier == "promoted":
-            out.setdefault(m.cik, m.ticker)
-    return out
+    return season_pass.core_and_promoted(engine, ROOT / "config" / "watchlist.toml")
 
 
 def _client(engine, corpus):
@@ -54,69 +43,6 @@ def _client(engine, corpus):
     from engine.store.http import SqliteCache, SqliteFetchLog
 
     return SecClient(user_agent_from_env(), cache=SqliteCache(corpus), log=SqliteFetchLog(engine))
-
-
-def mine_lines(engine, corpus, s, comps, now) -> list[str]:
-    res = mining.mine(engine, corpus, comps, s.day, exclude=seasonal.known_phrases(engine),
-                      cap=200)  # fmt: skip
-    added = seasonal.store_mined(engine, s, res, now)
-    out = [f"\nmining (current {res.current[0]}..{res.current[1]} vs year ago "
-           f"{res.year_ago[0]}..{res.year_ago[1]}): {len(res.compared)} companies compared, "
-           f"{res.above_floor} phrases with ≥ 2 new adopters ({res.admin_dropped} more dropped "
-           f"as accounting, tax or legal wording), {len(res.candidates)} kept, "
-           f"{added} new this run; narrative sections only ({mining.MINER_VERSION})"]  # fmt: skip
-    for cik, kinds in sorted(res.compared.items()):
-        out.append(f"  {comps.get(cik, cik)}: compared {', '.join(kinds)}")
-    for cik, why in sorted(res.not_compared.items()):
-        out.append(f"  {comps.get(cik, cik)}: not compared — {why}")
-    out.append("  top 50 (adopters − droppers, adopters, phrase):")
-    for m in res.candidates[:50]:
-        out.append(f"    {m.score:>3} {len(m.adopters):>3}  {m.phrase}  "
-                   f"[{', '.join(comps.get(c, c) for c in m.adopters)}]")  # fmt: skip
-    return out
-
-
-def stage_lines(engine, s) -> list[str]:
-    counts = seasonal.stage_counts(engine, s.key)
-    out = [f"\nstages: {counts}"]
-    for r in engine.execute(
-        "SELECT * FROM seasonal_phrase WHERE season = ? AND stage IN ('passed', 'proposed', "
-        "'listed', 'failed') ORDER BY stage, p_value", (s.key,)
-    ):  # fmt: skip
-        sp = json.loads(r["spread"] or "{}")
-        groups = "; ".join(f"{g} {n}" for g, n in sp.get("groups", [])[:3])
-        crowd = json.loads(r["crowding"] or "{}")
-        theme = engine.execute("SELECT key FROM theme WHERE theme_id = ?",
-                               (r["theme_id"],)).fetchone() if r["theme_id"] else None  # fmt: skip
-        out.append(f"  [{r['stage']}] {r['phrase']}: {r['reason']}")
-        if r["stage"] != "failed":
-            top3 = f"{sp['top3']:.0%} of {sp.get('known')}" if sp.get("top3") is not None else "—"
-            out.append(
-                f"      spread: {groups} (top 3 {top3}) · finance {sp.get('finance')} · blank "
-                f"{sp.get('blank_check')} · no SIC {sp.get('unknown')} · fund filings "
-                f"{crowd.get('prior')} → {crowd.get('latest')}"
-                f"{' (crowding)' if crowd.get('flag') else ''} · theme "
-                f"{theme[0] if theme else 'new'} (overlap {r['overlap'] or 0:.0%})"
-            )
-    out.append("  screened out (first 30):")
-    for r in engine.execute("SELECT phrase, reason FROM seasonal_phrase WHERE season = ? AND "
-                            "stage = 'screened_out' ORDER BY rank LIMIT 30", (s.key,)):  # fmt: skip
-        out.append(f"    {r[0]}: {r[1]}")
-    return out
-
-
-def company_lines(engine, s) -> list[str]:
-    out = ["\ncompanies (this season):"]
-    for r in engine.execute(
-        "SELECT c.*, t.key FROM seasonal_company c JOIN theme t USING (theme_id) WHERE "
-        "c.season = ? ORDER BY c.tier, t.key, c.name", (s.key,)
-    ):  # fmt: skip
-        fl = json.loads(r["flags"] or "[]")
-        out.append(f"  [{r['tier']}] {r['key']}: {r['ticker'] or '-'} {r['name']} · "
-                   f"{r['section'] or '-'}{' · quantified' if r['quantified'] else ''} · first "
-                   f"{r['first_mention']} · {r['size_label']}"
-                   + (f" · FLAGS: {'; '.join(fl)}" if fl else ""))  # fmt: skip
-    return out
 
 
 def calibrate(client, engine, s, now) -> list[str]:
@@ -219,7 +145,7 @@ def _main() -> int:
                      f"{len(missing)} current documents without a twin in the index")  # fmt: skip
         if args.no_sec:
             seasonal.ensure_run(engine, s, now)
-            lines += mine_lines(engine, corpus, s, comps, now)
+            lines += season_pass.mine_lines(engine, corpus, s, comps, now)
         est = seasonal.estimate(engine, s.key)
         lines.append(f"estimate: screen {est['screen']} requests, full tests ≤ {est['test_max']}, "
                      f"theme phrases ≤ {10 * len(seasonal.known_phrases(engine))}, candidates "
@@ -237,47 +163,7 @@ def _main() -> int:
         return _write(lines)
 
     budget = seasonal.Budget(args.minutes * 60)
-    seasonal.ensure_run(engine, s, now)
-    try:
-        qs = ensure_quarters(
-            client, engine, quarters_between(date.fromisoformat(s.prior[0]), s.day), now
-        )
-        lines.append(f"form indexes: {sum(q.status == 'fetched' for q in qs)} fetched, "
-                     f"{sum(q.status == 'failed' for q in qs)} failed; p0 = "
-                     f"{seasonal.p0(engine, s):.3f}")  # fmt: skip
-        tw = twins.fetch_twins(client, engine, corpus, comps, s.day, now)
-        lines += tw.lines()
-        if tw.throttled:
-            raise seasonal.Throttled(tw.throttled)
-        lines += mine_lines(engine, corpus, s, comps, now)
-        seasonal.set_status(engine, s.key, "testing", now)
-        n = seasonal.screen(client, engine, s, now, budget, progress=print)
-        lines.append(f"\nscreened {n} phrases this run")
-        n = seasonal.test(client, engine, corpus, s, now, budget, progress=print)
-        lines.append(f"fully tested {n} phrases this run")
-        if not budget.over() and (closed := seasonal.close_untested(engine, s, now)):
-            lines.append(f"{closed} screened phrases beyond the {seasonal.TEST_CAP} full tests "
-                         "closed for this season")  # fmt: skip
-        lines.append(f"proposals: {seasonal.propose_pass(engine, s, now, comps)}")
-        from engine.themes.candidates import run_candidates
-
-        rep = run_candidates(client, engine, corpus, s, set(comps), now, budget.over)
-        lines += rep.lines()
-        left = seasonal.stage_counts(engine, s.key)
-        if budget.over():
-            lines.append("\nSTOPPED at the time budget; run again to continue.")
-        elif left.get("candidate") or left.get("screened"):
-            lines.append("\nNot finished (candidates left); run again to continue.")
-        else:
-            seasonal.set_status(engine, s.key, "done", now, {"stages": left})
-            lines.append(f"\nseason {s.key} done.")
-    except seasonal.Throttled as e:
-        lines.append(f"\nSTOPPED by SEC throttle: {e}; run again later to continue.")
-    lines += stage_lines(engine, s)
-    lines += company_lines(engine, s)
-    sent = engine.execute("SELECT count(*) FROM fetch_log WHERE at >= ? AND from_cache = 0",
-                          (now.isoformat(timespec="seconds"),)).fetchone()[0]  # fmt: skip
-    lines.append(f"\nSEC requests sent this run: {sent:,} in {(datetime.now(UTC) - now).seconds} s")
+    lines += season_pass.run_pass(client, engine, corpus, s, comps, now, budget, print)
     return _write(lines)
 
 

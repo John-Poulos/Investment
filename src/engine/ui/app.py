@@ -359,6 +359,7 @@ def create_app(settings: UiSettings) -> FastAPI:
             "overflow": proposals.overflow(engine),
             "through": themes.data_through(engine),
             "seasonal": themes.seasonal_view(engine),
+            "crowded": themes.crowded_themes(engine),
         }
         return templates.TemplateResponse(request, "themes.html", ctx)
 
@@ -372,7 +373,8 @@ def create_app(settings: UiSettings) -> FastAPI:
             raise HTTPException(404, f"Unknown theme {key}.")
         row = engine.execute("SELECT theme_id FROM theme WHERE key = ?", (key,)).fetchone()
         mf = mf_views.theme_view(engine, row["theme_id"], key, datetime.now(UTC).date())
-        ctx = frame(engine) | {"viewer": viewer, "d": d, "mf": mf}
+        ctx = frame(engine) | {"viewer": viewer, "d": d, "mf": mf,
+                               "crowd": themes.theme_crowding(engine, row["theme_id"])}  # fmt: skip
         return templates.TemplateResponse(request, "theme.html", ctx)
 
     @app.get("/themes/{key}/filers", response_class=HTMLResponse)
