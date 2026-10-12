@@ -1,6 +1,6 @@
 # M02 — Build log (running)
 
-Updated: 2026-10-10 · Companion to M02_THEMES.md (decisions live there; this file holds what each build conversation needs) · Cross-module lessons: LESSONS.md
+Updated: 2026-10-12 · Companion to M02_THEMES.md (decisions live there; this file holds what each build conversation needs) · Cross-module lessons: LESSONS.md
 
 ## How to use
 - A build conversation reads M02_THEMES.md, then its part below, then LESSONS.md.
@@ -30,7 +30,7 @@ One section per proposed amendment, discussed with the owner in order. Outcome l
 | 4 Call guidance | Alpha Vantage adapter (probe done 2026-10-09: works, fiscal labels); Downloads PDF pickup + m02_ir_download (lean, D-M02-21); call parser + direction rows; release vs call; grade B → A on match; clause tag + "definition changed"; labels | D-M02-6, -20, -21, -22 | 2 | `run_calls.py --import-probe --fetch 6` | built (branch `m02-call-guidance`, live checks 1–4) |
 | 5 Suppliers L0–L3 | Reverse lookup with alias table; L1 passages; Exhibit 10 ingest for Item 1.01; Gemini 5/5b; labelled precision set (~30); m02_link/m02_input | D-M02-7, -9, -15, -35, -36 | 1, 2 | NVDA reverse lookup; Gemini labels on the labelled set | merged (PR #21, 2026-10-10) |
 | 5b Financing links | Equity purchases, equity granted to customers, revenue backstops, customer financing/guarantees, JVs (K1–K4, K6): text finders over stored filings, 8-K 3.02/1.01 exhibits, 13F + 13D/13G readers, XBRL credit quality (financing receivables, allowances); loop flag; Money flow tab section; digest items; review-guide examples | D-M02-41…45 | 5 | one combined check (13F/13D for NVIDIA, re-read, XBRL probe) | built 2026-10-10 (D-M02-46); live checks 1–3 → D-M02-47, -48; PR opened |
-| 6 Seasonal pass | Corpus phrase mining; phrase tests (hits, ≥ 5 companies, rise vs a year earlier, industry spread, samples); Gemini 4 naming; candidate proposals (section + quantified rule); crowding flag; first-mention flags (float size); priority-order flush; lock fixes | D-M02-8, -10, -14, -15, -49…51 | 1, 2, 5 | one seasonal run | — |
+| 6 Seasonal pass | Corpus phrase mining; phrase tests (hits, ≥ 5 companies, rise vs a year earlier, industry spread, samples); Gemini 4 naming; candidate proposals (section + quantified rule); crowding flag; first-mention flags (float size); priority-order flush; lock fixes | D-M02-8, -10, -14, -15, -49…53 | 1, 2, 5 | `run_seasonal.py --calibrate`, then `run_seasonal.py` | built 2026-10-12 (branch `m02-part6`, D-M02-52, -53); live check next |
 | 7 News & feeds | IR RSS; Finnhub + Massive; 11 trade-press feeds; arXiv, USAspending, Federal Register, Congress.gov; dedupe; weekly event digest content | D-M02-13, -15 | 2 | one weekly digest | — |
 
 Effort: High only if a part raises a new design question; otherwise Medium. Each part: branch → fixture tests → owner live check → PR → merge (DESIGN.md workflow).
@@ -153,6 +153,15 @@ Decisions in M02_THEMES.md; this is what the build needs.
 - ~~Open at build start~~ → settled 2026-10-11 in the part-5b conversation: phrase test D-M02-49 (≥ 5 operating companies, a rise beyond chance vs a year earlier, largest related industry group ≥ 50% or top two ≥ 75%); first-mention size D-M02-50 (10-K public float via frames; nano < $50M flags alone, micro < $250M only with another flag); schedule and review cap D-M02-51 (mine in the refresh, then ask; first build command + reminder; priority-order flush; ≤ 10 phrase/theme proposals per pass; lock fixes). Research and fact-check notes: SOURCES S106–S121.
 - Reuse: `themes/breadth.py` (EFTS windows, lower bounds), `themes/proposals.py` (propose, weekly cap), `search/passages.py` (passages + boilerplate flag, D-SRCH-20), `llm/` request/verify pattern (`supply_labels.py` is the newest example), `fulltext_hit.sics` for industry spread.
 - Lessons from parts 3–5: mock up screens with real-shaped data before building; each live log found new wording — plan two or three live rounds; regexes go in with the Edit tool, never heredocs (escapes break); a passage store needs a re-read path (`--rescan`-style) from the first version; keep an answer key out of re-read deletions.
+
+### Part 6 — Seasonal pass (built 2026-10-12, D-M02-52, D-M02-53)
+- Probe (`scripts/probe_seasonal.py`, logs/probe_seasonal_20261011-220249.txt): the corpus held 220 documents for the last 12 months vs 32 for the 12 before, so mining compares each company with its year-ago twins (D-M02-52 (1)); spread cut-offs to be re-proposed after a calibration round (D-M02-52 (3)); FF12 ranges verified; float frames cover 5,305 of 6,577 10-K filers; EFTS ~2 requests/s.
+- Code: `engine/store/lock.py`; `themes/` industries, mining (mine-2), twins, seasonal, candidates, flags, views (`seasonal_view`, `mark_phrase`); `llm/theme_names.py` + `prompts/theme_names_1.md`; `breadth.count_detail` (any forms, hit SICs); `SecClient.paused_for()`; migration engine 0024; `scripts/run_seasonal.py`; refresh report reminder line; `proposals.priority()` flush; UI Themes "Seasonal pass" section and review layouts (mock-up approved); tests `test_seasonal.py` (15), `test_ui_seasonal.py` (2), `test_lock.py` (6), plumbing flush order.
+- **Live check (owner, one command each, ~15–25 min in total at ~2 requests/s):**
+  1. `uv run python scripts/run_seasonal.py --calibrate` → spread of "pillar two", "cybersecurity incident", "tariffs", "one big beautiful bill", "risk factors" vs the 36 seed phrases (10-Q family, 2026 to 19 Aug; ≤ 10 pages each, ~400 requests). Its counts are reused by step 2.
+  2. `uv run python scripts/run_seasonal.py` → season 2026-08: twins (~300 requests), mining, screen, tests, proposals, candidates. Check: twins per company; companies compared and their kinds; whether the top mined phrases look like themes or wording; screen reasons; the passed phrases' samples and theme fit; candidates' sections and flags.
+  Expect new wording → two or three rounds (`--no-sec` re-mines locally; every EFTS count is stored, so re-runs are cheap).
+- Open: Yes/No box at logon (after the live rounds); spread rule to propose from the calibration log; crowding per active theme on the theme page (counts are in `seasonal_count` for proposals only).
 
 ### Phrase mining and tests (D-M02-8)
 - Corpus n-gram counts per year over stored passages (`search/passages.py` output); flag rising 2–3-grams; drop stop-phrases and boilerplate (forward-looking-statement text, D-SRCH-20).

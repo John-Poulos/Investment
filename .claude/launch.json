@@ -22,8 +22,8 @@
         "--no-browser"
       ],
       "env": {
-        "ENGINE_DATA_DIR": "C:/Users/jpoul/AppData/Local/Temp/claude/C--dev-Investment/ab8939c8-4c0f-4f8f-9153-da93a24d6f4f/scratchpad/fin_data",
-        "ENGINE_WATCHLIST": "C:/Users/jpoul/AppData/Local/Temp/claude/C--dev-Investment/ab8939c8-4c0f-4f8f-9153-da93a24d6f4f/scratchpad/fin_data/watch.toml",
+        "ENGINE_DATA_DIR": "C:/Users/jpoul/AppData/Local/Temp/claude/C--dev-Investment/1a9f49f7-2445-4079-bda5-81af9614d2de/scratchpad/ui_data",
+        "ENGINE_WATCHLIST": "C:/Users/jpoul/AppData/Local/Temp/claude/C--dev-Investment/1a9f49f7-2445-4079-bda5-81af9614d2de/scratchpad/ui_data/watch.toml",
         "ENGINE_UI_PORT": "8799"
       },
       "port": 8799

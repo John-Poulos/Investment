@@ -30,7 +30,70 @@
     <tr><th>First seen</th><th>Kind</th><th>Proposal</th></tr>
     {% for o in overflow %}<tr><td>{{ o.first_seen_at[:10] }}</td><td class="muted">{{ o.label }}</td><td>{{ o.reason }}</td></tr>{% endfor %}
   </table>
-  <p class="note">At most 10 new M02 review items a week (D-M02-10); these enter the queue oldest first as room frees up.</p>
+  <p class="note">At most 10 new M02 review items a week (D-M02-10); these enter the queue as room frees up, strongest first: evidence grade, then money flow, then growth in share of filers (D-M02-51).</p>
+  {% endif %}
+  {% if seasonal %}{% set sv = seasonal %}{% set r = sv.run %}
+  <h2 style="margin-top:16px">Seasonal pass {{ r.season }} <span class="muted" style="font-weight:400">· due {{ r.season_date }} · {{ r.status }}{% if r.finished_at %} {{ r.finished_at[:10] }}{% endif %} · {{ r.family }} filers, {{ r.latest_start }} to {{ r.latest_end }} vs {{ r.prior_start }} to {{ r.prior_end }}</span></h2>
+  {% set st = sv.stages %}
+  <div class="cards">
+    <div class="card"><div class="muted">Mined or suggested</div><div class="big">{{ st.values() | sum }}</div><div class="muted">watchlist vs year-ago twins</div></div>
+    <div class="card"><div class="muted">Passed the screen (page 1)</div><div class="big">{{ (st.get('screened', 0) + st.get('passed', 0) + st.get('failed', 0) + st.get('proposed', 0) + st.get('listed', 0)) }}</div><div class="muted">{{ st.get('screened_out', 0) }} screened out{% if st.get('candidate') %} · {{ st.candidate }} not screened yet{% endif %}</div></div>
+    <div class="card"><div class="muted">Passed the full test</div><div class="big">{{ st.get('passed', 0) + st.get('proposed', 0) + st.get('listed', 0) }}</div><div class="muted">{{ st.get('failed', 0) }} failed{% if st.get('screened') %} · {{ st.screened }} waiting{% endif %}</div></div>
+    <div class="card"><div class="muted">Queued for review</div><div class="big">{{ st.get('proposed', 0) }}</div><div class="muted">{{ st.get('listed', 0) }} listed here only</div></div>
+  </div>
+  {% if r.status != 'done' %}<p class="warnbox">Not finished: run <code>uv run python scripts/run_seasonal.py</code> again to continue (every count is stored).</p>{% endif %}
+  {% if sv.passed %}
+  <h3 class="sub">Phrases that passed</h3>
+  <table class="data">
+    <tr><th>Phrase</th><th>Status</th><th>For</th><th class="num">Companies</th><th class="num">Share</th><th class="num">p</th><th>Industries (largest first)</th><th class="num">Fund filings</th><th>Adopters</th></tr>
+    {% for p in sv.passed %}{% set sp = p.spread or {} %}{% set cr = p.crowding or {} %}
+    <tr>
+      <td><b>{{ p.phrase }}</b>{% if p.source == 'llm' %} <span class="tag" title="Gemini variant, re-tested">Gemini</span>{% endif %}{% if p.gemini and p.gemini.name %}<br><span class="muted">Gemini: “{{ p.gemini.name }}”</span>{% endif %}</td>
+      <td>{% if p.stage == 'listed' %}<span class="muted">listed</span>{% elif p.item_id %}<a href="/review/{{ p.item_id }}">{{ p.resolution or 'in review' }}</a>{% else %}<span class="muted">waiting (weekly cap)</span>{% endif %}</td>
+      {% if p.stage == 'listed' %}<td colspan="7" class="muted">{{ p.reason }} · {{ p.prior_companies }} → {{ '≥ ' if p.lower_bound }}{{ p.latest_companies }} companies</td>
+      {% else %}
+      <td>{% if p.theme_name %}{{ p.theme_name }} <span class="muted">({{ '%.0f' % (100 * (p.overlap or 0)) }}% of its passages)</span>{% else %}<span class="tag">new theme</span> <span class="muted">({{ '%.0f' % (100 * (p.overlap or 0)) }}% overlap at most)</span>{% endif %}</td>
+      <td class="num">{{ p.prior_companies }} → {{ '≥ ' if p.lower_bound }}{{ p.latest_companies }}</td>
+      <td class="num">{% if p.growth_pts is not none %}{{ '%+.2f' % p.growth_pts }} pts{% else %}—{% endif %}</td>
+      <td class="num">{{ '%.3f' % p.p_value if p.p_value is not none else '—' }}</td>
+      <td>{% for g, n in (sp.groups or [])[:3] %}{{ g.split(' (')[0] }} {{ n }}{{ ' · ' if not loop.last }}{% endfor %} <span class="muted">· finance {{ sp.finance or 0 }}{% if sp.blank_check %} · +{{ sp.blank_check }} blank check{% endif %}{% if sp.unknown %} · {{ sp.unknown }} no SIC{% endif %}</span>{% if sp.generic_d49 %} <span class="tag" title="D-M02-49 working cut-offs: shown, not enforced (D-M02-52)">wide by D-M02-49</span>{% endif %}</td>
+      <td class="num">{% if cr.latest is not none %}{{ cr.prior }} → {{ cr.latest }}{% if cr.flag %} <span class="warn">crowding</span>{% endif %}{% else %}—{% endif %}</td>
+      <td>{{ p.adopters | join(', ') }}</td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="note">Companies = distinct operating companies (blank checks apart) in the window, prior → latest; "≥" when a phrase had more than 1,000 hits. p = chance of a rise this large if usage were flat, weighted by each window's share of filers; ≤ 0.10 passes (a screen, not proof — the samples and your review decide). Industry spread is shown, not enforced, until the calibration round sets a rule (D-M02-52); finance filers (funds, REITs, banks, crypto) are listed apart. Fund filings = documents in new fund registrations (N-1A, 485APOS); "crowding" when they rose beyond chance (S90). Gemini can name a phrase and suggest wordings (cost first): <code>uv run python scripts/run_seasonal.py --gemini-name all</code>.</p>
+  {% endif %}
+  {% if sv.stopped %}
+  <details><summary>Screened out or failed ({{ sv.stopped | length }}) — why each one stopped</summary>
+  <table class="data">
+    <tr><th>Phrase</th><th>Stage</th><th>Reason</th></tr>
+    {% for p in sv.stopped %}<tr><td>{{ p.phrase }}</td><td class="muted">{{ p.stage | replace('_', ' ') }}</td><td>{{ p.reason }}</td></tr>{% endfor %}
+  </table>
+  <p class="note">Phrases that stop are re-tested next season (D-M02-49).</p>
+  </details>
+  {% endif %}
+  {% if sv.companies %}
+  <h3 class="sub">Companies read this pass</h3>
+  <table class="data">
+    <tr><th>Company</th><th>Theme</th><th>Best mention</th><th>First mention</th><th>Size</th><th>Flags</th><th>Status</th></tr>
+    {% for c in sv.companies %}
+    <tr>
+      <td>{{ c.name or c.cik }} {% if c.ticker %}<span class="muted">{{ c.ticker }}</span>{% endif %}</td>
+      <td>{{ c.theme_name }}</td>
+      <td>{% if c.accession %}<a href="/doc/{{ c.accession }}?file={{ c.filename }}{% if c.quote_start is not none %}&start={{ c.quote_start }}&end={{ c.quote_end }}#hl{% endif %}">{{ c.section or 'whole document' }}</a>{% else %}—{% endif %}{% if c.quantified %} · quantified{% endif %}</td>
+      <td>{{ c.first_mention or '—' }}{% if c.first_mention and c.first_mention >= r.latest_start %} <span class="tag">first this season</span>{% endif %}</td>
+      <td>{{ c.size_label or '—' }}{% if c.float_as_of %} <span class="muted">({{ c.float_as_of }})</span>{% endif %}</td>
+      <td>{% for f in c.flags %}<span class="warn">{{ f }}</span> {% else %}<span class="muted">—</span>{% endfor %}</td>
+      <td>{% if c.tier == 'candidate' %}{% if c.item_id %}<a href="/review/{{ c.item_id }}">candidate · {{ c.resolution or 'in review' }}</a>{% else %}candidate · waiting (weekly cap){% endif %}{% elif c.tier == 'watch' %}<span class="muted">watch tier (mention only)</span>{% else %}<span class="muted">{{ c.detail or 'not read' }}</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="note">Candidate = a mention in the business section or MD&amp;A, or with a number, $ or money word within ~10 words, outside boilerplate (D-M02-14); otherwise the watch tier. Flags concern first mentions: renamed (SEC's former-names list), share offering (S-1/S-3/F-1/F-3/424B within 90 days), reverse merger or shell (8-K Items 2.01 + 5.01, or 5.06), nano float &lt; $50M alone, micro &lt; $250M only beside another flag (D-M02-50). Size is the 10-K cover's public float, below market cap; "size unknown" is never read as small.</p>
+  {% endif %}
+  {% else %}
+  <p class="note" style="margin-top:16px">No seasonal pass yet. Run <code>uv run python scripts/run_seasonal.py --dry-run</code> for the plan, then without it (D-M02-51).</p>
   {% endif %}
 </main>
 {% endblock %}

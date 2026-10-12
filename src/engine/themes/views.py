@@ -204,3 +204,84 @@ def window_label(start: str, end: str, today: date | None = None) -> str:
     if start.endswith("-01-01") and end.endswith("-12-31") and start[:4] == end[:4]:
         return start[:4]
     return f"{start[:4]} to {end[5:]}"
+
+
+# --- Seasonal pass (M02 part 6) ----------------------------------------------------------
+
+
+def mark_phrase(text: str, phrase: str):
+    """Escaped text with every use of the phrase in <mark> (template filter)."""
+    import re
+
+    from markupsafe import Markup, escape
+
+    words = re.findall(r"[A-Za-z0-9]+", phrase or "")
+    safe = str(escape(text or ""))
+    if not words:
+        return Markup(safe)
+    pat = re.compile(r"\b" + r"(?:\s|-|&#[0-9]+;)+".join(map(re.escape, words)) + r"\b", re.I)
+    return Markup(pat.sub(lambda m: f"<mark>{m.group(0)}</mark>", safe))
+
+
+@dataclass
+class SeasonalView:
+    run: dict
+    stages: dict[str, int]
+    passed: list[dict]  # proposed, listed and passed phrases, strongest first
+    stopped: list[dict]  # screened out or failed, with the reason
+    companies: list[dict]
+
+
+def seasonal_view(engine: sqlite3.Connection) -> SeasonalView | None:
+    """The newest seasonal pass: stage counts, passed phrases (with their review item and
+    theme), the phrases that stopped and why, and the companies read (D-M02-51)."""
+    import json
+
+    run = engine.execute("SELECT * FROM seasonal_run ORDER BY season DESC LIMIT 1").fetchone()
+    if run is None:
+        return None
+    key = run["season"]
+    stages = dict(engine.execute("SELECT stage, count(*) FROM seasonal_phrase WHERE season = ? "
+                                 "GROUP BY stage", (key,)).fetchall())  # fmt: skip
+    items = {}
+    for r in engine.execute("SELECT p.payload, p.item_id, q.resolution FROM m02_proposal p "
+                            "LEFT JOIN review_queue q ON q.item_id = p.item_id WHERE p.kind IN "
+                            "('m02_phrase', 'm02_theme')"):  # fmt: skip
+        pl = json.loads(r["payload"] or "{}")
+        if pl.get("season") == key:
+            items[pl.get("phrase")] = (r["item_id"], r["resolution"])
+    themes = {r[0]: r[1] for r in engine.execute("SELECT theme_id, name FROM theme")}
+    tickers = {r[0]: r[1] for r in engine.execute(
+        "SELECT cik, ticker FROM ticker WHERE valid_to IS NULL ORDER BY ticker DESC")}  # fmt: skip
+
+    def row(r: sqlite3.Row) -> dict:
+        d = dict(r)
+        for col in ("spread", "crowding", "samples", "gemini", "adopter_ciks"):
+            d[col] = json.loads(r[col]) if r[col] else None
+        d["adopters"] = [tickers.get(c, c) for c in d["adopter_ciks"] or []]
+        d["theme_name"] = themes.get(r["theme_id"])
+        d["item_id"], d["resolution"] = items.get(r["phrase"], (None, None))
+        return d
+
+    passed = [row(r) for r in engine.execute(
+        "SELECT * FROM seasonal_phrase WHERE season = ? AND stage IN ('proposed', 'passed', "
+        "'listed') ORDER BY stage = 'listed', growth_pts DESC, latest_companies DESC",
+        (key,))]  # fmt: skip
+    stopped = [dict(r) for r in engine.execute(
+        "SELECT phrase, stage, reason FROM seasonal_phrase WHERE season = ? AND stage IN "
+        "('screened_out', 'failed') ORDER BY stage, rank, phrase", (key,))]  # fmt: skip
+    companies = []
+    for r in engine.execute(
+        "SELECT c.*, t.name AS theme_name, t.key AS theme_key FROM seasonal_company c "
+        "JOIN theme t USING (theme_id) WHERE c.season = ? ORDER BY c.tier, t.name, c.name",
+        (key,),
+    ):
+        d = dict(r)
+        d["flags"] = json.loads(r["flags"] or "[]")
+        d["phrases"] = json.loads(r["phrases"] or "[]")
+        prop = engine.execute("SELECT p.item_id, q.resolution FROM m02_proposal p LEFT JOIN "
+                              "review_queue q ON q.item_id = p.item_id WHERE p.prop_key = ?",
+                              (f"m02_candidate:{r['cik']}",)).fetchone()  # fmt: skip
+        d["item_id"], d["resolution"] = (prop[0], prop[1]) if prop else (None, None)
+        companies.append(d)
+    return SeasonalView(dict(run), stages, passed, stopped, companies)
