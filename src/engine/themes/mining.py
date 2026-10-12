@@ -68,6 +68,7 @@ regulations tariff tariffs emergency powers grant grants internal-use impairment
 unrecognized allowance allowances lease leases goodwill amortization depreciation vesting
 dividend dividends auditor audit pro forma consideration remeasurement hedge hedging
 derivative derivatives fair receivable receivables payable payables accrued accruals
+regulatory department departments agency agencies
 """
 ADMIN = frozenset(_ADMIN_WORDS.split())
 

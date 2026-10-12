@@ -116,10 +116,12 @@ def _norm(name: str) -> str:
 def submission_flags(data: dict[str, Any], cik: str, first_mention: date) -> list[str]:
     """Rename, offering and reverse-merger/shell signs around the first mention."""
     flags = []
-    names = [str(f.get("name") or "") for f in data.get("formerNames") or []]
-    for i, f in enumerate(data.get("formerNames") or []):
-        # the name that replaced it: the next former name, else the current one; a change
-        # of case, punctuation or legal suffix is not a rename (live check 1: QuickLogic)
+    # oldest first by end date (SEC lists them newest first), so the name that replaced each
+    # one is the next in time, else the current name; a change of case, punctuation or
+    # legal suffix is not a rename (live checks 1–2: QuickLogic, SharonAI)
+    former = sorted(data.get("formerNames") or [], key=lambda f: str(f.get("to") or ""))
+    names = [str(f.get("name") or "") for f in former]
+    for i, f in enumerate(former):
         after = names[i + 1] if i + 1 < len(names) else str(data.get("name") or "")
         if _near(f.get("to"), first_mention, RENAME_DAYS) and _norm(names[i]) != _norm(after):
             flags.append(f"renamed {str(f.get('to'))[:10]} (was {f.get('name')})")

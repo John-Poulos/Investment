@@ -52,6 +52,7 @@ TEST_CAP = 30
 PROPOSE_CAP = 10
 OVERLAP_MIN = 0.30
 COVER_SHARE = 0.90
+SAME_FILERS = 0.80  # Jaccard of the latest window's fetched filers: one phrase per group
 TIME_BUDGET_S = 45 * 60
 
 
@@ -311,6 +312,10 @@ def screen(
             stage, why = "screened_out", f"fewer than {MIN_COMPANIES} companies ({_fmt(a)})"
         elif p > P_MAX:
             stage, why = "screened_out", f"no rise beyond chance ({n0} → {n1} {unit}, p {p:.3f})"
+        elif (sp := industries.spread(a.sics.items())).generic:
+            # page 1's filers are a sample; a spread like all filers there saves a test slot
+            stage, why = ("screened_out", f"spread like all filers on page 1 (top 3 groups "
+                          f"{sp.top3_share:.0%} of {sp.known})")  # fmt: skip
         else:
             stage, why = "screened", f"screen: {n0} → {n1} {unit}, p {p:.3f}"
         _update(engine, s, ph, now, stage=stage, reason=why, p_value=p, **cols)
@@ -378,6 +383,20 @@ def test(
         if progress:
             progress(f"  test {ph!r}: {why}")
     return done
+
+
+def close_untested(engine: sqlite3.Connection, s: Season, now: datetime) -> int:
+    """Once every candidate is screened and the season's full tests are used, the screened
+    phrases left are closed for this season (re-mined and re-tested next season), so the
+    pass can finish (live check 2: 60 waited forever)."""
+    c = stage_counts(engine, s.key)
+    tested = sum(c.get(k, 0) for k in ("passed", "failed", "proposed", "listed"))
+    if c.get("candidate") or tested < TEST_CAP:
+        return 0
+    return engine.execute(
+        "UPDATE seasonal_phrase SET stage = 'screened_out', reason = reason || '; not fully "
+        f"tested: beyond this pass''s {TEST_CAP} tests', updated_at = ? "
+        "WHERE season = ? AND stage = 'screened'", (iso(now), s.key)).rowcount  # fmt: skip
 
 
 def _blank(c: WindowCount) -> int:
@@ -502,6 +521,19 @@ def _covered(rows: list[sqlite3.Row]) -> dict[str, str]:
     return out
 
 
+def _filer_set(engine: sqlite3.Connection, s: Season, phrase: str) -> set[str]:
+    r = engine.execute("SELECT sics FROM seasonal_count WHERE season = ? AND phrase = ? AND "
+                       "family = ? AND start_date = ? AND end_date = ? AND max_pages = ?",
+                       (s.key, phrase, s.family, *s.latest, TEST_PAGES)).fetchone()  # fmt: skip
+    return set(json.loads(r[0] or "{}")) if r else set()
+
+
+def _jaccard(a: set[str], b: set[str]) -> float:
+    if len(a) < MIN_COMPANIES or len(b) < MIN_COMPANIES:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
 def propose_pass(engine: sqlite3.Connection, s: Season, now: datetime,
                  tickers: dict[str, str] | None = None) -> dict[str, int]:  # fmt: skip
     """Queue ≤ 10 passed phrases (priority order), list the rest (D-M02-51)."""
@@ -517,12 +549,24 @@ def propose_pass(engine: sqlite3.Connection, s: Season, now: datetime,
     ranked = sorted(rows, key=lambda r: (priority("m02_phrase", payloads[r["phrase"]]),
                                          -(r["latest_companies"] or 0), r["phrase"]))  # fmt: skip
     out = {"proposed": 0, "listed": 0, "suppressed": 0}
+    kept: list[tuple[str, set[str]]] = []  # phrases going forward, with their filer sets
     for r in ranked:
         ph = r["phrase"]
         if ph in covered:
             _update(engine, s, ph, now, stage="listed", reason=f'covered by "{covered[ph]}"')
             out["listed"] += 1
             continue
+        filers_of = _filer_set(engine, s, ph)
+        twin = next(((k, j) for k, ks in kept if (j := _jaccard(filers_of, ks)) >= SAME_FILERS),
+                    None)  # fmt: skip
+        if twin is not None:
+            # pieces of one sentence ("references to past" / "events are provided" /
+            # "provided by way", live check 2) share their filers: one proposal is enough
+            _update(engine, s, ph, now, stage="listed",
+                    reason=f'same filers as "{twin[0]}" ({twin[1]:.0%} overlap)')  # fmt: skip
+            out["listed"] += 1
+            continue
+        kept.append((ph, filers_of))
         if already + out["proposed"] >= PROPOSE_CAP:
             _update(engine, s, ph, now, stage="listed",
                     reason=f"over this pass's {PROPOSE_CAP} proposals")  # fmt: skip

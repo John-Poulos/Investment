@@ -274,7 +274,7 @@ def test_screen_test_and_propose_one_pass(make_client, dbs):
 
 def test_pass_proposes_at_most_ten_and_longer_phrase_covers(make_client, dbs):
     engine, corpus = dbs
-    spec = {f"theme words {chr(97 + i)}": (ciks(6 + i), []) for i in range(11)}
+    spec = {f"theme words {chr(97 + i)}": (ciks(6 + i, 1000 * (i + 1)), []) for i in range(11)}
     spec["bandwidth memory"] = (ciks(10, 200), [])
     spec["high bandwidth memory"] = (ciks(10, 200), [])
     client = make_client(Efts(_answers(spec)))
@@ -471,6 +471,50 @@ def test_candidate_sections_and_cosmetic_renames():
     data = {"name": "Riot Platforms, Inc.", "formerNames": [
         {"name": "Riot Blockchain, Inc.", "to": "2026-03-01"}]}  # fmt: skip
     assert flags.submission_flags(data, "0000000001", date(2026, 3, 10))[0].startswith("renamed")
+
+
+def test_renames_read_in_date_order():
+    """SEC lists former names newest first; each is compared with its successor in time."""
+    data = {"name": "SharonAI Holdings Inc.", "formerNames": [
+        {"name": "SharonAI Holdings, Inc.", "to": "2026-02-02"},
+        {"name": "Roth CH Holdings, Inc.", "to": "2025-11-14"}]}  # fmt: skip
+    got = flags.submission_flags(data, "0000000001", date(2026, 1, 1))
+    assert got == ["renamed 2025-11-14 (was Roth CH Holdings, Inc.)"]
+
+
+def test_sentence_pieces_with_the_same_filers_make_one_proposal(make_client, dbs):
+    engine, corpus = dbs
+    same = ciks(12, 400)
+    spec = {"references to past": (same, []), "events are provided": (same, []),
+            "agentic ai": (ciks(9, 600), [])}  # fmt: skip
+    client = make_client(Efts(_answers(spec)))
+    seasonal.ensure_run(engine, S, NOW)
+    seasonal.store_mined(engine, S, _mined(list(spec)), NOW)
+    budget = seasonal.Budget()
+    seasonal.screen(client, engine, S, NOW, budget)
+    seasonal.test(client, engine, corpus, S, NOW, budget)
+    assert seasonal.propose_pass(engine, S, NOW)["proposed"] == 2
+    why = dict(engine.execute("SELECT phrase, reason FROM seasonal_phrase WHERE stage = 'listed'"))
+    assert why == {"references to past": 'same filers as "events are provided" (100% overlap)'}
+
+
+def test_screen_applies_the_spread_rule_and_untested_phrases_close(make_client, dbs, monkeypatch):
+    engine, corpus = dbs
+    wide = [hit(c, i, sic=sic) for i, (c, sic) in enumerate(zip(ciks(30), [
+        "3674", "2834", "3711", "5411", "4911", "1311"] * 5, strict=True))]  # fmt: skip
+    answers = _answers({"narrow words": (ciks(8), []), "other words": (ciks(7, 50), [])})
+    answers[("broad words", Q, S.latest[0], 0)] = efts(30, wide)
+    client = make_client(Efts(answers))
+    seasonal.ensure_run(engine, S, NOW)
+    seasonal.store_mined(engine, S, _mined(["broad words", "narrow words", "other words"]), NOW)
+    seasonal.screen(client, engine, S, NOW, seasonal.Budget())
+    why = engine.execute("SELECT reason FROM seasonal_phrase WHERE phrase = 'broad words'"
+                         ).fetchone()[0]  # fmt: skip
+    assert why.startswith("spread like all filers on page 1 (top 3 groups 50% of 30")
+    monkeypatch.setattr(seasonal, "TEST_CAP", 1)
+    seasonal.test(client, engine, corpus, S, NOW, seasonal.Budget())
+    assert seasonal.close_untested(engine, S, NOW) == 1
+    assert "screened" not in seasonal.stage_counts(engine, S.key)
 
 
 def test_old_mentions_get_no_first_mention_flags(make_client, dbs):

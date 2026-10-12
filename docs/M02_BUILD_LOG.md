@@ -162,6 +162,7 @@ Decisions in M02_THEMES.md; this is what the build needs.
   2. `uv run python scripts/run_seasonal.py` → season 2026-08: twins (~300 requests), mining, screen, tests, proposals, candidates. Check: twins per company; companies compared and their kinds; whether the top mined phrases look like themes or wording; screen reasons; the passed phrases' samples and theme fit; candidates' sections and flags.
   Expect new wording → two or three rounds (`--no-sec` re-mines locally; every EFTS count is stored, so re-runs are cheap).
 - Live check 1 (2026-10-12, logs/seasonal_20261011-232712.txt and -233213.txt): calibration settled the spread rule; the pass's proposals were all new accounting/tax/tariff wording and 9 candidates rested on 10-Q financial statements → fixes D-M02-54 (narrative-only mining, accounting-word filter, exact substantive sections, flags on first mentions only, cosmetic renames, `--reset`). Re-check: `uv run python scripts/run_seasonal.py --reset` (re-mines locally; screens and tests only new phrases, stored counts reused).
+- Live check 2 (2026-10-12, logs/seasonal_20261012-000458.txt): D-M02-54 held; fixes D-M02-55 (same-filer grouping, agency/rule words, rename order, screen-stage spread, closing untested phrases). Re-check: `uv run python scripts/run_seasonal.py --reset`.
 - Open: Yes/No box at logon (after the live rounds); crowding per active theme on the theme page (counts are in `seasonal_count` for proposals only).
 
 ### Phrase mining and tests (D-M02-8)

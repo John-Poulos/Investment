@@ -255,6 +255,9 @@ def _main() -> int:
         lines.append(f"\nscreened {n} phrases this run")
         n = seasonal.test(client, engine, corpus, s, now, budget, progress=print)
         lines.append(f"fully tested {n} phrases this run")
+        if not budget.over() and (closed := seasonal.close_untested(engine, s, now)):
+            lines.append(f"{closed} screened phrases beyond the {seasonal.TEST_CAP} full tests "
+                         "closed for this season")  # fmt: skip
         lines.append(f"proposals: {seasonal.propose_pass(engine, s, now, comps)}")
         from engine.themes.candidates import run_candidates
 
