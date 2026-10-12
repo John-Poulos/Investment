@@ -312,11 +312,8 @@ def probe_13dg(client, found: list, limit: int = 6) -> list[str]:
     return lines
 
 
-def main() -> int:
+def _main() -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    if (ROOT / "data" / "refresh.lock").exists():
-        print("data/refresh.lock exists: the refresh is running; try again later.")
-        return 1
     import os
 
     os.chdir(ROOT)
@@ -343,6 +340,12 @@ def main() -> int:
     log.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"{len(lines)} lines; log written to: {log}")
     return 0
+
+
+def main() -> int:
+    from engine.store.lock import run_script
+
+    return run_script(ROOT, "probe_financing", _main)
 
 
 if __name__ == "__main__":

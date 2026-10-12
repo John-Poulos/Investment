@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def main() -> int:
+def _main() -> int:
     label = sys.argv[1] if len(sys.argv) > 1 else "sec"
     extra = sys.argv[2:]
     logs = ROOT / "logs"
@@ -45,6 +45,13 @@ def main() -> int:
     print(f"Live test log written to: {log}")
     print(f"pytest exit code: {proc.returncode} (0 = all passed)")
     return proc.returncode
+
+
+def main() -> int:
+    sys.path.insert(0, str(ROOT / "src"))
+    from engine.store.lock import run_script
+
+    return run_script(ROOT, "run_live", _main)  # live tests call SEC (D-M02-51)
 
 
 if __name__ == "__main__":

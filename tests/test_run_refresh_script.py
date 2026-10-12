@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import importlib.util
-import os
-import time
 from datetime import datetime
 from pathlib import Path
 
@@ -22,10 +20,4 @@ def test_last_scheduled_slot():
     )  # before 02:00: yesterday's slot
 
 
-def test_lock_blocks_second_run_and_expires(tmp_path):
-    lock = tmp_path / "refresh.lock"
-    assert run_refresh.acquire_lock(lock)
-    assert not run_refresh.acquire_lock(lock)  # a run is in progress
-    old = time.time() - 7 * 3600
-    os.utime(lock, (old, old))
-    assert run_refresh.acquire_lock(lock)  # stale lock (> 6 h) is replaced
+# lock behaviour: tests/test_lock.py (D-M02-51)

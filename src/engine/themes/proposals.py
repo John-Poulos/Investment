@@ -6,7 +6,8 @@ Every engine suggestion goes through `propose()`:
 - a rejected proposal returns only on material change (distinct filers doubled, or
   hard money-flow evidence appeared), carrying the earlier decision and note;
 - at most 10 new M02 items per week (Monday–Sunday, UTC); the rest wait as overflow
-  (listed on the Themes page) and enter the queue, oldest first, as room frees up.
+  (listed on the Themes page) and enter the queue as room frees up, strongest first:
+  evidence grade, then money flow, then breadth growth (D-M02-51).
   Download reminders (`m02_ir_download`) are operational and not capped.
 
 Generators arrive in later parts (money flow, call guidance, suppliers, seasonal pass,
@@ -161,12 +162,29 @@ def propose(
     return "overflow" if capped else outcome
 
 
+GRADE_RANK = {"A": 0, "B": 1, "C": 2}
+KIND_GRADE = {"m02_input": "C"}  # Gemini-proposed input categories (rung L0)
+
+
+def priority(kind: str, payload: dict[str, Any]) -> tuple[int, int, float]:
+    """D-M02-10 order without a combined score (D-M02-51): evidence grade, then hard
+    money flow present, then breadth growth (share change in points, larger first)."""
+    grade = str(payload.get("grade") or KIND_GRADE.get(kind, "A"))[:1]
+    growth = payload.get("growth_pts")
+    return (GRADE_RANK.get(grade, 3), 0 if payload.get("money_flow") else 1,
+            -float(growth) if isinstance(growth, int | float) else 0.0)  # fmt: skip
+
+
 def flush_overflow(engine: sqlite3.Connection, now: datetime) -> int:
-    """Move waiting proposals into the queue, oldest first, while this week has room."""
+    """Move waiting proposals into the queue in priority order (grade → money flow →
+    breadth growth; oldest first within a tie) while this week has room (D-M02-51)."""
     moved = 0
-    rows = engine.execute(
-        "SELECT * FROM m02_proposal WHERE status = 'overflow' ORDER BY first_seen_at, prop_key"
-    ).fetchall()
+    rows = sorted(
+        engine.execute(
+            "SELECT * FROM m02_proposal WHERE status = 'overflow' ORDER BY first_seen_at, prop_key"
+        ).fetchall(),
+        key=lambda r: priority(r["kind"], json.loads(r["payload"] or "{}")),
+    )  # stable sort keeps oldest-first within equal priority
     for r in rows:
         if queued_this_week(engine, now) >= WEEKLY_CAP:
             break

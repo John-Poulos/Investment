@@ -219,7 +219,7 @@ def gemini_check(engine, corpus, now, days: int, yes: bool) -> list[str]:
     return out
 
 
-def main() -> int:
+def _main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--import-probe", nargs="?", const=str(ROOT / "data/probe/alpha_vantage"),
                     help="import saved replies (default data/probe/alpha_vantage)")  # fmt: skip
@@ -231,9 +231,6 @@ def main() -> int:
                     help="Gemini cross-check of calls from the last DAYS days")  # fmt: skip
     ap.add_argument("--yes", action="store_true", help="with --gemini-check: make the calls")
     args = ap.parse_args()
-    if (ROOT / "data" / "refresh.lock").exists():
-        print("data/refresh.lock exists: the refresh is running; try again later.")
-        return 1
     engine = open_db("engine", ROOT / "data")
     corpus = open_db("corpus", ROOT / "data")
     now = datetime.now(UTC)
@@ -274,6 +271,12 @@ def main() -> int:
     print("\n".join(ln for ln in lines if not ln.startswith(("  ", "\n##"))))
     print(f"Log written to: {log}")
     return 0
+
+
+def main() -> int:
+    from engine.store.lock import run_script
+
+    return run_script(ROOT, "run_calls", _main)
 
 
 if __name__ == "__main__":

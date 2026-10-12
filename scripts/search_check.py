@@ -37,8 +37,10 @@ QUERIES = [
 
 
 def main() -> int:
-    if (ROOT / "data" / "refresh.lock").exists():
-        print("data/refresh.lock exists: nightly refresh running; try again later.")
+    from engine.store.lock import held_by
+
+    if holder := held_by(ROOT / "data" / "refresh.lock"):
+        print(f"data/refresh.lock is held by {holder}; try again later.")
         return 1
     logs = ROOT / "logs"
     logs.mkdir(exist_ok=True)

@@ -39,15 +39,12 @@ def companies(engine) -> dict[str, str]:
     return out
 
 
-def main() -> int:
+def _main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--no-sec", action="store_true", help="no SEC requests (local only)")
     ap.add_argument("--tickers", help="comma-separated subset (default: watchlist + tracked)")
     args = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # "≈", "≥" on a cp1252 console
-    if (ROOT / "data" / "refresh.lock").exists():
-        print("data/refresh.lock exists: the refresh is running; try again later.")
-        return 1
     import os
 
     os.chdir(ROOT)  # config/ and logs/ are relative to the repo
@@ -75,6 +72,12 @@ def main() -> int:
     print("\n".join(lines))
     print(f"Log written to: {log}")
     return 0
+
+
+def main() -> int:
+    from engine.store.lock import run_script
+
+    return run_script(ROOT, "run_money", _main)
 
 
 if __name__ == "__main__":

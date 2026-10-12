@@ -6,7 +6,9 @@
         # at logon: if the last 02:00 run was missed, ask before catching up (owner choice)
 
 Writes logs/refresh_<YYYYMMDD-HHMMSS>.txt and stores the run in data/engine.db.
-Only one run at a time (data/refresh.lock; a lock older than 6 hours is stale).
+Only one SEC-calling process at a time (data/refresh.lock with a heartbeat; a lock whose
+process is gone or whose heartbeat stopped is cleared, D-M02-51). The end-of-run box is
+shown after the lock is released.
 Exit code: 0 ok, 1 partial or failed, 2 another run is in progress, 3 declined/not missed.
 """
 
@@ -20,7 +22,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SCHEDULED_AT = time(2, 0)  # local time of the nightly task
-LOCK_STALE = timedelta(hours=6)
 
 
 def prices_step(engine, report) -> str:
@@ -114,6 +115,14 @@ def financing_step(client, engine, corpus, report) -> str:
     return "\n".join(lines) + "\n"
 
 
+def seasonal_reminder(engine) -> str:
+    """D-M02-51 (first build): a reminder line until the due season's pass is done."""
+    from engine.themes.seasonal import reminder
+
+    line = reminder(engine, datetime.now(UTC).date())
+    return f"\n{line}\n" if line else ""
+
+
 def last_scheduled_slot(now_local: datetime) -> datetime:
     slot = now_local.replace(hour=SCHEDULED_AT.hour, minute=SCHEDULED_AT.minute, second=0,
                              microsecond=0)  # fmt: skip
@@ -168,22 +177,6 @@ def waiting_summary(engine) -> str | None:
     return f"The refresh finished.\n\n{lines}\n\nOpen the app: Review queue."
 
 
-def acquire_lock(path: Path) -> bool:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
-        age = datetime.now() - datetime.fromtimestamp(path.stat().st_mtime)
-        if age < LOCK_STALE:
-            return False
-        path.unlink(missing_ok=True)
-    try:
-        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError:
-        return False
-    os.write(fd, str(os.getpid()).encode())
-    os.close(fd)
-    return True
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--scheduled", action="store_true", help="run as the nightly task")
@@ -197,10 +190,8 @@ def main() -> int:
 
     os.chdir(ROOT)  # data/ and logs/ are relative to the repo
     sys.path.insert(0, str(ROOT / "src"))
-    from engine.refresh import format_report, last_success, load_config, run_refresh
-    from engine.sec.client import SecClient, user_agent_from_env
+    from engine.refresh import last_success
     from engine.store.db import data_dir, open_db
-    from engine.store.http import SqliteCache, SqliteFetchLog
 
     folder = data_dir()
     engine = open_db("engine", folder)
@@ -233,38 +224,50 @@ def main() -> int:
             )
             return 3
 
-    lock = folder / "refresh.lock"
-    if not acquire_lock(lock):
-        print("Another refresh is running (data/refresh.lock); not starting a second one.")
-        return 2
+    from engine.store.lock import LockBusy, run_lock
+
     try:
-        corpus = open_db("corpus", folder, check_same_thread=False)
-        client = SecClient(user_agent_from_env(), cache=SqliteCache(corpus),
-                           log=SqliteFetchLog(engine))  # fmt: skip
-        trigger = "missed-run prompt" if args.if_missed else (
-            "scheduled" if args.scheduled else "manual")  # fmt: skip
-        report = run_refresh(client, engine, corpus, load_config(Path(args.config)),
-                             datetime.now(UTC), trigger=trigger)  # fmt: skip
-        calls = calls_step(engine, corpus, report)
-        calls += money_step(client, engine, corpus, report)
-        calls += supply_step(client, engine, corpus, report)
-        calls += financing_step(client, engine, corpus, report)
-        skipped = "\nPrices (Tiingo): skipped (--skip-prices)\n"
-        prices = skipped if args.skip_prices else prices_step(engine, report)
-        text = format_report(report) + calls + prices
-        logs = ROOT / "logs"
-        logs.mkdir(exist_ok=True)
-        out = logs / f"refresh_{datetime.now():%Y%m%d-%H%M%S}.txt"
-        out.write_text(text, encoding="utf-8")
-        print(text)
-        print(f"Report written to: {out}")
-        if args.scheduled or args.if_missed:  # background runs: tell the owner what waits
-            summary = waiting_summary(engine)
-            if summary:
-                show_info("Investment engine", summary)
-        return 0 if report.status == "ok" else 1
-    finally:
-        lock.unlink(missing_ok=True)
+        with run_lock(folder / "refresh.lock", "run_refresh"):
+            code, summary = _run(args, engine, folder)
+    except LockBusy as e:
+        print(f"Not starting a second run: {e}.")
+        return 2
+    if summary:  # after the lock is released: a waiting box must not hold it (D-M02-51)
+        show_info("Investment engine", summary)
+    return code
+
+
+def _run(args, engine, folder) -> tuple[int, str | None]:
+    from engine.refresh import format_report, load_config, run_refresh
+    from engine.sec.client import SecClient, user_agent_from_env
+    from engine.store.db import open_db
+    from engine.store.http import SqliteCache, SqliteFetchLog
+
+    corpus = open_db("corpus", folder, check_same_thread=False)
+    client = SecClient(user_agent_from_env(), cache=SqliteCache(corpus),
+                       log=SqliteFetchLog(engine))  # fmt: skip
+    trigger = "missed-run prompt" if args.if_missed else (
+        "scheduled" if args.scheduled else "manual")  # fmt: skip
+    report = run_refresh(client, engine, corpus, load_config(Path(args.config)),
+                         datetime.now(UTC), trigger=trigger)  # fmt: skip
+    calls = calls_step(engine, corpus, report)
+    calls += money_step(client, engine, corpus, report)
+    calls += supply_step(client, engine, corpus, report)
+    calls += financing_step(client, engine, corpus, report)
+    calls += seasonal_reminder(engine)
+    skipped = "\nPrices (Tiingo): skipped (--skip-prices)\n"
+    prices = skipped if args.skip_prices else prices_step(engine, report)
+    text = format_report(report) + calls + prices
+    logs = ROOT / "logs"
+    logs.mkdir(exist_ok=True)
+    out = logs / f"refresh_{datetime.now():%Y%m%d-%H%M%S}.txt"
+    out.write_text(text, encoding="utf-8")
+    print(text)
+    print(f"Report written to: {out}")
+    corpus.close()
+    # background runs tell the owner what waits — shown by main() after the lock is released
+    summary = waiting_summary(engine) if (args.scheduled or args.if_missed) else None
+    return (0 if report.status == "ok" else 1), summary
 
 
 if __name__ == "__main__":
