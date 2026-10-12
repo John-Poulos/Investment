@@ -13,7 +13,7 @@ A holding = core lots under one primary profile + optional overlays (M12 options
 |---|---|---|---|
 | Daily prices (weekly derived) | Free market data; source TBD at M02 | A | Daily |
 | 10-Q, 10-K, 8-K, Form 4 | SEC EDGAR | A | On filing |
-| CvD state, survival gate | M04 | Per input | On filing |
+| CvD state, survival gate | M04 | Per input | On filing and on each refresh (due dates, D-M04-61) |
 | Tax lots (date, qty, cost) | User entry or broker export | A | On trade |
 | Available funds, conviction (1–5) | User settings | — | On change |
 | CPI, M2 | FRED | A | Monthly |
@@ -35,7 +35,7 @@ A holding = core lots under one primary profile + optional overlays (M12 options
 | Bars for signals | Weekly default; switchable (D12) | | |
 | Trend filter | 40-week moving average | | |
 | Entry zone / add trigger | 20-week mean − 1 to 2σ triggers; depth reported uncapped (rule 7); calibrate by backtest | | |
-| Fundamental windows | TTM, YoY, 3-yr CAGR; 5-yr averages; full-cycle history for CvD | | |
+| Fundamental windows | TTM, YoY, 3-yr CAGR; 5-yr averages; full-cycle history for CvD | M04 windows fixed per D-M04-29, -49, -64; the 5-yr average applies to display | |
 | Review cadence | After each 10-Q/10-K; event alerts in between | | |
 | Weights | Fundamentals, moat, capex, money flow lead; ownership medium; analysts low; technicals time entries | | |
 | Hurdle | S&P 500 TR; stretch TR + CPI | | |
@@ -46,10 +46,10 @@ A holding = core lots under one primary profile + optional overlays (M12 options
 1. Entry needs the fundamental screen (R3), the confluence threshold (D13), and price in the entry zone.
 2. The entry plan offers lump sum or tranches, weighing available funds, conviction and regime; the owner decides.
 3. Every tranche after the first needs all three: CvD = CYCLICAL_TROUGH (or no slowdown), survival gate pass (M04), and the 1–2σ add trigger on the position's profile of record.
-4. Exit warnings fire on: CvD moving to CYCLE_PLUS_DAMAGE or STRUCTURAL_DECLINE; missed milestones or quietly removed targets (R19); killswitch hits (R23); valuation ceiling if the owner sets one. Warnings only (D16).
+4. Exit warnings fire on: CvD moving to CYCLE_PLUS_DAMAGE or STRUCTURAL_DECLINE; a survival-gate fail (S6.14) or an overdue filing (D-M04-61); missed milestones or quietly removed targets (R19; M04's `guidance_removed`, S1.7); killswitch hits (R23); valuation ceiling if the owner sets one. M04 red-flag warnings are listed among the `exit_warning` reasons and never block (D-M04-21, -60). Warnings only (D16).
 5. Thesis review after each 10-Q/10-K; on-track milestones with a flat price → "early," hold (R4).
 6. Event alerts (8-K, opportunistic Form 4, guidance change, killswitch) surface immediately (R16).
-7. Band depth is reported as σ below the 20-week mean with no cap. Beyond 2σ grades as a stronger signal only when CvD = CYCLICAL_TROUGH and the survival gate passes (the M04 overreaction setup); in any other state the depth is shown as a warning with no added strength (D27).
+7. Band depth is reported as σ below the 20-week mean with no cap. Beyond 2σ grades as a stronger signal only when CvD = CYCLICAL_TROUGH and the survival gate passes (gauge shown, not required, D-M04-62; read per D-M01-5); in any other state the depth is shown as a warning with no added strength (D27).
 
 ## Failure modes
 | Input or indicator | How it can mislead | Guard |
@@ -67,7 +67,7 @@ A holding = core lots under one primary profile + optional overlays (M12 options
 - D-M01-3 (2026-10-06): Timeframes switchable on the fly with profile-of-record logging (D12).
 - D-M01-4 (2026-10-07): σ bands not capped at 2σ; beyond 2σ is a stronger signal only when CvD and survival gates pass (owner, D27).
 - D-M01-6 (2026-10-12, M04 closing C.1a = D-M04-76): Rule 1 first entry also needs a survival-gate pass (warn included), no overdue filing, and CvD not STRUCTURAL_DECLINE or CYCLE_PLUS_DAMAGE (R3 "fundamentally qualified", M04 side).
-- D-M01-5 (2026-10-12, M04 review 6.8a = D-M04-58): Only CvD = CYCLICAL_TROUGH with a survival-gate pass (pass with warn included, D-M04-31) adds rule-7 strength; NO_SLOWDOWN allows tranches (rule 3); AMBIGUOUS, STUMBLE, CYCLE_PLUS_DAMAGE, STRUCTURAL_DECLINE and an overdue filing block tranches. A gate of "not applicable" reads as not-pass (D-M04-35); a capex-funded name in review below 6 quarters allows rule-3 adds but not rule-7 strength (D-M04-38).
+- D-M01-5 (2026-10-12, M04 review 6.8a = D-M04-58): Only CvD = CYCLICAL_TROUGH with a survival-gate pass (pass with warn included, D-M04-31) adds rule-7 strength; NO_SLOWDOWN allows tranches (rule 3); AMBIGUOUS, CYCLE_PLUS_DAMAGE, STRUCTURAL_DECLINE and an overdue filing block tranches; STUMBLE is blocked until the owner resolves the `m04_cvd` review. A gate of "not applicable" reads as not-pass (D-M04-35); a capex-funded name in review below 6 quarters allows rule-3 adds but not rule-7 strength (D-M04-38).
 
 ## Open questions
 - PT and ST columns — later phase.

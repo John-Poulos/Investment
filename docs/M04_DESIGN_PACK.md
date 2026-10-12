@@ -3888,3 +3888,112 @@ These IDs are provisional. They become S123 onward when they are added to SOURCE
   - Firms inflate reported CFO by shifting items between cash-flow categories, within and beyond GAAP, and by timing payments and collections.
   - The incentive is stronger under financial distress, near the investment-grade cut-off, and where analysts forecast cash flow.
   - This supports treating a CFO/CFI/CFF shift as its own concern (critique 11).
+
+### Provisional IDs → SOURCES.md (build Part 0, 2026-10-12)
+All 131 provisional IDs map to S123–S225 in order of first definition in this pack; 43 IDs that define the same URL or work merge into 15 S-numbers. S122 is McConnell & Muscarella (the duplicate S101). The text above keeps the provisional IDs.
+
+| Provisional ID(s) | S-number |
+|---|---|
+| S-new-r1-1, S-new-r2-8, S-new-r3-4, S-new-r3-5, S-new-r4-4, S-new-r5-2, S-new-r6-1, S-new-r6-6, S-new-r6-7, S-new-bp-3, S-new-1 | S123 |
+| S-new-r1-2, S-new-r2-1, S-new-r3-3, S-new-src-1 | S124 |
+| S-new-r1-3, S-new-src-4 | S125 |
+| S-new-r1-4, S-new-r6-4, S-new-src-5 | S126 |
+| S-new-r1-5 | S127 |
+| S-new-r1-6, S-new-r4-3 | S128 |
+| S-new-r1-7 | S129 |
+| S-new-r1-8, S-new-61 | S130 |
+| S-new-r1-9 | S131 |
+| S-new-r2-2, S-new-src-3 | S132 |
+| S-new-r2-3, S-new-src-6 | S133 |
+| S-new-r2-4 | S134 |
+| S-new-r2-5, S-new-r5-5, S-new-50 | S135 |
+| S-new-r2-6 | S136 |
+| S-new-r2-7, S-new-r3-7 | S137 |
+| S-new-r2-9 | S138 |
+| S-new-r3-1 | S139 |
+| S-new-r3-2 | S140 |
+| S-new-r3-6, S-new-68 | S141 |
+| S-new-r3-8 | S142 |
+| S-new-r3-9 | S143 |
+| S-new-r4-1 | S144 |
+| S-new-r4-2, S-new-38 | S145 |
+| S-new-r4-5, S-new-bp-4 | S146 |
+| S-new-r4-6 | S147 |
+| S-new-r5-1 | S148 |
+| S-new-r5-3 | S149 |
+| S-new-r5-4 | S150 |
+| S-new-r5-6, S-new-47 | S151 |
+| S-new-r5-7 | S152 |
+| S-new-r5-8 | S153 |
+| S-new-r5-9 | S154 |
+| S-new-r5-10 | S155 |
+| S-new-r6-2 | S156 |
+| S-new-r6-3, S-new-63 | S157 |
+| S-new-r6-5 | S158 |
+| S-new-bp-1 | S159 |
+| S-new-bp-2 | S160 |
+| S-new-bp-5 | S161 |
+| S-new-bp-6 | S162 |
+| S-new-2 | S163 |
+| S-new-3 | S164 |
+| S-new-4 | S165 |
+| S-new-5 | S166 |
+| S-new-6 | S167 |
+| S-new-7 | S168 |
+| S-new-8 | S169 |
+| S-new-9 | S170 |
+| S-new-10 | S171 |
+| S-new-11 | S172 |
+| S-new-12 | S173 |
+| S-new-13 | S174 |
+| S-new-14 | S175 |
+| S-new-15 | S176 |
+| S-new-16 | S177 |
+| S-new-17 | S178 |
+| S-new-18 | S179 |
+| S-new-19 | S180 |
+| S-new-20 | S181 |
+| S-new-21 | S182 |
+| S-new-22 | S183 |
+| S-new-23 | S184 |
+| S-new-24 | S185 |
+| S-new-25 | S186 |
+| S-new-26 | S187 |
+| S-new-27 | S188 |
+| S-new-28 | S189 |
+| S-new-29 | S190 |
+| S-new-30 | S191 |
+| S-new-31 | S192 |
+| S-new-32 | S193 |
+| S-new-33 | S194 |
+| S-new-34 | S195 |
+| S-new-35 | S196 |
+| S-new-36 | S197 |
+| S-new-37 | S198 |
+| S-new-39 | S199 |
+| S-new-40 | S200 |
+| S-new-41 | S201 |
+| S-new-42 | S202 |
+| S-new-43 | S203 |
+| S-new-44 | S204 |
+| S-new-45 | S205 |
+| S-new-46 | S206 |
+| S-new-48 | S207 |
+| S-new-49 | S208 |
+| S-new-51 | S209 |
+| S-new-52 | S210 |
+| S-new-53 | S211 |
+| S-new-54 | S212 |
+| S-new-55 | S213 |
+| S-new-56 | S214 |
+| S-new-57 | S215 |
+| S-new-58 | S216 |
+| S-new-59 | S217 |
+| S-new-60 | S218 |
+| S-new-62 | S219 |
+| S-new-64 | S220 |
+| S-new-65 | S221 |
+| S-new-66 | S222 |
+| S-new-67 | S223 |
+| S-new-69 | S224 |
+| S-new-src-2 | S225 |

@@ -666,7 +666,7 @@ Grade A for everything computed from `price_bar` and FRED. "Lead" = drives the p
 8. The tracked universe is theme-chosen, so no market-wide cross-section exists.
 
 ## New sources
-Provisional IDs. They become SOURCES.md IDs after M04's S-new IDs (S122 onward) are assigned and the duplicate S101 is fixed. "Other" marks non-peer-reviewed or secondary sources.
+Provisional IDs. They become SOURCES.md IDs after M04's S-new IDs (S226 onward; M04 took S122–S225) are assigned and the duplicate S101 is fixed. "Other" marks non-peer-reviewed or secondary sources.
 
 - **S-new-M09-1** Lehmann (1990), "Fads, Martingales, and Market Efficiency", QJE 105(1):1–28 — https://ideas.repec.org/a/oup/qjecon/v105y1990i1p1-28..html ; Jegadeesh (1990), JF 45(3):881–898 (extends S12; citation via RePEc reference list). Conrad & Kaul (1993) and Ball, Kothari & Shanken (1995), long-term reversal critiques (secondhand).
 - **S-new-M09-2** Medhat & Schmeling (2022), "Short-term Momentum", RFS 35(3):1480–1526 — https://openaccess.city.ac.uk/id/eprint/31278/
