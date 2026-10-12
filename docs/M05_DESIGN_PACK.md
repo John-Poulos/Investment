@@ -471,7 +471,7 @@ Micron; fiscal years end in early September; $B. Sources: companyconcept, primar
 
 ### What the research says
 1. **Capex plans predict actual investment, with errors** (S75: Lamont 2000; Ali, Fan & Li 2018 working paper).
-   - Announcements of capex increases by industrial firms earned positive returns; utilities showed no such effect (S101, the McConnell & Muscarella entry; SOURCES.md has a duplicate S101 ID).
+   - Announcements of capex increases by industrial firms earned positive returns; utilities showed no such effect (S122, McConnell & Muscarella; was the duplicate S101).
    - D-M02-5 counts capex as positive for the spender, "hypothesis, not backtested".
 2. **The evidence on capex leading the company's own revenue is mixed** (two anecdotes, not a test; S-new-M05-10):
    - **Tesla:** capex $1.33B (2019) → $3.16B → $6.48B (2021); revenue $24.6B (2019) → $81.5B (2022).
@@ -662,7 +662,7 @@ All signals are visible in MY, PT and ST; weights follow the profile (D10).
 - Every threshold is uncalibrated, and every signal is "hypothesis, not backtested".
 
 ## New sources
-These are provisional IDs. They are numbered after the M04 pack's new sources (S122 onward) when added to SOURCES.md, which also needs its duplicate S101 fixed. "Other" marks sources that are not peer-reviewed or are secondary.
+These are provisional IDs. They are numbered after the M04 pack's new sources (S226 onward; M04 took S122–S225) when added to SOURCES.md, which also needs its duplicate S101 fixed. "Other" marks sources that are not peer-reviewed or are secondary.
 
 - **S-new-M05-1** 17 CFR 229.303 (Regulation S-K Item 303, MD&A) (primary): https://www.law.cornell.edu/cfr/text/17/229.303 · Cleary Gottlieb summary of SEC Release 33-10890 (other): https://www.clearygottlieb.com/news-and-insights/publication-listing/sec-adopts-major-changes-to-mda-and-related-requirements
 - **S-new-M05-2** Deloitte DART, ASC 440 Commitments overview (other; it does not state the disclosure rules): https://dart.deloitte.com/USDART/home/codification/liabilities/asc440

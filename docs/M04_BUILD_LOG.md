@@ -123,7 +123,7 @@ Names and plumbing follow the M02 proposal pattern (D-M02-18; priority flush D-M
 
 ## Part 0 — docs (on `m04-review`, before its PR)
 Do the bookkeeping once, before any code cites it (SB.1, S1.8, S1.9). No code, no live check.
-- **SOURCES.md:** S122 = McConnell & Muscarella (fixes the duplicate S101). Map all 131 provisional IDs (S-new-n, S-new-r1…r6, S-new-bp, S-new-src) to S123 onward, merging the 17 URLs defined under 2–5 IDs (BP gaps #10). Keep the mapping table (provisional → S-number) at the end of the pack's "New sources" so the briefs stay readable. Cite S-new-bp-6 (browse-by-SIC) from the peer rule.
+- **SOURCES.md** (done 2026-10-12): S122 = McConnell & Muscarella (fixes the duplicate S101). All 131 provisional IDs mapped to S123–S225 in order of first definition; 43 IDs sharing a URL or work merged into 15 S-numbers (BP gaps #10). The mapping table (provisional → S-number) is at the end of the pack's "New sources" so the briefs stay readable. The peer rule cites S162 (browse-by-SIC).
 - **DATA_SOURCES.md:** register DS12 dimensional facts (segments, `srt:MajorCustomersAxis`, multi-class cover shares), DS13 industry price and volume series (gap), DS14 unit KPIs beyond Tesla, DS15 historical 4.02 texts, DS16 market share (owner entry with source, grade B), DS17 credit-rating actions (text only). Update DS2 (extractor in Part 7a), DS7 (two prior 10-Ks, D-M04-17, Part 3), DS8 (delisted symbols by name-and-date match, D-M04-72).
 - **M04_FINANCIALS.md redraft** (done 2026-10-12 on `m04-review`; check only): fold the D-M04-1 change table (R6 brief) into the profile; rewrite the survival gate per D-M04-31…38 and drop the superseded text; consolidated "Signals out" (S1.5 list plus Round 6 additions, MY/PT/ST columns, "info" = weight 0); failure modes from all rounds; close the answered open questions; Sources line in S-numbers.
 - **`docs/M04_BUILD_LOG.md`** opened from the review draft (done 2026-10-12).
@@ -527,6 +527,7 @@ Do the bookkeeping once, before any code cites it (SB.1, S1.8, S1.9). No code, n
 (filled during each build: live-check log names and findings, fixes with D-M04-n, what was deferred)
 
 ### Part 0 — docs
+- 2026-10-12, branch `m04-part0`: SOURCES S122 (McConnell & Muscarella, was the duplicate S101) and S123–S225 (131 provisional IDs; 43 merged into 15 numbers; map at the end of the pack's "New sources"); five one-clause findings (S139, S163, S199, S220, S223) marked "verify before citing". DATA_SOURCES DS12–DS17 registered; DS2, DS7, DS8 updated. DESIGN (open items closed, D13/D14/D27/M05 notes, workflow, code map, Resume here), M01 (rule 4 exit warnings, rule 7, D-M01-5 STUMBLE, inputs refresh, windows) and M02 (capex-weighting question, DSO) edits applied. M05/M09 packs now number their provisional IDs from S226. No code; no live check.
 ### Part 1a — Data foundation
 ### Part 1b — Capex, trends, guidance record
 ### Part 1c — Company profile, queue and peer shortlist

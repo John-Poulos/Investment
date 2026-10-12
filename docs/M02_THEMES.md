@@ -132,7 +132,7 @@ Spot emerging themes in filings and news, follow the money (who spends, who rece
 
 ## Open questions (ask at build, D7)
 - ~~Seed themes~~ → D-M02-16.
-- Weighting of capex as a buy signal for the spender (D-M02-5) — revisit with signal weights.
+- Weighting of capex as a buy signal for the spender (D-M02-5) — revisit with signal weights; weigh together with M04's capex-funded runway and `fcf_burn` (D-M04-32, -38, -39). M04 reads M02's DSO series and alert as context (D-M02-47), with no second alert; ownership revisited when D13 weights are set.
 - ~~Directional call guidance~~ → direction-only rows for capex (D-M02-20 (4), built D-M02-22); "heavy CapEx the next few years" (no direction word or period) stays in review.
 - ~~Equity and financing links~~ → designed (D-M02-41…45), built as part 5b (D-M02-46).
 - ~~Micro-cap line for first-mention flags; N distinct companies for the phrase test~~ → D-M02-49, D-M02-50; seasonal schedule → D-M02-51.
