@@ -62,6 +62,29 @@ def test_weekly_cap_overflow_and_flush(dbs):
     assert item.week == "2026-10-12"
 
 
+def test_flush_takes_waiting_items_in_priority_order(dbs):
+    """D-M02-51: grade → money flow → breadth growth, oldest first within a tie."""
+    engine, _ = dbs
+    for i in range(10):
+        proposals.propose(engine, "m02_theme", f"fill{i}", "fill", {}, NOW)
+    waiting = [
+        ("m02_input", "c-grade", {"money_flow": True}),  # Gemini L0: grade C
+        ("m02_phrase", "slow", {"growth_pts": 0.4}),
+        ("m02_link", "money", {"money_flow": True}),
+        ("m02_phrase", "fast", {"growth_pts": 2.1}),
+        ("m02_phrase", "same-later", {"growth_pts": 0.4}),
+        ("m02_candidate", "b-grade", {"grade": "B", "money_flow": True}),
+    ]
+    for i, (kind, key, p) in enumerate(waiting):
+        proposals.propose(engine, kind, key, key, p, NOW + timedelta(minutes=i))
+    assert len(proposals.overflow(engine)) == 6
+    assert proposals.flush_overflow(engine, NOW + timedelta(days=7)) == 6
+    order = [r[0] for r in engine.execute(
+        "SELECT reason FROM review_queue WHERE created_at >= ? ORDER BY item_id",
+        ((NOW + timedelta(days=7)).isoformat(timespec="seconds"),))]  # fmt: skip
+    assert order == ["money", "fast", "slow", "same-later", "b-grade", "c-grade"]
+
+
 def test_candidate_accept_tracks_and_core_is_refused(dbs):
     engine, _ = dbs
     payload = {"ticker": "XSEM", "theme_key": "hbm_packaging", "why": "HBM supplier"}

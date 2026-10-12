@@ -147,6 +147,7 @@ def create_app(settings: UiSettings) -> FastAPI:
     templates.env.globals["FORECAST_NOTE"] = FORECAST_NOTE
     templates.env.filters["money"] = mf_views.money  # M02 part 3
     templates.env.globals["payload_value"] = mf_views.payload_value
+    templates.env.filters["mark_phrase"] = themes.mark_phrase  # M02 part 6 samples
     templates.env.globals["fin_kinds"] = fin_views.KIND_LABELS  # M02 part 5b
     templates.env.globals["dso_band"] = fin_views.credit.band
 
@@ -357,6 +358,7 @@ def create_app(settings: UiSettings) -> FastAPI:
             "themes": themes.theme_list(engine, family),
             "overflow": proposals.overflow(engine),
             "through": themes.data_through(engine),
+            "seasonal": themes.seasonal_view(engine),
         }
         return templates.TemplateResponse(request, "themes.html", ctx)
 

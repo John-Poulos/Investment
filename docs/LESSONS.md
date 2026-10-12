@@ -1,6 +1,6 @@
 # Lessons that generalize (running)
 
-Updated: 2026-10-10 · Read at the start of every module build. One line each, with the decision that holds the detail. Add a lesson when a mistake or surprise in one module would recur in another.
+Updated: 2026-10-12 · Read at the start of every module build. One line each, with the decision that holds the detail. Add a lesson when a mistake or surprise in one module would recur in another.
 
 ## Data sources
 - Count what you mean: EDGAR full-text search counts documents, not filings; a filing whose exhibits match counts twice. Report distinct filings and companies (D-SEC-14).
@@ -17,6 +17,10 @@ Updated: 2026-10-10 · Read at the start of every module build. One line each, w
 - A company's submissions list mixes filings it made with filings about it (funds' 13Gs); only the index header says who filed — read it once and keep the answer (D-M02-45).
 - When the counterparty of a disclosure has no stored documents, stored-text finders find nothing; search the counterparty's filings with targeted phrases instead (D-M02-45 (4)).
 - Seed phrases need the same scrutiny as mined ones: a generic phrase ("domestic manufacturing") can dominate a theme (D-M02-17).
+- A year-over-year comparison inside a stored corpus measures what was stored, not what changed: 220 documents vs 32 made "inline xbrl" and "cash flow" rise; compare each company with its own documents of the same kind a year earlier (D-M02-52).
+- New accounting standards and tax laws make every filer adopt the same wording in the same year; a "new phrase" miner must read narrative sections (business, risk factors, MD&A), not financial-statement notes, and drop accounting/tax/legal words (D-M02-54).
+- A section label match must be exact and form-specific: "Item 1" is the business in a 10-K but the financial statements in a 10-Q (D-M02-54).
+- Calibrate a cut-off on known cases before enforcing it: 50% / 75% industry concentration would have rejected 12 of 36 real seed themes, because value chains span related industries and finance filers mention themes as holdings or risks (D-M02-52).
 
 ## Rate limits and budgets
 - Sustained bulk near a published limit gets blocked: SEC blocked at 7.5–8/s against a 10/s limit; we pace at 5/s (D-SEC-18).
@@ -28,6 +32,7 @@ Updated: 2026-10-10 · Read at the start of every module build. One line each, w
 - "Nightly" jobs run at logon during the owner's session (PC off overnight): keep them in the background, keep write transactions short (the app writes too; busy_timeout 5 s), stay well inside the 3-h task limit, and leave part of any shared API budget for interactive use (D-M02-12).
 
 ## Parsing and numbers
+- Exact binomial tails overflow a float once counts reach the thousands (EFTS document totals); compute in log space (D-M02-53).
 - Ratios on a near-zero base (tax rate 476%) are transcribed correctly but meaningless; flag `not_meaningful`, keep, exclude from scoring and LLM input (D-SRCH-15).
 - Table cells must stay separated (tabs) in stored text or parsers read the wrong column (D-SRCH-12, D-UI-10).
 - Reported actuals and guidance share sentences; the forward verb must precede each value (D-SRCH-12).
@@ -63,4 +68,6 @@ Updated: 2026-10-10 · Read at the start of every module build. One line each, w
 - Company names in filing text: competitor lists, share sales and product names look like relationships; filter them and let the owner confirm each link (D-M02-37…40).
 - Mock up each screen with real stored data before building it (D-UI-4).
 - Regex and `\n` edits through shell (sed, heredoc Python) lose their backslashes — hit twice more in part 5b; use the Edit tool for any string with a backslash.
+- Windows PowerShell 5.1 `Set-Content -Encoding utf8` adds a BOM and mangles non-ASCII read through the console code page (part 6, twice); edit with the Edit tool or a Python script file, never PowerShell text cmdlets.
+- A scheduled job's lock needs an owner and a heartbeat, not an age: a task killed at its limit leaves the file behind (D-M02-51, -53).
 - Owner runs live tests and sends a short log; keep live output to summaries (context cost).

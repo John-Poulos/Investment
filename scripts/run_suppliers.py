@@ -156,7 +156,7 @@ def gemini_inputs(engine, corpus, tickers: list[str], now, yes: bool) -> list[st
     return out
 
 
-def main() -> int:
+def _main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--no-sec", action="store_true", help="no SEC requests (L1, stored only)")
     ap.add_argument("--customers", help="L2 customers (aliases keys/tickers), default all")
@@ -176,9 +176,6 @@ def main() -> int:
     ap.add_argument("--yes", action="store_true", help="make the Gemini calls")
     args = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    if (ROOT / "data" / "refresh.lock").exists():
-        print("data/refresh.lock exists: the refresh is running; try again later.")
-        return 1
     os.chdir(ROOT)  # config/ and logs/ are relative to the repo
     engine = open_db("engine", ROOT / "data")
     corpus = open_db("corpus", ROOT / "data")
@@ -231,6 +228,12 @@ def main() -> int:
     print("\n".join(lines))
     print(f"Log written to: {log}")
     return 0
+
+
+def main() -> int:
+    from engine.store.lock import run_script
+
+    return run_script(ROOT, "run_suppliers", _main)
 
 
 if __name__ == "__main__":

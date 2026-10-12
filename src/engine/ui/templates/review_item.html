@@ -39,6 +39,37 @@
   {% elif it.kind == 'ticker_map_hold' %}
   <p>{{ it.payload.added | length }} added · {{ it.payload.dropped | length }} dropped · {{ it.payload.changed | length }} changed tickers.</p>
   {% if it.payload.dropped %}<p class="muted">Dropped: {{ it.payload.dropped[:60] | join(', ') }}{% if it.payload.dropped | length > 60 %} …{% endif %}</p>{% endif %}
+  {% elif it.kind in ('m02_phrase', 'm02_theme') and it.payload.season %}
+  {% set p = it.payload %}{% set sp = p.spread or {} %}{% set cr = p.crowding or {} %}
+  {% if p.earlier %}<div class="warnbox">Shown before and {{ p.earlier.resolution }}ed{% if p.earlier.note %} — your note: “{{ p.earlier.note }}”{% endif %}. Back because it changed materially (distinct filers doubled).</div>{% endif %}
+  <p class="muted">Seasonal pass {{ p.season }} · first detected {{ (p.first_detected or '')[:10] }}{% if p.source == 'llm' %} · a Gemini-suggested wording, tested like a mined phrase{% endif %}</p>
+  <table class="data">
+    <tr><th>Used by</th><td>{{ '≥ ' if p.lower_bound }}{{ p.companies }} operating {{ p.family }} filers, {{ p.windows.latest[0] }} to {{ p.windows.latest[1] }} ({{ p.prior_companies }} a year earlier){% if p.growth_pts is not none %} · share of filers {{ '%+.2f' % p.growth_pts }} pts{% endif %} · p {{ '%.3f' % p.p }} (p0 {{ '%.3f' % p.p0 }})</td></tr>
+    <tr><th>Industries</th><td>{% for g, n in (sp.groups or []) %}{{ g }} {{ n }}{{ ' · ' if not loop.last }}{% endfor %} <span class="muted">· finance {{ sp.finance or 0 }} · blank checks {{ sp.blank_check or 0 }} · no SIC {{ sp.unknown or 0 }}</span>{% if sp.top3 is not none and sp.known %} <span class="muted">· top 3 groups {{ '%.0f' % (100 * sp.top3) }}% of {{ sp.known }}{% if sp.known < 20 %} (too few to judge){% endif %}</span>{% endif %}</td></tr>
+    <tr><th>Fund registrations</th><td>{% if cr.latest is not none %}{{ cr.prior }} → {{ cr.latest }} documents in N-1A / 485APOS{% if cr.flag %} <span class="warn">crowding</span>{% endif %}{% else %}—{% endif %}</td></tr>
+    <tr><th>Watchlist adopters</th><td>{{ (p.adopters or []) | join(', ') or '—' }} <span class="muted">(new in their filings vs the year-ago documents)</span></td></tr>
+    <tr><th>Theme fit</th><td>{% if it.kind == 'm02_phrase' %}{{ '%.0f' % (100 * (p.overlap or 0)) }}% of its passages in our corpus also name {{ p.theme_name }} phrases{% else %}new theme “{{ p.theme_name }}” (at most {{ '%.0f' % (100 * (p.overlap or 0)) }}% overlap with an active theme){% endif %}</td></tr>
+    {% if p.gemini %}<tr><th>Gemini (suggestion)</th><td>name “{{ p.gemini.name or '—' }}”{% if p.gemini.variants %} · wordings being tested: {{ p.gemini.variants | join(', ') }}{% endif %}</td></tr>{% endif %}
+    <tr><th>Evidence</th><td>grade {{ p.grade }} (filings) · {{ 'money flow' if p.money_flow else 'no money flow yet' }}</td></tr>
+  </table>
+  <h3 class="sub">Sample passages</h3>
+  {% for s in p.samples or [] %}
+  <div style="margin-bottom:8px"><span class="muted">{{ s.name or s.cik }} · {{ s.group }} · <a href="/doc/{{ s.accession }}?file={{ s.filename }}">open in the reader</a>{% if source_label(s.accession) %} · {{ source_label(s.accession) }}{% endif %}</span><div class="quote">… {{ s.text | mark_phrase(p.phrase) }} …</div></div>
+  {% else %}<p class="muted">No stored passage names it (it came from a Gemini wording or calibration).</p>{% endfor %}
+  <p class="note">Gemini can name the phrase and suggest wordings the passages use (use case 4, cost shown first): <code>uv run python scripts/run_seasonal.py --gemini-name "{{ p.phrase }}"</code>. Suggested wordings are re-tested before they reach you.</p>
+  {% elif it.kind == 'm02_candidate' and it.payload.season %}
+  {% set p = it.payload %}
+  {% if p.earlier %}<div class="warnbox">Shown before and {{ p.earlier.resolution }}ed{% if p.earlier.note %} — your note: “{{ p.earlier.note }}”{% endif %}.</div>{% endif %}
+  {% if p.flags %}<div class="warnbox">First-mention flags: {{ p.flags | join(' · ') }}. Buzzword adoption by tiny, renamed or newly financed firms has preceded reversals (S116–S118); read the passage closely.</div>{% endif %}
+  <table class="data">
+    <tr><th>Company</th><td>{{ p.name }}{% if p.ticker %} ({{ p.ticker }}){% endif %} · {{ p.industry }}</td></tr>
+    <tr><th>Theme</th><td>{{ p.theme_name }} — phrases {{ p.phrases | join(', ') }}</td></tr>
+    <tr><th>Best mention</th><td>{{ p.section or 'whole document' }} · {{ 'quantified' if p.quantified else 'not quantified' }}</td></tr>
+    <tr><th>First mention</th><td>{{ p.first_mention }} — {{ p.first_note }}</td></tr>
+    <tr><th>Size</th><td>{{ p.size }}{% if p.float_as_of %}, as of {{ p.float_as_of }} (10-K cover{% if p.float_ref %}, {{ p.float_ref }}{% endif %}){% endif %}</td></tr>
+    <tr><th>Evidence</th><td>grade {{ p.grade }} (filing) · {{ 'money flow' if p.money_flow else 'no money flow' }} · seasonal pass {{ p.season }}</td></tr>
+  </table>
+  {% if p.quote %}<div class="quote" style="margin-top:8px">… {{ p.quote | mark_phrase(p.phrases[0] if p.phrases else '') }} …</div>{% endif %}
   {% elif it.kind.startswith('m02_') %}
   {% if it.payload.earlier %}<div class="warnbox">Shown before and {{ it.payload.earlier.resolution }}ed{% if it.payload.earlier.note %} — your note: “{{ it.payload.earlier.note }}”{% endif %}. Back because it changed materially (distinct filers doubled or money-flow evidence appeared).</div>{% endif %}
   <table class="data">

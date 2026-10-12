@@ -19,7 +19,6 @@ nightly refresh holds data/refresh.lock, and holds that lock itself while runnin
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -30,6 +29,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from engine.sec.client import SecClient, iso, user_agent_from_env  # noqa: E402
 from engine.store.db import data_dir, open_db  # noqa: E402
 from engine.store.http import SqliteCache, SqliteFetchLog  # noqa: E402
+from engine.store.lock import LockBusy, held_by, run_lock  # noqa: E402
 from engine.themes.breadth import (  # noqa: E402
     MAX_PAGES,
     THEME_ROW,
@@ -91,9 +91,8 @@ def main() -> int:
         return 1
 
     folder = data_dir()
-    lock = folder / "refresh.lock"
-    if lock.exists():
-        print("data/refresh.lock exists: the refresh is running; try again later.")
+    if holder := held_by(folder / "refresh.lock"):
+        print(f"data/refresh.lock is held by {holder}; try again later.")
         return 2
     engine = open_db("engine", folder)
     now = datetime.now(UTC)
@@ -124,40 +123,12 @@ def main() -> int:
         print("\n".join(lines))
         return 0
 
-    fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    os.write(fd, str(os.getpid()).encode())
-    os.close(fd)
     try:
-        corpus = open_db("corpus", folder)
-        client = SecClient(user_agent_from_env(), cache=SqliteCache(corpus),
-                           log=SqliteFetchLog(engine))  # fmt: skip
-        wanted_q = quarters_between(date(args.first_year, 1, 1), today)
-        quarters = ensure_quarters(client, engine, wanted_q, now)
-        fetched = [q for q in quarters if q.status == "fetched"]
-        failed = [q for q in quarters if q.status == "failed"]
-        lines.append(f"form index: {len(fetched)} quarters fetched, "
-                     f"{len(quarters) - len(fetched) - len(failed)} already stored, "
-                     f"{len(failed)} failed")  # fmt: skip
-        for q in failed:
-            lines.append(f"  {q.year} Q{q.quarter} failed: {q.detail}")
-        through = data_through(engine)
-        end = date.fromisoformat(through) if through else today
-        lines.append(f"index data through {end}; year-to-date windows end there")
-        windows = breadth_windows(args.first_year, end)
-        print("\n".join(lines), flush=True)
-        for t in themes:
-            phrases = active_phrases(engine, t["theme_id"])
-            for fam in families:
-                compute_theme(client, engine, t["theme_id"], t["key"], phrases, fam, windows,
-                              now, args.max_pages, progress=print)  # fmt: skip
-                lines += report_theme(engine, t, fam)
-        sent = engine.execute(
-            "SELECT count(*) FROM fetch_log WHERE at >= ? AND from_cache = 0", (iso(now),)
-        ).fetchone()[0]
-        lines.append(f"\nSEC requests sent this run: {sent:,}")
-        corpus.close()
-    finally:
-        lock.unlink(missing_ok=True)
+        with run_lock(folder / "refresh.lock", "run_themes"):
+            _sec_part(args, engine, folder, themes, families, now, today, lines)
+    except LockBusy as e:
+        print(f"{e}; try again later.")
+        return 2
 
     logs = ROOT / "logs"
     logs.mkdir(exist_ok=True)
@@ -166,6 +137,37 @@ def main() -> int:
     print("\n".join(lines[-200:]))
     print(f"\nwrote {out.relative_to(ROOT)}")
     return 0
+
+
+def _sec_part(args, engine, folder, themes, families, now, today, lines) -> None:
+    corpus = open_db("corpus", folder)
+    client = SecClient(user_agent_from_env(), cache=SqliteCache(corpus),
+                       log=SqliteFetchLog(engine))  # fmt: skip
+    wanted_q = quarters_between(date(args.first_year, 1, 1), today)
+    quarters = ensure_quarters(client, engine, wanted_q, now)
+    fetched = [q for q in quarters if q.status == "fetched"]
+    failed = [q for q in quarters if q.status == "failed"]
+    lines.append(f"form index: {len(fetched)} quarters fetched, "
+                 f"{len(quarters) - len(fetched) - len(failed)} already stored, "
+                 f"{len(failed)} failed")  # fmt: skip
+    for q in failed:
+        lines.append(f"  {q.year} Q{q.quarter} failed: {q.detail}")
+    through = data_through(engine)
+    end = date.fromisoformat(through) if through else today
+    lines.append(f"index data through {end}; year-to-date windows end there")
+    windows = breadth_windows(args.first_year, end)
+    print("\n".join(lines), flush=True)
+    for t in themes:
+        phrases = active_phrases(engine, t["theme_id"])
+        for fam in families:
+            compute_theme(client, engine, t["theme_id"], t["key"], phrases, fam, windows,
+                          now, args.max_pages, progress=print)  # fmt: skip
+            lines += report_theme(engine, t, fam)
+    sent = engine.execute(
+        "SELECT count(*) FROM fetch_log WHERE at >= ? AND from_cache = 0", (iso(now),)
+    ).fetchone()[0]
+    lines.append(f"\nSEC requests sent this run: {sent:,}")
+    corpus.close()
 
 
 if __name__ == "__main__":
