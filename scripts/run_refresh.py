@@ -138,15 +138,17 @@ def official_step(engine, report) -> str:
     return "\n" + "\n".join(rep.lines) + "\n"
 
 
-def financials_sec_step(client, engine, report) -> str:
+def financials_sec_step(client, engine, report, corpus=None) -> str:
     """M04 SEC part after the official feeds (M04_BUILD_LOG logon constraints, D-M04-70):
     per-new-filing work only (Part 1a: R1 cover pages of new annual reports and of a
     multi-class filer's 10-Qs; Part 2: a confirmed peer's companyfacts when the daily index
-    showed its new periodic filing). Never fails the run."""
+    showed its new periodic filing; Part 3: a new 8-K's text when its item class needs it).
+    Never fails the run."""
     from engine.financials.step import run_sec_part
 
     try:
-        lines = run_sec_part(client, engine, companies_of(report), datetime.now(UTC))
+        lines = run_sec_part(client, engine, companies_of(report), datetime.now(UTC),
+                             corpus=corpus)  # fmt: skip
     except Exception as e:  # must not break the run report
         lines = [f"M04 financials — SEC part: error — {type(e).__name__}: {e}"]
     return "\n" + "\n".join(lines) + "\n"
@@ -282,6 +284,17 @@ def show_info(title: str, text: str) -> None:
         return
 
 
+def m04_event_alerts(engine) -> list[str]:
+    """M04 filing events first seen in the last 24 hours (D-M04-77). Never fails."""
+    try:
+        from engine.financials.events import alert_lines
+
+        since = (datetime.now(UTC) - timedelta(hours=24)).isoformat(timespec="seconds")
+        return alert_lines(engine, since)
+    except Exception:
+        return []
+
+
 def waiting_summary(engine) -> str | None:
     """What waits for the owner after a run (D-M02-12): review items, downloads, overflow."""
     from engine.themes.proposals import overflow
@@ -290,9 +303,14 @@ def waiting_summary(engine) -> str | None:
         "SELECT kind = 'm02_ir_download', count(*) FROM review_queue WHERE resolved_at IS NULL "
         "GROUP BY kind = 'm02_ir_download'").fetchall())  # fmt: skip
     downloads, reviews, waiting = rows.get(1, 0), rows.get(0, 0), len(overflow(engine))
-    if not (downloads or reviews or waiting):
+    alerts = m04_event_alerts(engine)
+    if not (downloads or reviews or waiting or alerts):
         return None
     parts = []
+    if alerts:  # D-M04-77: every new 8-K event, uncapped
+        parts.append("M04 filing events (new):\n" + "\n".join(f"  {a}" for a in alerts[:12])
+                     + (f"\n  … {len(alerts) - 12} more on the Financials tab"
+                        if len(alerts) > 12 else ""))  # fmt: skip
     if downloads:
         parts.append(f"{downloads} call document(s) to download")
     if reviews:
@@ -385,7 +403,7 @@ def _run(args, engine, folder):
     calls += financing_step(client, engine, corpus, report)
     calls += news_step(engine, corpus, report)
     calls += official_step(engine, report)
-    calls += financials_sec_step(client, engine, report)
+    calls += financials_sec_step(client, engine, report, corpus)
     background = args.scheduled or args.if_missed
     season_text, prep = seasonal_step(engine, corpus, report, background)
     calls += season_text

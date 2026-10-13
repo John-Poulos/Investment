@@ -8,6 +8,8 @@
     uv run python scripts/run_financials.py profile --no-sec # local re-run, 0 SEC requests
     uv run python scripts/run_financials.py peers            # Part 2 live check
     uv run python scripts/run_financials.py peers --no-sec   # local re-run, 0 SEC requests
+    uv run python scripts/run_financials.py flags            # Part 3 live check
+    uv run python scripts/run_financials.py flags --no-sec   # local re-run, 0 SEC requests
     uv run python scripts/run_financials.py --list           # the subcommand table
 
 Subcommands: data (1a) · capex (1b) · profile (1c) · peers (2) · flags (3) · gate (4a) ·
@@ -45,6 +47,15 @@ with peer robust z and their signals for every covered company (0 requests); pri
 and MB per peer, n per peer group and the groups below 5, peers with no comparable period,
 peer flags and the peer z on MU's and INTC's revenue rows. `--no-sec` uses stored facts.
 
+`flags` (Part 3): reads the R1 cover pages (dei error-correction flag) of annual reports
+filed from 2023-12-01 not read yet (~26); the 8-K texts of filing events of the last 3
+years whose class needs them (3.01, 4.01, 4.02, 2.04, 1.03); GE's ~8 companyconcept files
+(Round 2's walk); then walks every covered company and GE, fetches at most 35 old filings
+whose text labels steps over tolerance, and the two prior 10-Ks per company (≤ 28; one
+request each, large files dropped from the cache); recomputes walk, events, ratings and the
+`restatement`, `non_reliance`, `restate_delta` signals (0 requests) and prints what the
+owner looks for. `--no-sec` uses stored pages, texts and facts.
+
 Takes data/refresh.lock (one SEC process at a time). Writes
 logs/financials_<subcommand>_<YYYYMMDD-HHMMSS>.txt as it goes, with requests, MB and
 seconds per fetch type, rows added per table and engine.db size before and after; its own
@@ -80,7 +91,7 @@ SUBCOMMANDS = (
     ("cvd", "8a", "CvD assembly, health vote, M04 tab"),
     ("backtest", "8b", "calibration"),
 )
-BUILT = {"data", "capex", "profile", "peers"}
+BUILT = {"data", "capex", "profile", "peers", "flags"}
 NVDA_CIK = "0001045810"
 NVDA_YEARS = range(2013, 2022)  # FY2013–FY2021: capex only under the extension tag
 WDC_CIK = "0000106040"
@@ -1036,6 +1047,307 @@ def run_peers(args, log: Log, folder: Path) -> int:
     return 0
 
 
+# --- flags (Part 3) ------------------------------------------------------------------------
+
+
+GE_CIK = "0000040545"  # Round 2's worked walk (D-M04-16): companyconcept files, walk only
+GE_TAGS = ("Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax", "NetIncomeLoss",
+           "NetIncomeLossAttributableToNoncontrollingInterest",
+           "NetCashProvidedByUsedInOperatingActivities",
+           "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
+           "IncomeLossFromContinuingOperationsBeforeIncomeTaxes"
+           "ExtraordinaryItemsNoncontrollingInterest",
+           "IncomeLossFromContinuingOperationsBeforeIncomeTaxes"
+           "MinorityInterestAndIncomeLossFromEquityMethodInvestments")  # fmt: skip
+FLAGS_TABLES = ("restate_step", "m04_event", "rating_action")
+WALK_BASELINE = 101  # M04_BUILD_LOG Part 3 (Round 2 counted 102)
+
+
+def flags_counts(engine) -> dict[str, int]:
+    return counts(engine) | {
+        t: engine.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in FLAGS_TABLES
+    }
+
+
+def annual_r1_todo(engine, comps: dict[str, str]) -> list:
+    """Annual reports filed from 2023-12-01 whose R1 page (dei error flag) is not read."""
+    from engine.financials.restate import DEI_FROM
+    from engine.financials.step import ANNUAL_COVER_FORMS
+    from engine.sec.cover import r1_done
+
+    todo = []
+    marks = ",".join("?" * len(ANNUAL_COVER_FORMS))
+    for ticker, cik in sorted(comps.items()):
+        for f in engine.execute(
+            f"SELECT f.accession, f.form, f.filed, f.report_date FROM filing f JOIN filing_cik c "
+            f"ON c.accession = f.accession WHERE c.cik = ? AND f.form IN ({marks}) AND "
+            "f.filed >= ? ORDER BY f.filed",
+            (cik, *ANNUAL_COVER_FORMS, DEI_FROM),
+        ):
+            if not r1_done(engine, f["accession"]):
+                todo.append((ticker, cik, f))
+    return todo
+
+
+def ge_concepts(client, engine, log, clog) -> None:
+    """GE's walk inputs: one companyconcept file per tag (stored as facts under GE's CIK)."""
+    from engine.sec.results import NotFound, Ok
+    from engine.sec.xbrl_facts import CONCEPT_URL, store_concept
+
+    t0 = time.monotonic()
+    for tag in GE_TAGS:
+        url = CONCEPT_URL.format(cik=GE_CIK, taxonomy="us-gaap", tag=tag)
+        res = client.get_json(url, ttl_s=30 * 86400)
+        if isinstance(res, NotFound):
+            log(f"  GE us-gaap:{tag}: not found")
+            continue
+        if not isinstance(res, Ok):
+            log(f"  GE us-gaap:{tag}: {res}")
+            continue
+        engine.execute("BEGIN")
+        seen, new = store_concept(engine, GE_CIK, res.data)
+        engine.execute("COMMIT")
+        log(f"  GE us-gaap:{tag}: {seen} facts, {new} new")
+    if clog is not None:
+        clog.seconds["companyconcept"] += time.monotonic() - t0
+
+
+def walk_lines(ticker: str, steps, *, detail: int = 6) -> list[str]:
+    from collections import Counter
+
+    from engine.financials.restate import DEFECTS, LABEL_NAMES, ROUND2_CONCEPTS, money
+
+    if not steps:
+        return [f"  {ticker}: 0 steps"]
+    r2 = [s for s in steps if s.concept in ROUND2_CONCEPTS]
+    labs = Counter(lb.family for s in steps for lb in s.labels if lb.family not in DEFECTS)
+    out = Counter(s.outcome for s in steps)
+    bad = [s for s in steps if s.defect]
+    pat = Counter(s.defect for s in bad)
+    clean_r2 = [s for s in r2 if not s.defect]
+    pats = ", ".join(f"{LABEL_NAMES[k].split(': ')[1]} {v}" for k, v in pat.most_common())
+    line = (f"  {ticker}: {len(steps)} steps from {len({s.new.accession for s in steps})} filings "
+            f"(revenue/NI/CFO {len(r2)} from {len({s.new.accession for s in r2})}); "
+            f"data defects {len(bad)}" + (f" ({pats})" if bad else "")
+            + f", excluding them {len(steps) - len(bad)} (revenue/NI/CFO {len(clean_r2)}); "
+            f"explained {out['explained'] - len(bad)}, watch {out['watch']}, "
+            f"review {out['review']}; labels: "
+            + (", ".join(f"{LABEL_NAMES.get(k, k)} {v}" for k, v in labs.most_common())
+               or "none"))  # fmt: skip
+    lines = [line]
+    for s in bad[: min(detail, 4)]:
+        lb = s.labels[0]
+        lines.append(f"    data defect ({LABEL_NAMES[lb.family].split(': ')[1]}): {s.concept} "
+                     f"{s.period} {money(s.old.value)} → {money(s.new.value)} ({s.new.form} "
+                     f"{s.new.filed} {s.new.accession}); {lb.quote}")  # fmt: skip
+    for s in [s for s in steps if s.outcome == "review"][:detail]:
+        lab = "; ".join(lb.family + (f" {money(lb.amount)}" if lb.amount is not None else "")
+                        for lb in s.labels) or "no label"  # fmt: skip
+        pct = f" ({s.residual_pct * 100:.2f}%)" if s.residual_pct is not None else ""
+        lines.append(f"    review: {s.concept} {s.period} {money(s.old.value)} → "
+                     f"{money(s.new.value)} ({s.new.form} {s.new.filed} {s.new.accession}); "
+                     f"left {money(s.residual)}{pct}; {lab}; {s.text_state}")  # fmt: skip
+    return lines
+
+
+def flags_summary(engine, comps, fp, ge_steps, olds, priors, lf) -> list[str]:
+    """What the owner looks for (M04_BUILD_LOG Part 3 live check)."""
+    import json
+    from collections import Counter
+
+    from engine.financials import restate
+
+    lines = ["=== Summary (what the owner looks for) ==="]
+    total = sum(len(c.steps) for c in fp.companies.values())
+    r2 = [s for c in fp.companies.values() for s in c.steps if s.concept in restate.ROUND2_CONCEPTS]
+    r2c = [s for s in r2 if not s.defect]
+    n_bad = sum(1 for c in fp.companies.values() for s in c.steps if s.defect)
+    lines.append(f"Walk, watchlist: {total} steps from "
+                 f"{len({s.new.accession for c in fp.companies.values() for s in c.steps})} "
+                 f"filings, {n_bad} of them data defects (explained, never review); "
+                 f"revenue/NI/CFO only (Round 2's concepts): {len(r2)} steps from "
+                 f"{len({s.new.accession for s in r2})} filings, excluding data defects "
+                 f"{len(r2c)} from {len({s.new.accession for s in r2c})} (expected about "
+                 f"{WALK_BASELINE}; Round 2 counted 102)")  # fmt: skip
+    for t, c in sorted(fp.companies.items()):
+        if c.error:
+            lines.append(f"  {t}: error — {c.error}")
+        else:
+            lines += walk_lines(t, c.steps)
+    queued = engine.execute("SELECT p.reason, p.status, p.payload FROM m04_proposal p WHERE "
+                            "p.kind = 'm04_restate' ORDER BY p.status, p.first_seen_at"
+                            ).fetchall()  # fmt: skip
+    by = Counter(r["status"] for r in queued)
+    lines.append(f"m04_restate proposals: queued {by['queued']}, overflow {by['overflow']}, "
+                 f"baseline {by['baseline']} (≤ 4 queued expected)")  # fmt: skip
+    for r in queued:
+        if r["status"] != "baseline":
+            p = json.loads(r["payload"] or "{}")
+            lead = restate.lead_label(p.get("labels", []))
+            q = p.get("quote") or (lead["quote"] if lead else "")
+            lines.append(f"  {r['status']}: {r['reason']}" + (f" — “{q[:200]}”" if q else ""))
+    wd = Counter(r["kind"] for r in engine.execute(
+        "SELECT kind FROM review_queue WHERE resolution = 'withdrawn' AND module_id = 'M04'"
+    ))  # fmt: skip
+    lines.append("M04 items withdrawn on recomputation (finding no longer holds): "
+                 + (", ".join(f"{k} {v}" for k, v in sorted(wd.items())) or "none"))  # fmt: skip
+    lines.append("dei error-correction flag (annual reports filed from 2023-12-01; false "
+                 "expected):")  # fmt: skip
+    for t, cik in sorted(comps.items()):
+        fl = [f for f in restate.dei_flags(engine, cik) if f.state != "not required"]
+        nr = sum(1 for f in restate.dei_flags(engine, cik) if f.state == "not required")
+        lines.append(f"  {t}: " + (" · ".join(f"{f.form} {f.filed} {f.state}" for f in fl)
+                                   or "no annual report filed from 2023-12-01")
+                     + (f"; {nr} earlier: not required" if nr else ""))  # fmt: skip
+    ev = [(t, e) for t, c in sorted(fp.companies.items()) for e in c.events]
+    lines.append(f"Filing events, 3 years: {len(ev)} — by class: "
+                 + (", ".join(f"{k} {v}" for k, v in Counter(e.klass for _, e in ev).most_common())
+                    or "none"))  # fmt: skip
+    for t, e in ev:
+        lines.append(f"  {t} {e.filed} {e.label} {e.klass} ({e.state}); {e.note}"
+                     + (f" — “{e.quote[:160]}”" if e.quote else ""))  # fmt: skip
+    evq = Counter(r["status"] for r in engine.execute(
+        "SELECT status FROM m04_proposal WHERE kind = 'm04_event'"))  # fmt: skip
+    lines.append(f"m04_event proposals: queued {evq['queued']}, overflow {evq['overflow']}, "
+                 f"baseline {evq['baseline']}")  # fmt: skip
+    rs = [(t, r) for t, c in sorted(fp.companies.items()) for r in c.ratings]
+    lines.append(f"Rating sentences: {len(rs)}")
+    for t, r in rs[:20]:
+        lines.append(f"  {t} {r.filed} {r.action}" + (f" {r.from_rating or '?'} → {r.to_rating}"
+                                                       if r.to_rating else "")
+                     + f": “{r.quote[:200]}”")  # fmt: skip
+    rq = Counter(r["status"] for r in engine.execute(
+        "SELECT status FROM m04_proposal WHERE kind = 'm04_rating'"))  # fmt: skip
+    lines.append(f"m04_rating proposals: queued {rq['queued']}, overflow {rq['overflow']}, "
+                 f"baseline {rq['baseline']}")  # fmt: skip
+    lines.append("Signals (restatement · non_reliance · restate_delta):")
+    for t, c in sorted(fp.companies.items()):
+        lines.append(f"  {t}: {c.restatement or '—'} · {c.non_reliance or '—'} · "
+                     f"{c.restate_delta or '—'}")  # fmt: skip
+    lines.append("GE walk (Round 2 worked example; expected 142 steps from 45 filings, compare "
+                 "the count excluding data defects):")  # fmt: skip
+    lines += walk_lines("GE", ge_steps, detail=10)
+    lines.append(f"Old filings for walk labels: {olds} (cap {35})")
+    lines.append(f"Prior 10-Ks: {priors} (cap 28)")
+    lines.append(lf.line())
+    lines.append(f"Overflow flushed this run: {fp.flushed}")
+    return lines
+
+
+def flags_run(engine, corpus, comps: dict[str, str], now, log, client=None, clog=None) -> dict:
+    """The `flags` work on open connections (tests inject a scratch DB and a fake client;
+    `client=None` = no SEC requests)."""
+    from engine.financials import events, filings, flags_step, labels, models, restate
+    from engine.financials.profile import full_scope
+    from engine.financials.step import read_covers
+
+    mf = models.load_safe()
+    scope = full_scope(engine, comps)
+    since3 = restate.window_start(now.date())
+    olds = priors = "not run (--no-sec)"
+    if client is not None:
+        todo = annual_r1_todo(engine, comps)
+        log(f"R1 cover pages (dei error-correction flag) of annual reports filed from "
+            f"{restate.DEI_FROM} not read yet: {len(todo)}")  # fmt: skip
+        t0 = time.monotonic()
+        lines, n = read_covers(client, engine, todo, now, budget_s=900)
+        if clog is not None:
+            clog.seconds["R page"] += time.monotonic() - t0
+        log(*lines)
+        log(f"  read {n['cover']}, not a cover {n['not_cover']}, not found {n['not_found']}, "
+            f"failed {n['failed']}, pending {n['pending']}", "")  # fmt: skip
+        wanted = [a for _, c in sorted(comps.items())
+                  for a in events.text_wanted(engine, corpus, c, since3)]  # fmt: skip
+        log(f"8-K texts for filing events (items {', '.join(events.TEXT_ITEMS)}, 3 years) not "
+            f"stored: {len(wanted)}")  # fmt: skip
+        t1 = time.monotonic()
+        filings.fetch_all(client, engine, corpus, wanted, now, log)
+        if clog is not None:
+            clog.seconds["other"] += time.monotonic() - t1
+        log("", "GE companyconcept files (Round 2 walk):")
+        ge_concepts(client, engine, log, clog)
+        log("")
+        # first walk: which changing filings need their text (D-M04-15, ≤ 35)
+        targets, names = [], {}
+        for _, cik in sorted(comps.items()):
+            targets += [a for a in restate.old_filing_targets(restate.walk(engine, corpus, cik))
+                        if a not in targets]  # fmt: skip
+        ge_first = restate.walk(engine, corpus, GE_CIK)
+        for s in ge_first:
+            names[s.new.accession] = (GE_CIK, s.new.form)
+        targets += [a for a in restate.old_filing_targets(ge_first) if a not in targets]
+        pick = targets[: filings.OLD_FILING_CAP]
+        log(f"Old filings to label walk steps (changing filings without stored text, steps "
+            f"over tolerance): {len(targets)}; fetching {len(pick)} (cap "
+            f"{filings.OLD_FILING_CAP})")  # fmt: skip
+        t2 = time.monotonic()
+        got = filings.fetch_all(client, engine, corpus, pick, now, log, names)
+        olds = (f"{sum(1 for f in got if f.outcome == 'stored')} stored of {len(targets)} wanted "
+                f"({len(pick)} tried)")  # fmt: skip
+        pt = filings.prior_targets(engine, corpus, scope, mf)
+        need = [a for p in pt for a in p.accessions if a not in p.stored]
+        need = need[: filings.PRIOR_CAP]
+        n_want = sum(len(p.accessions) for p in pt)
+        log("", f"Prior 10-Ks (two before the latest, D-M04-17): {n_want} wanted, "
+            f"{sum(len(p.stored) for p in pt)} already stored, fetching {len(need)}")  # fmt: skip
+        for p in pt:
+            if p.note:
+                log(f"  {p.ticker}: {p.note}")
+        got2 = filings.fetch_all(client, engine, corpus, need, now, log)
+        priors = (f"{sum(1 for f in got2 if f.outcome == 'stored')} fetched, "
+                  f"{sum(len(p.stored) for p in pt)} already stored, "
+                  f"{sum(len(p.accessions) for p in pt)} wanted")  # fmt: skip
+        if clog is not None:
+            clog.seconds["other"] += time.monotonic() - t2
+        log("")
+    else:
+        log("SEC skipped (--no-sec): stored R1 reads, texts and facts used", "")
+    t3 = time.monotonic()
+    fp = flags_step.flags_pass(engine, corpus, comps, now)
+    ge_steps = restate.walk(engine, corpus, GE_CIK)
+    if ge_steps:
+        engine.execute("BEGIN")
+        restate.store(engine, GE_CIK, "GE", ge_steps, now, queue_items=False)
+        engine.execute("COMMIT")
+    log(f"Walk, events, ratings and signals recomputed for {len(fp.companies)} companies + GE "
+        f"(0 requests, {time.monotonic() - t3:.1f} s)", "")  # fmt: skip
+    log(*flags_summary(engine, comps, fp, ge_steps, olds, priors, labels.read()))
+    return fp.companies
+
+
+def run_flags(args, log: Log, folder: Path) -> int:
+    from engine.store.db import open_db
+    from engine.store.http import SqliteCache, SqliteFetchLog
+
+    engine = open_db("engine", folder)
+    corpus = open_db("corpus", folder, check_same_thread=False)
+    now = datetime.now(UTC)
+    mb_before, before = db_mb(folder), flags_counts(engine)
+    comps = companies(engine)
+    if args.tickers:
+        wanted = {t.strip().upper() for t in args.tickers.split(",")}
+        comps = {t: c for t, c in comps.items() if t in wanted}
+    head = f"run_financials flags · {now:%Y-%m-%d %H:%M} UTC · {len(comps)} companies"
+    log(head + (" · no SEC" if args.no_sec else ""), f"engine.db before: {mb_before:,.1f} MB", "")
+    client = clog = None
+    if not args.no_sec:
+        from engine.sec.client import SecClient, user_agent_from_env
+
+        clog = CountingLog(SqliteFetchLog(engine))
+        client = SecClient(user_agent_from_env(), cache=SqliteCache(corpus), log=clog)
+    flags_run(engine, corpus, comps, now, log, client, clog)
+    if clog is not None:
+        log(*clog.lines())
+    else:
+        log("SEC requests: 0 (--no-sec)")
+    after = flags_counts(engine)
+    log("Rows added per table: " + ", ".join(f"{t} {after[t] - before[t]:+,}" for t in after))
+    log(f"engine.db: {mb_before:,.1f} MB → {db_mb(folder):,.1f} MB")
+    corpus.close()
+    engine.close()
+    return 0
+
+
 def _main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("subcommand", nargs="?", choices=[s for s, _, _ in SUBCOMMANDS])
@@ -1066,6 +1378,8 @@ def _main() -> int:
             return run_profile(args, log, data_dir())
         if args.subcommand == "peers":
             return run_peers(args, log, data_dir())
+        if args.subcommand == "flags":
+            return run_flags(args, log, data_dir())
         return run_data(args, log, data_dir())
     except Exception:
         log("FAILED with a traceback:", traceback.format_exc())

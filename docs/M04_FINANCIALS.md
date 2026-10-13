@@ -266,9 +266,9 @@ Every row: `cik` (key; ticker for display, D-M04-74), one row per timeframe, `va
 | `eq_cash`, `eq_accruals`* | ratio; text not_meaningful | Cash conversion, accruals | ✓ | ✓ | info |
 | `contract_asset_gap`, `deferred_rev_gap` | pp; text flag | GE pattern | ✓ | ✓ | info |
 | `mscore`, `mscore_sgi1`*, `misstate_f` | float; band in text | Screens | info | info | info |
-| `restatement` | text: 4.02 / dei / little_r / escalated | Error event | ✓ | ✓ | ✓ |
-| `non_reliance`* | text | Open 4.02 mark | ✓ | ✓ | ✓ |
-| `restate_delta` | %; text label | Walk step | ✓ | ✓ | info |
+| `restatement` | text: none / little_r / dei / 4.02 / escalated (the most severe in 3 years); sources and counts in `method` | Error event; built Part 3 (as_of = newest evidence, else the latest periodic filing) | ✓ | ✓ | ✓ |
+| `non_reliance` | text: open / none | Open 4.02 mark (`restate.non_reliance(cik, period_end)` gives the row mark later parts show); built Part 3 | ✓ | ✓ | ✓ |
+| `restate_delta` | largest open residual in % of the old value; text: review / watch / explained / none | Walk steps filed in 3 years; an owner "explained" answer releases a step; built Part 3 | ✓ | ✓ | info |
 | `estimate_share` | %; text band | Profit from estimate changes | ✓ | ✓ | info |
 | `special_items` | ratio to operating income; text flag | Recurring "one-time" charges | ✓ | ✓ | info |
 | `net_issuance_yoy` | log change | Issuance | ✓ | ✓ | info |
@@ -382,7 +382,7 @@ D9: how could this data mislead? Build and operations rows (lock, logon load, fi
 | Operating basis | Fair-value, crypto and valuation-allowance swings move NI without cash (Tesla 2023, MSTR 2025); the 21% / 35% tax approximation misses foreign and capital-loss rates | Operating basis; stated rate when given; model tag → `not_meaningful` (D-M04-8, -14; S2.1) |
 | M-score and misstatement score | SGI penalises growers; old cut-offs; > 100 false positives per true one; GMI breaks on negative margins; misstatement `issue` ≈ 1 for large caps and soft assets lift most above 1.00 (Apple 1.30); a growth-based manipulator gets only a note | Screens only; review only when the SGI = 1 M-score > −1.78; misstatement score labelled "approximation", both bands, never a trigger; `issue` unknown → missing (D-M04-14; S2.3, S2.4) |
 | Restatement events | No 8-K for little r; no history before 2004-08-23; dei error flag only on annual reports from 2023 and missed by out-of-period corrections (AVGO's Dec 2023 10-K needs its R1); a 4.01 after a de-SPAC is routine | 4.02 + dei flag + text + one-off old-filing fetch; flag never positive evidence; a 4.01 within 12 months escalates, post-de-SPAC 4.01 without disagreement = information (D-M04-15; S1.11) |
-| Restatement walk | Recasts, adoptions, tag switches, rounding, cash-flow reclassifications and de-SPAC look like errors; a dollar floor hides small corrections; tiny residuals queue (GE +$4M on −$244M) | Ordered labels, then residual > 0.5% and $0.1M → review; first-run baseline (D-M04-16, -71) |
+| Restatement walk | Recasts, adoptions, tag switches, rounding, cash-flow reclassifications and de-SPAC look like errors; a dollar floor hides small corrections; tiny residuals queue (GE +$4M on −$244M); early-XBRL data defects (flip-flops, period mix-ups, consolidated vs segment scope swaps) look like restatements | Data-defect labels first (explained, never review; Part 3 live check 1), then ordered labels, then residual > 0.5% and $0.1M → review; first-run baseline (D-M04-16, -71) |
 | Open 4.02 | CvD, gate and scores read disowned figures; an M01 add can still trigger | Rows marked "inputs under non-reliance" and warn; adds not blocked (D8; D-M04-21) |
 | Estimate changes | Disclosed only when material; income-decreasing ones exist; GE Power's 29% segment share hidden behind 15.5% company share | Bands in both directions on the amount's own tax basis; segment share only when stored or quoted (D-M04-17, -18) |
 | Recurring "one-time" charges | A genuine multi-year restructuring reads as recurrence; a computed non-GAAP gap misstates the company's own | ≥ 3 of 4 years (starting value), shown with its plan; gap quoted, never computed (D-M04-19) |

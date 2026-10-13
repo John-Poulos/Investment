@@ -237,6 +237,9 @@ def create_app(settings: UiSettings) -> FastAPI:
             ctx["m04"] = m04_views.company_view(
                 engine, cik, datetime.now(UTC).date(), corpus, ticker
             )
+            from engine.financials.flags_view import flags_view  # M04 Part 3
+
+            ctx["m04_flags"] = flags_view(engine, corpus, cik, datetime.now(UTC).date())
         elif tab == "insiders":
             ctx["txns"] = services.insider_txns(engine, cik)
         elif tab == "events":

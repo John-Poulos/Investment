@@ -699,7 +699,7 @@ def test_local_pass_runs_the_stage_pass(dbs):
     engine, corpus = dbs
     comps = {"AAPL": load_case(engine, "AAPL")}
     lines = step.run_local_part(engine, corpus, comps, NOW)
-    assert "Parts 1a–2" in lines[0]
+    assert "Parts 1a–3" in lines[0]
     assert "stages computed for 1 companies, 1 stage item(s) opened" in lines[1]
 
 

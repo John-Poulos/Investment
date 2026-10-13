@@ -30,6 +30,6 @@
     {% endfor %}
   </table>
   {% else %}<p class="empty">{% if show == 'resolved' %}No resolved items match.{% else %}Nothing to review{% if kind or ticker %} for this filter{% endif %}.{% endif %}</p>{% endif %}
-  <p class="note">Items come from the guidance parser (unparsed sentences, conflicting values), the Gemini verifier (rejected output), the ticker-map refresh (large changes held) and M02 (theme, phrase, candidate, link and download proposals; at most 10 new M02 items a week, the rest wait on the Themes page) and M04 (life-cycle stages and peer shortlists, answered on the <a href="/m04/setup">M04 setup page</a>; at most 5 M04 judgment items a week, setup items outside that cap). Every action records who, when and your note.</p>
+  <p class="note">Items come from the guidance parser (unparsed sentences, conflicting values), the Gemini verifier (rejected output), the ticker-map refresh (large changes held) and M02 (theme, phrase, candidate, link and download proposals; at most 10 new M02 items a week, the rest wait on the Themes page) and M04 (life-cycle stages and peer shortlists, answered on the <a href="/m04/setup">M04 setup page</a>; filing events, restatement steps and rating sentences, answered here; at most 5 M04 judgment items a week, setup items outside that cap). Every action records who, when and your note.</p>
 </main>
 {% endblock %}

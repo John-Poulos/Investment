@@ -1,0 +1,4 @@
+{"cik":40545,"taxonomy":"us-gaap","tag":"NetCashProvidedByUsedInOperatingActivitiesContinuingOperations","label":"NetCashProvidedByUsedInOperatingActivitiesContinuingOperations","description":"Hand-built companyconcept fixture (see README).","entityName":"GENERAL ELECTRIC CO","units":{"USD":[
+{"start":"2016-01-01","end":"2016-12-31","val":-244000000,"accn":"0000040545-18-000014","fy":2017,"fp":"FY","form":"10-K","filed":"2018-02-23"},
+{"start":"2016-01-01","end":"2016-12-31","val":1160000000,"accn":"0000040545-19-900010","fy":2018,"fp":"FY","form":"10-K","filed":"2019-02-26"}
+]}}

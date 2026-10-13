@@ -1,0 +1,52 @@
+{# M04 Part 3 sections (owner's mock-up 2026-10-12): filing events, restatement walk, credit ratings, label file. #}
+{% if m04_flags %}{% set fl = m04_flags %}
+<h2>Filing events (3 years) <span class="muted">(M04; 8-K items and late filings)</span></h2>
+{% if fl.events %}
+<table class="data">
+  <tr><th>Filed</th><th>8-K item</th><th>Class</th><th>State</th><th>Clears when</th></tr>
+  {% for e in fl.events %}
+  <tr><td style="white-space:nowrap">{{ e.filed }}</td>
+    <td><span title="{{ e.accession }}">{{ e.item }}</span></td>
+    <td><span title="{{ e.note }}{% if e.quote %} — “{{ e.quote }}”{% endif %}">{{ e.klass }}</span></td>
+    <td>{% if e.state in ('fail', 'warn') %}<b>{{ e.state }}</b>{% else %}<span class="muted">{{ e.state }}</span>{% endif %}{% if e.cleared %} <span class="muted">{{ e.cleared }}</span>{% endif %}</td>
+    <td class="muted">{{ e.clears_when }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}<p class="empty">No 8-K item 1.02, 1.03, 2.04, 2.06, 3.01, 4.01 or 4.02 and no NT filing in the last 3 years.</p>{% endif %}
+<p class="note">{{ fl.events_note }} Hover a class for the deciding sentence.</p>
+
+<h2>Restatement walk <span class="muted">(M04; {{ fl.walk_counts }})</span></h2>
+{% if fl.steps %}
+<table class="data">
+  <tr><th>Filed</th><th>Value</th><th>Period</th><th>Step (old → new)</th><th>First → latest</th><th>Label</th><th class="num">Left over</th><th>Outcome</th></tr>
+  {% for s in fl.steps %}
+  <tr><td style="white-space:nowrap"><span title="{{ s.accession }}">{{ s.filed }}</span></td>
+    <td>{{ s.concept }}</td><td class="muted">{{ s.period }}</td>
+    <td>{{ s.change }}</td><td class="muted">{{ s.first_latest }}</td>
+    <td><span title="{{ s.labels_title }}">{{ s.labels }}</span></td>
+    <td class="num">{{ s.left }}</td>
+    <td>{% if s.outcome == 'review' %}<b>review</b>{% else %}{{ s.outcome }}{% endif %}{% if s.baseline %} <span class="muted">(baseline)</span>{% endif %}{% if s.owner %} <span class="muted">· you: {{ s.owner }}</span>{% endif %}</td></tr>
+  {% endfor %}
+</table>
+{% else %}<p class="empty">No step: no stored value was changed by a later periodic filing (or the walk has not run yet).</p>{% endif %}
+<ul class="note">{% for line in fl.sources %}<li>{{ line }}</li>{% endfor %}</ul>
+<table class="data">
+  <tr><th>Signal (latest)</th><th>Value</th><th>Method</th></tr>
+  {% for name, value, method in fl.signals %}<tr><td>{{ name }}</td><td>{{ value }}</td><td class="muted">{{ method }}</td></tr>{% endfor %}
+</table>
+<p class="note">{{ fl.walk_note }} Hover a label for its quote and document.</p>
+
+<h2>Credit ratings <span class="muted">(M04; text only)</span></h2>
+{% if fl.ratings %}
+<table class="data">
+  <tr><th>Date</th><th>Company</th><th>Action</th><th>Quote</th></tr>
+  {% for r in fl.ratings %}
+  <tr><td style="white-space:nowrap">{{ r['filed'] or '—' }}</td><td>{{ ticker }}</td>
+    <td>{{ r['action'] | replace('_', ' ') }}{% if r['to_rating'] %} <span class="muted">{{ r['from_rating'] or '?' }} → {{ r['to_rating'] }}</span>{% endif %}{% if r['review'] %} <b>review</b>{% endif %}</td>
+    <td>“{{ r['quote'] }}” <span class="muted">({{ r['accession'] }})</span></td></tr>
+  {% endfor %}
+</table>
+{% else %}<p class="empty">No rating sentence in the stored 8-Ks and releases.</p>{% endif %}
+<p class="note">{{ fl.ratings_note }}</p>
+<p class="note">{{ fl.labels_note }}</p>
+{% endif %}

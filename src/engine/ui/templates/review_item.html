@@ -124,6 +124,32 @@
   {% set p = it.payload %}
   <p>SIC {{ p.sic or '—' }} · listed {{ p.listed }} · active {{ p.active }}{% if p.note %} · {{ p.note }}{% endif %}</p>
   <p class="muted">Shortlist: {{ (p.shortlist or []) | join(', ') or 'none' }}. Strike, add and confirm on the <a href="/m04/setup#peer-{{ it.item_id }}">M04 setup page</a> (D-M04-4).</p>
+  {% elif it.kind == 'm04_event' %}
+  {% set p = it.payload %}
+  <table class="data">
+    <tr><th>Filing</th><td>{{ p.form }} {{ p.accession }} filed {{ p.filed }} · item {{ p.item }}</td></tr>
+    <tr><th>Class and state</th><td>{{ (p['class'] or '') | replace('_', ' ') }} · <b>{{ p.state }}</b></td></tr>
+    <tr><th>Clears when</th><td>{{ p.clears_when }}</td></tr>
+    <tr><th>Why</th><td>{{ p.note }}</td></tr>
+  </table>
+  {% if p.quote %}<div class="quote">“{{ p.quote }}”</div>{% endif %}
+  <p class="muted"><b>Resolve</b> clears a fail or warn with your note as the resolution (a 2.04 clears only once a later periodic filing exists); <b>Noted</b> closes the item and leaves the state as it is (D-M04-37). See the guide above for examples.</p>
+  {% elif it.kind == 'm04_restate' %}
+  {% set p = it.payload %}
+  <table class="data">
+    <tr><th>Value</th><td>{{ (p.concept or '') | replace('_', ' ') }} {{ p.period }}</td></tr>
+    <tr><th>Step</th><td>{{ p.from_text }} ({{ p.from_accession }}, {{ p.from_filed }}) → {{ p.to_text }} ({{ p.accession }}, {{ p.to_filed }})</td></tr>
+    <tr><th>Left over</th><td>{{ p.residual_text }}{% if p.residual_pct is not none %} ({{ '%.2f' | format(p.residual_pct * 100) }}% of the old value){% endif %} · {{ p.text_state }}</td></tr>
+  </table>
+  {% if p.quote %}<h3 class="sub">Deciding sentence <span class="muted">({{ p.quote_label }}{% if p.quote_doc %}, {{ p.quote_doc }}{% endif %})</span></h3><div class="quote">“{{ p.quote }}”</div>{% endif %}
+  <h3 class="sub">Labels</h3>
+  {% for lb in p.labels or [] %}<div style="margin-bottom:8px">{{ (p.label_texts or [])[loop.index0] or lb.name }}{% if lb.quote %} <span class="muted">({{ lb.doc }})</span><div class="quote">“{{ lb.quote }}”</div>{% endif %}</div>{% else %}<p class="muted">No label applied.</p>{% endfor %}
+  <p class="muted"><b>Explained</b>: the change is a recast, adoption or reclassification (the step stops counting in <code>restate_delta</code>); <b>Error</b>: a correction of an error (little r; it counts in <code>restatement</code>). D-M04-15, -16.</p>
+  {% elif it.kind == 'm04_rating' %}
+  {% set p = it.payload %}
+  <p>{{ (p.action or '') | replace('_', ' ') }}{% if p.to %} {{ p['from'] or '?' }} → {{ p.to }}{% endif %}{% if p.agency %} · {{ p.agency }}{% endif %} · {{ p.filed }}</p>
+  <div class="quote">“{{ p.quote }}”</div>
+  <p class="muted">Information (S3.7, DS17); <b>Noted</b> changes no data.</p>
   {% elif it.kind.startswith('m02_') %}
   {% if it.payload.earlier %}<div class="warnbox">Shown before and {{ it.payload.earlier.resolution }}ed{% if it.payload.earlier.note %} — your note: “{{ it.payload.earlier.note }}”{% endif %}. Back because it changed materially (distinct filers doubled or money-flow evidence appeared).</div>{% endif %}
   <table class="data">
@@ -164,7 +190,7 @@
   <p><a class="btn" href="/review/{{ it.item_id }}/pickup">I downloaded it — find the newest PDF in Downloads</a></p>
   {% endif %}
   {% endif %}
-  {% if it.kind.startswith('m04_') %}
+  {% if it.kind in ('m04_stage', 'm04_peer') %}
   <h3 class="sub">Resolve</h3>
   <p><a class="btn" href="/m04/setup{{ '#stages' if it.kind == 'm04_stage' else '#peer-' ~ it.item_id }}">Open on the M04 setup page</a></p>
   {% else %}
@@ -193,7 +219,7 @@
     {% if it.kind == 'm02_13f_issuer' and a == 'map' %}<input name="target" size="12" placeholder="ticker or CIK" required>{% endif %}
     <input name="note" size="40" placeholder="Note (optional)">
     {% if a in ('wrong', 'missed') and it.kind.startswith('guidance_') %}{% set fix_default = {'metric': it.payload.metric, 'period': it.payload.period} %}{% include "_correction.html" %}{% endif %}
-    <button class="btn" type="submit">{{ {'dismiss': 'Dismiss', 'keep_stored': 'Keep stored value', 'keep_other': 'Keep other value', 'acknowledge': 'Acknowledge', 'approve': 'Apply at next nightly run', 'keep_map': 'Keep stored map', 'accept': 'Accept', 'reject': 'Reject', 'confirm': 'Confirm', 'flip': 'Confirm, direction flipped', 'downloaded': 'Downloaded', 'promote': 'Promote to watchlist', 'keep_tracked': 'Keep tracked', 'keep': 'Keep tracking', 'remove': 'Stop tracking', 'correct': 'Correct — no change needed', 'wrong': 'Wrong — remove the row', 'no_guidance': 'Not guidance (right to skip)', 'missed': 'Missed — it is guidance', 'debt_raised': 'Debt raised', 'debt_repaid': 'Debt repaid', 'equity_issued': 'Equity issued', 'buybacks': 'Buybacks', 'dividends': 'Dividends', 'other': 'Other financing', 'ignore': 'Ignore (not financing)', 'noted': 'Noted', 'map': 'Map to this company', 'keep_record': 'Keep — the record is right', 'wrong_record': 'Wrong — remove the record'}.get(a, a) }}</button>
+    <button class="btn" type="submit">{{ {'dismiss': 'Dismiss', 'keep_stored': 'Keep stored value', 'keep_other': 'Keep other value', 'acknowledge': 'Acknowledge', 'approve': 'Apply at next nightly run', 'keep_map': 'Keep stored map', 'accept': 'Accept', 'reject': 'Reject', 'confirm': 'Confirm', 'flip': 'Confirm, direction flipped', 'downloaded': 'Downloaded', 'promote': 'Promote to watchlist', 'keep_tracked': 'Keep tracked', 'keep': 'Keep tracking', 'remove': 'Stop tracking', 'correct': 'Correct — no change needed', 'wrong': 'Wrong — remove the row', 'no_guidance': 'Not guidance (right to skip)', 'missed': 'Missed — it is guidance', 'debt_raised': 'Debt raised', 'debt_repaid': 'Debt repaid', 'equity_issued': 'Equity issued', 'buybacks': 'Buybacks', 'dividends': 'Dividends', 'other': 'Other financing', 'ignore': 'Ignore (not financing)', 'noted': 'Noted', 'map': 'Map to this company', 'keep_record': 'Keep — the record is right', 'wrong_record': 'Wrong — remove the record', 'resolve': 'Resolve', 'explained': 'Explained (recast, not an error)', 'error': 'Error (little r)'}.get(a, a) }}</button>
   </form>
   {% endfor %}
   </div>

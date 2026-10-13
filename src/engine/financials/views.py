@@ -96,7 +96,6 @@ LEGEND = (
 )
 
 STILL_TO_COME = (
-    ("Restatements, 8-K filing events, ratings", "3"),
     ("Survival gate: runway, maturity wall, distress score", "4a"),
     ("Survival gate: going-concern and covenant text", "4b"),
     ("Dilution and financing pressure", "5"),
