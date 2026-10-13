@@ -1013,3 +1013,15 @@ def test_label_file_episodes_carry_no_group():
     path = Path(__file__).resolve().parent.parent / "config" / "m04_labels.toml"
     eps = tomllib.loads(path.read_text(encoding="utf-8"))["episode"]
     assert eps and all("group" not in e for e in eps)
+
+
+def test_government_contracts_type_counts_as_customer_concentration():
+    from engine.financials.units_view import customer_reason
+
+    gov = (
+        "ConcentrationRiskByBenchmarkAxis=RevenueFromContractWithCustomerMember;"
+        "ConcentrationRiskByTypeAxis=USGovernmentContractsMember"
+    )
+    assert customer_reason("ConcentrationRiskPercentage1", gov) == ""
+    credit = "ConcentrationRiskByTypeAxis=CreditConcentrationRiskMember"
+    assert customer_reason("ConcentrationRiskPercentage1", credit).startswith("risk type")

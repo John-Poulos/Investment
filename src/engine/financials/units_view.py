@@ -111,7 +111,9 @@ def customer_reason(concept: str, dims: str) -> str:
         or any(w in bench for w in ("cost", "receivable", "purchase", "payable", "inventor"))
     ):
         return f"benchmark {d['ConcentrationRiskByBenchmarkAxis']}"
-    if typ and "customer" not in typ:
+    # A government-contracts type (Boeing: USGovernmentContractsMember, 35% of revenue,
+    # re-run 2) is a customer concentration too: the government is the customer.
+    if typ and "customer" not in typ and "government" not in typ:
         return f"risk type {d['ConcentrationRiskByTypeAxis']}"
     return ""
 
