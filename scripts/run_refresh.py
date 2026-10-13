@@ -272,6 +272,39 @@ def ownership_local_step(engine, report) -> str:
     return "\n" + "\n".join(lines) + "\n"
 
 
+def managers_sec_step(client, engine, report) -> str:
+    """M07 Part 2 SEC part after the M04 SEC parts (D-SEC-28): followed managers whose new
+    13F-HR the daily index listed — 1 submissions request + 3 per filing, 0 when none.
+    Never fails the run."""
+    from engine.ownership.managers import run_sec_part
+
+    try:
+        lines = run_sec_part(client, engine, ours_of(report), datetime.now(UTC))
+    except Exception as e:  # must not break the run report
+        lines = [f"M07 followed managers — SEC part: error — {type(e).__name__}: {e}"]
+    return "\n" + "\n".join(lines) + "\n"
+
+
+def managers_local_step(engine, report) -> str:
+    """M07 Part 2 local pass after the insiders pass (0 SEC requests): `followed_manager_13f`
+    for every covered company when a followed manager's stored 13F rows changed. Never fails."""
+    from engine.ownership.managers import run_local_part
+
+    try:
+        lines = run_local_part(engine, ours_of(report), datetime.now(UTC))
+    except Exception as e:  # must not break the run report
+        lines = [f"M07 followed managers — local pass: error — {type(e).__name__}: {e}"]
+    return "\n" + "\n".join(lines) + "\n"
+
+
+def ours_of(report) -> dict[str, str]:
+    """cik → ticker of the core, promoted and tracked names (the 13F keep-filter's companies)."""
+    out: dict[str, str] = {}
+    for ticker, cik in companies_of(report).items():
+        out.setdefault(cik, ticker)
+    return out
+
+
 def technicals_local_step(engine, report, corpus=None) -> str:
     """M09 Part 1 local pass (0 requests beyond SPY's daily price in `prices_step`), after
     the M04 local passes so the gate, filing status and CvD are current: band_z, price_band,
@@ -558,6 +591,7 @@ def _run(args, engine, folder):
     calls += official_step(engine, report)
     calls += financials_sec_step(client, engine, report, corpus)
     calls += financials_units_sec_step(client, engine, corpus, report)
+    calls += managers_sec_step(client, engine, report)  # M07 Part 2: new 13F-HRs only
     background = args.scheduled or args.if_missed
     season_text, prep = seasonal_step(engine, corpus, report, background)
     calls += season_text
@@ -570,6 +604,7 @@ def _run(args, engine, folder):
     prices += financials_quality_local_step(engine, corpus, report)
     prices += financials_cvd_local_step(engine, report)
     prices += ownership_local_step(engine, report)  # M07 after the M04 local steps
+    prices += managers_local_step(engine, report)  # M07 Part 2 (followed managers)
     prices += technicals_local_step(engine, report, corpus)  # 6-K releases read from corpus
     text = format_report(report) + calls + prices
     logs = ROOT / "logs"

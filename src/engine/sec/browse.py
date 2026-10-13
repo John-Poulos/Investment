@@ -82,6 +82,33 @@ def browse_sic(client: SecClient, sic: str, *, page_cap: int = PAGE_CAP) -> SicB
     return out
 
 
+_ONE = re.compile(
+    r'class="companyName">\s*([^<]+?)\s*<acronym[^>]*>CIK</acronym>#?:?\s*<a[^>]*>\s*(\d{10})',
+    re.IGNORECASE,
+)
+
+
+def parse_company_search(page: str) -> list[tuple[str, str]]:
+    """(cik, name) rows of a company-name search: the company list, or — when EDGAR finds one
+    company — that company's filing page (its `companyName` header)."""
+    rows = parse_browse(page)
+    if rows:
+        return rows
+    return [(cik, " ".join(html.unescape(name).split())) for name, cik in _ONE.findall(page)]
+
+
+def company_search(client: SecClient, name: str, form: str = "13F-HR"):
+    """One EDGAR company-name search (M07 Part 2, D-SEC-28: a followed manager's filer CIK
+    when the config leaves it empty) → Ok([(cik, name)]) or the failed result."""
+    params = {"action": "getcompany", "company": name, "type": form, "dateb": "",
+              "owner": "include", "count": "40"}  # fmt: skip
+    res = client.get_text(BROWSE_URL, params, ttl_s=TTL_S)
+    if not isinstance(res, Ok):
+        return res
+    return Ok(parse_company_search(res.data), source_ref=BROWSE_URL, fetched_at=res.fetched_at,
+              from_cache=res.from_cache)  # fmt: skip
+
+
 def store(engine: sqlite3.Connection, b: SicBrowse, now: datetime) -> None:
     """Replace the SIC's stored listing and its one browse row (rows from the earlier
     per-form browses are dropped with it). Caller owns the transaction."""

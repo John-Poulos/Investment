@@ -302,6 +302,9 @@ def create_app(settings: UiSettings) -> FastAPI:
 
             ctx["m07"] = m07_views.company_view(engine, cik, datetime.now(UTC).date())
             ctx["txns"] = ctx["m07"].txns
+            from engine.ownership import managers as m07_managers  # M07 Part 2 (D-UI-34)
+
+            ctx["m07_managers"] = m07_managers.panel(engine, cik, datetime.now(UTC).date())
         elif tab == "technicals":  # M09 Part 2 (D-UI-35): computed from stored bars, no writes
             from engine.technicals import views as m09_views
 

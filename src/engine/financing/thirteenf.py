@@ -10,6 +10,12 @@ before 2023-01-03 and dollars after. One issuer can have several rows (other man
 Checks before a row is stored automatically (else held for review, `m02_fin_check`):
 the filing's row sum matches its total; shares no more than 10× the prior quarter's;
 value within 25% of shares × the stored closing price when the issuer has prices.
+
+Followed managers (M07 Part 2, D-SEC-28): `read_filing` / `store_rows` take a `keep`
+filter, so a manager's rows of companies that are not ours are never stored (and never
+queued as `m02_13f_issuer`); a manager's filer CIK is recorded in `refresh_state` as
+`m07_manager:<cik>` and M02's views and review items skip those filers (`not_followed`,
+D-M02-62).
 """
 
 from __future__ import annotations
@@ -17,6 +23,7 @@ from __future__ import annotations
 import sqlite3
 import xml.etree.ElementTree as ET
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
@@ -31,6 +38,31 @@ QUARTERS = 8  # first run: last 8 quarters (D-M02-45 (1))
 DOC_TTL_S = 3650 * 86400  # filings are immutable
 PRICE_TOLERANCE = 0.25
 JUMP = 10
+# A followed manager's filer CIK (M07, D-SEC-28): refresh_state name `m07_manager:<cik>`.
+FOLLOWED_STATE = "m07_manager:"
+
+
+def not_followed(column: str = "filer_cik") -> str:
+    """SQL condition: the filer is not a followed manager (D-M02-62: M02's K1 edges, Money
+    flow rows and review items skip the managers M07 follows)."""
+    n = len(FOLLOWED_STATE)
+    return (f"{column} NOT IN (SELECT substr(name, {n + 1}) FROM refresh_state WHERE "
+            f"substr(name, 1, {n}) = '{FOLLOWED_STATE}')")  # fmt: skip
+
+
+def followed_filers(engine: sqlite3.Connection) -> set[str]:
+    n = len(FOLLOWED_STATE)
+    return {
+        r[0]
+        for r in engine.execute(
+            f"SELECT substr(name, {n + 1}) FROM refresh_state WHERE substr(name, 1, {n}) = ?",
+            (FOLLOWED_STATE,),
+        )
+    }
+
+
+# keep(row, issuer_cik, how) → None = not stored; else (issuer_cik, how, note) to store
+Keep = Callable[["Row", "str | None", str], "tuple[str | None, str, str | None] | None"]
 
 
 @dataclass(frozen=True)
@@ -61,6 +93,7 @@ class Report13F:
     unresolved: int = 0
     re_resolved: int = 0
     problems: list[str] = field(default_factory=list)
+    skipped: list[Row] = field(default_factory=list)  # rows a keep filter left out
 
     def lines(self) -> list[str]:
         out = [
@@ -189,8 +222,10 @@ def read_filing(
     names: issuers.Names,
     now: datetime,
     rep: Report13F,
+    keep: Keep | None = None,
 ) -> bool:
-    """Read one filing → False when SEC throttled us (stop the batch)."""
+    """Read one filing → False when SEC throttled us (stop the batch). `keep` filters the
+    rows before they are stored (followed managers, D-SEC-28)."""
     idx = fetch_filing_index(client, cik, f["accession"])
     if isinstance(idx, Failed) and idx.throttled:
         rep.problems.append(f"{f['accession']}: throttled")
@@ -237,7 +272,7 @@ def read_filing(
         row_sum=row_sum,
     )
     rep.read += 1
-    store_rows(engine, cik, f, cover, rows, names, now, rep, sum_ok)
+    store_rows(engine, cik, f, cover, rows, names, now, rep, sum_ok, keep=keep)
     return True
 
 
@@ -336,11 +371,22 @@ def store_rows(
     now: datetime,
     rep: Report13F,
     sum_ok: bool = True,
+    *,
+    keep: Keep | None = None,
 ) -> None:
     fname = filer_name(engine, cik)
     for r in rows:
         issuer_cik, how = issuers.resolve(engine, names, r.cusip, r.issuer)
+        extra = None
+        if keep is not None:
+            kept = keep(r, issuer_cik, how)
+            if kept is None:
+                rep.skipped.append(r)
+                continue
+            issuer_cik, how, extra = kept
         notes = [] if sum_ok else ["the filing's rows do not add up to its stated total"]
+        if extra and issuer_cik is None:
+            notes.append(extra)  # unresolved: why it was kept (shown with the CUSIP)
         notes += checks(engine, cik, r, issuer_cik, cover.period)
         if suppressed(engine, f"13F:{cik}:{r.cusip[:6]}"):
             status = "wrong"

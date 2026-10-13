@@ -1,0 +1,36 @@
+{# M07 Part 2 (D-UI-34): Followed managers (lagged), built from stored 13F-HR rows. #}
+{% set fm = m07_managers %}
+<h2 style="margin-top:16px">Followed managers (lagged)</h2>
+<p class="note">{{ fm.lag_note }} Managers: <code>config/m07_managers.toml</code>.</p>
+{% if fm.managers %}
+<table class="data">
+  <tr><th>Manager</th><th>CIK</th><th>13F-HR stored</th></tr>
+  {% for g in fm.managers %}
+  <tr><td>{{ g.name }}</td><td class="muted">{{ g.cik or '—' }}</td><td class="muted">{{ g.status }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}<p class="empty">No followed managers configured.</p>{% endif %}
+{% for p in fm.problems %}<p class="muted">Manager list: {{ p }}</p>{% endfor %}
+{% if fm.rows %}
+<div style="overflow-x:auto">
+<table class="data">
+  <tr><th>Manager</th><th>Quarter</th><th>Filed</th><th class="num">Shares</th><th class="num">Value</th><th class="num">% of shares outstanding</th><th>Reading</th><th>Change</th><th>Filing</th></tr>
+  {% for r in fm.rows %}
+  <tr>
+    <td>{{ r.manager }}</td>
+    <td>{{ r.period }}</td>
+    <td>{{ r.filed }} <span class="muted">({{ r.lag }} days later)</span></td>
+    <td class="num">{{ r.shares }}</td>
+    <td class="num">{{ r.value }}</td>
+    <td class="num">{{ r.pct }}</td>
+    <td class="{% if r.text in ('new', 'add') %}buy{% elif r.text in ('cut', 'exit') %}sell{% endif %}">{{ r.text }}</td>
+    <td class="muted">{{ r.change }}</td>
+    <td><a href="{{ sec_filing_url(r.filer, r.accession) }}" target="_blank" rel="noopener">{{ r.accession }}</a></td>
+  </tr>
+  {% if r.notes %}
+  <tr><td></td><td colspan="8" class="muted">{% for x in r.notes %}{{ x }}{% if not loop.last %}; {% endif %}{% endfor %}</td></tr>
+  {% endif %}
+  {% endfor %}
+</table>
+</div>
+{% elif fm.managers %}<p class="empty">No followed manager held this company in the stored quarters.</p>{% endif %}
