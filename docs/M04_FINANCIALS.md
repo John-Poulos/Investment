@@ -71,6 +71,7 @@ CvD runs when the latest filed quarter shows any of: TTM revenue down year over 
 ### Peer statistics
 - Robust z = (company − peer median) ÷ scale. Scale: IQR ÷ 1.35 for ≥ 10 peers; MAD × 1.4826 × b_n for 5–9 peers; fewer than 5 → fixed-gap fallback, z information only. Drop any peer with |z| > 3 once and recompute (D-M04-52). Method, n and b_n stored; the gap in pp always shown (S6.2).
 - A peer period counts only inside the offset tolerance (D-M04-5) and from its filing date; otherwise "awaiting peer filing" or "no comparable period" (missing), which counts toward the < 5 fallback (S6.1). 2-quarter persistence kept.
+- **Built (Part 2):** `financials/stats.py` (b_n = 1.206, 1.200, 1.140, 1.129, 1.107 for n = 5…9 from revss; IQR type 7 at ≥ 10; drop once only with ≥ 5 peers; below 5 the information z uses MAD × 1.4826 × b_n with b_2…b_4 and the spread of four methods is shown), `financials/peers.py` offsets (closest end within ±45 d for 12-month flows, ±40 d for instants; "awaiting peer filing" when the peer's latest period ends before the company's and its next quarter would land inside), 53-week flag (12-month period ≥ 370 days), acquisition-year flag (cash for businesses or a goodwill rise ≥ 10%† of the 12-month revenue; AMD FY2022), `financials/peer_z.py` (every core trend row computed the same way for company and peers; 12-month rows on the latest TTM or fiscal year, CAGR and FCF growth on the latest fiscal year, ROIC at fiscal year ends ±40 d; capex rows on the PP&E tag only, NVDA and AMZN excluded every year), `financials/peer_facts.py` (trimmed companyfacts per confirmed SEC peer). No peer set → "peers not confirmed on the M04 setup page"; an empty confirmed set → "no peers confirmed" (not the fallback). The owner can reopen a confirmed set from the setup page ("Edit peers"); removed peers keep their facts but leave every comparison.
 
 ### Q1 — Is the slump shared?
 | Indicator | Shared (cycle) | Company-specific | Neutral / missing | Source |
@@ -284,7 +285,7 @@ Every row: `cik` (key; ticker for display, D-M04-74), one row per timeframe, `va
 | `gm_delta_pp`, `gm_delta_pp_ex_items`, `inventory_sales_gap` | pp | Margin and inventory | ✓ | ✓ | info |
 | `unit_gp`, `unit_gp_ex_credits`, `unit_gp_trend`, `unit_cost_vs_cumulative`, `rev_per_unit_vs_cost`, `units_falling_burn`* | $ per unit; text flag | Young unit economics | ✓ | info | info |
 | `production_gap`, `credit_share_of_gp`, `sga_vs_revenue` | %; ratio; text flag | Young / growth flags | ✓ | ✓ | info |
-| `rev_yoy`, `rev_cagr3`, `fcf_growth`, `fcf_growth_oe`, `gm_trend_pp`, `opex_vs_sales` | ratio (growth) / pp; text `not_meaningful`; own history in `method`, peer z from Part 2 | Core trends; built Part 1b | info | info | info |
+| `rev_yoy`, `rev_cagr3`, `fcf_growth`, `fcf_growth_oe`, `gm_trend_pp`, `opex_vs_sales` | ratio (growth) / pp; text `not_meaningful`; own history and peer robust z (n, method, gap) in `method` | Core trends; built Part 1b, peer z Part 2 | info | info | info |
 | `capex_maint`, `capex_growth`, `owner_earnings` | $; rung and total-capex tag in `method` | `capex_split` context, latest fiscal year; built Part 1b | info | info | info |
 
 ## Review queue (D8)

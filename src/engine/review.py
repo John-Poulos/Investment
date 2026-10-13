@@ -279,6 +279,41 @@ def m04_override(
     return m04_action(engine, item[0], "confirm", note, by, now, target=chosen)
 
 
+def m04_peer_reopen(
+    engine: sqlite3.Connection, cik: str, ticker: str | None, note: str, by: str, now: datetime
+) -> int:
+    """ "Edit peers" on a confirmed set (M04 Part 2, owner): a new `m04_peer` item (setup
+    kind, outside the weekly cap) reopens the set; the setup page shows it with the confirmed
+    names ticked and the other shortlist names unticked. Re-confirming replaces the set;
+    removed peers keep their stored facts but leave every comparison. Returns the item id."""
+    from engine.financials import peers
+
+    open_ = engine.execute("SELECT item_id FROM review_queue WHERE kind = 'm04_peer' AND cik = ? "
+                           "AND resolved_at IS NULL", (cik,)).fetchone()  # fmt: skip
+    if open_ is not None:
+        raise ReviewError(f"Peer item {open_[0]} is already open for {ticker or cik}.")
+    group = engine.execute("SELECT 1 FROM peer_group WHERE name = ?",
+                           (f"M04 peers {cik}",)).fetchone()  # fmt: skip
+    if group is None:
+        raise ReviewError(f"{ticker or cik} has no confirmed peer set to edit.")
+    names = [r["name"] for r in peers.confirmed_peers(engine, cik)]
+    payload = {"ticker": ticker, "reopened": True, "confirmed": names,
+               "note": note or "owner: edit confirmed peers"}  # fmt: skip
+    reason = (f"{ticker or cik}: edit confirmed peers ({len(names)} confirmed; reopened by "
+              f"{by})" + (f" — {note}" if note else ""))  # fmt: skip
+    engine.execute("BEGIN")
+    try:
+        m04_queue.propose(engine, "m04_peer", f"{cik}:reopen:{now.isoformat()}", reason, payload,
+                          now, cik=cik, setup=True)  # fmt: skip
+        engine.execute("COMMIT")
+    except Exception:
+        engine.execute("ROLLBACK")
+        raise
+    return engine.execute("SELECT item_id FROM review_queue WHERE kind = 'm04_peer' AND cik = ? "
+                          "AND resolved_at IS NULL ORDER BY item_id DESC LIMIT 1",
+                          (cik,)).fetchone()[0]  # fmt: skip
+
+
 # --- guidance accuracy checks (D-M02-24) ------------------------------------------------
 
 LABEL_ACTIONS = ("correct", "wrong", "no_guidance", "missed")

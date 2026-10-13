@@ -1,0 +1,151 @@
+{
+ "cik": 2488,
+ "entityName": "ADVANCED MICRO DEVICES INC",
+ "facts": {
+  "us-gaap": {
+   "RevenueFromContractWithCustomerExcludingAssessedTax": {
+    "label": "RevenueFromContractWithCustomerExcludingAssessedTax",
+    "units": {
+     "USD": [
+      {
+       "start": "2019-12-29",
+       "end": "2020-12-26",
+       "val": 9763000000,
+       "accn": "0000002488-20-900000",
+       "fy": 2020,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2021-02-14"
+      },
+      {
+       "start": "2020-12-27",
+       "end": "2021-12-25",
+       "val": 16434000000,
+       "accn": "0000002488-21-900001",
+       "fy": 2021,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2022-02-13"
+      },
+      {
+       "start": "2021-12-26",
+       "end": "2022-12-31",
+       "val": 23601000000,
+       "accn": "0000002488-22-900002",
+       "fy": 2022,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2023-02-19"
+      },
+      {
+       "start": "2023-01-01",
+       "end": "2023-12-30",
+       "val": 22680000000,
+       "accn": "0000002488-23-900003",
+       "fy": 2023,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2024-02-18"
+      }
+     ]
+    }
+   },
+   "PaymentsToAcquirePropertyPlantAndEquipment": {
+    "label": "PaymentsToAcquirePropertyPlantAndEquipment",
+    "units": {
+     "USD": [
+      {
+       "start": "2020-12-27",
+       "end": "2021-12-25",
+       "val": 301000000,
+       "accn": "0000002488-21-900000",
+       "fy": 2021,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2022-02-13"
+      },
+      {
+       "start": "2021-12-26",
+       "end": "2022-12-31",
+       "val": 450000000,
+       "accn": "0000002488-22-900001",
+       "fy": 2022,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2023-02-19"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivities": {
+    "label": "NetCashProvidedByUsedInOperatingActivities",
+    "units": {
+     "USD": [
+      {
+       "start": "2020-12-27",
+       "end": "2021-12-25",
+       "val": 3521000000,
+       "accn": "0000002488-21-900000",
+       "fy": 2021,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2022-02-13"
+      },
+      {
+       "start": "2021-12-26",
+       "end": "2022-12-31",
+       "val": 3565000000,
+       "accn": "0000002488-22-900001",
+       "fy": 2022,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2023-02-19"
+      }
+     ]
+    }
+   },
+   "Goodwill": {
+    "label": "Goodwill",
+    "units": {
+     "USD": [
+      {
+       "end": "2021-12-25",
+       "val": 289000000,
+       "accn": "0000002488-21-900100",
+       "fy": 2021,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2022-02-13"
+      },
+      {
+       "end": "2022-12-31",
+       "val": 24177000000,
+       "accn": "0000002488-22-900101",
+       "fy": 2022,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2023-02-19"
+      }
+     ]
+    }
+   },
+   "IncreaseDecreaseInAccountsPayable": {
+    "label": "IncreaseDecreaseInAccountsPayable",
+    "units": {
+     "USD": [
+      {
+       "start": "2021-12-26",
+       "end": "2022-12-31",
+       "val": 931000000,
+       "accn": "0000002488-22-900000",
+       "fy": 2022,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2023-02-19"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

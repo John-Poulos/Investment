@@ -280,6 +280,8 @@ class PeerTarget:
     candidates: list[peers.Candidate]
     confirmed: list[sqlite3.Row]
     note: str
+    set_confirmed: bool = False  # a `peer_group` exists (may be empty: "no peers confirmed")
+    reopened: bool = False  # the open item edits a confirmed set (Part 2 "Edit peers")
 
 
 @dataclass
@@ -352,9 +354,12 @@ def setup_view(
         s = peers.frame_revenue(engine, peers.frame_year(now.date())).get(cik) if sic else None
         if s:
             tv = s[0]
+        has_set = engine.execute("SELECT 1 FROM peer_group WHERE name = ?",
+                                 (f"M04 peers {cik}",)).fetchone() is not None  # fmt: skip
+        reopened = bool(item) and bool(json.loads(item["payload"] or "{}").get("reopened"))
         groups[sic].targets.append(PeerTarget(
             ticker, cik, item["item_id"] if item else None, tv, peers.candidates(engine, cik),
-            peers.confirmed_peers(engine, cik), why or "",
+            peers.confirmed_peers(engine, cik), why or "", has_set, reopened,
         ))  # fmt: skip
     ordered = sorted(groups.values(), key=lambda g: (g.sic is None, g.sic or ""))
     plain = [s.item_id for s in stages if s.plain_mature and s.item_id]
@@ -403,8 +408,12 @@ def company_profile(
                             if reasons else ""))  # fmt: skip
     conf_peers = peers.confirmed_peers(engine, norm)
     names = [r["name"] + ("" if r["cik"] else f" ({peers.NOT_SEC})") for r in conf_peers]
+    has_set = engine.execute("SELECT 1 FROM peer_group WHERE name = ?",
+                             (f"M04 peers {norm}",)).fetchone() is not None  # fmt: skip
     if conf_peers:
         peers_text = f"{len(conf_peers)} confirmed"
+    elif has_set:
+        peers_text = "no peers confirmed (empty set)"
     else:
         n = engine.execute("SELECT count(*) FROM peer_candidate WHERE target_cik = ? AND status = "
                            "'proposed'", (norm,)).fetchone()[0]  # fmt: skip

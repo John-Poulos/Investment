@@ -404,6 +404,18 @@ def _process_tracked(
             )
 
 
+def _mark_peers_due(engine: sqlite3.Connection, entries: list[IndexEntry]) -> None:
+    """M04 peers (D-M04-70): a fetched peer's new 10-K/10-Q/20-F/40-F marks it due for a
+    companyfacts re-fetch in the M04 SEC part. Never fails the run."""
+    try:
+        from engine.financials.peer_facts import mark_due
+
+        mark_due(engine, entries)
+    except Exception:  # bookkeeping only; the next index day marks it again
+        if engine.in_transaction:
+            engine.execute("ROLLBACK")
+
+
 def run_refresh(
     client: SecClient,
     engine: sqlite3.Connection,
@@ -468,6 +480,7 @@ def run_refresh(
                 day_status[day] = ("pending", None, None)
                 continue
             entries = parse_master_index(text)
+            _mark_peers_due(engine, entries)
             hits = [e for e in entries if e.cik in watch or e.cik in light]
             for e in hits:
                 matched.setdefault(e.cik, []).append(e)

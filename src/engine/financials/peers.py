@@ -22,6 +22,22 @@
   hynix, Samsung), confirm. Confirmed sets go to `peer_group` / `peer_member`.
 - A model tag overrides SIC (D-M04-8): a tagged company (MSTR `asset_treasury`, SIC 6199)
   gets no SIC shortlist, only owner-added peers; `fund` / `financial` get no peer item.
+
+Part 2 — matching peer periods in time (D-M04-5):
+
+- **Offsets:** 12-month flows (fiscal year or TTM) count when the peer's period ends within
+  ±45 days† of the company's; quarters and balance-sheet instants within ±40 days†. The
+  closest end inside the tolerance is used and its offset shown. Outside → "no comparable
+  period" (missing, counted toward the < 5 fallback, D-M04-52); when the peer's latest
+  period ends before the company's and its next quarter would land inside the tolerance,
+  the note reads "awaiting peer filing" (WDC 62 days behind Micron until 2023-11-07).
+- **53-week year:** a 12-month period of 370 days or more (52 weeks = 364) is flagged; it
+  adds about 2% to flows (AMD FY2022, NVIDIA FY2018).
+- **Acquisition year:** flagged when, in the 12 months to the matched end, cash paid for
+  businesses (`PaymentsToAcquireBusinessesNetOfCashAcquired`) is at least 10%† of revenue,
+  or goodwill rose by at least 10%† of revenue against a year earlier — the second test
+  catches stock deals that pay little cash (AMD FY2022: Xilinx, goodwill 289M → 24.2B).
+  Flags inform; the peer stays in the comparison.
 """
 
 from __future__ import annotations
@@ -36,6 +52,7 @@ from engine.sec.client import SecClient, iso
 from engine.sec.frames import fetch_frame
 from engine.sec.identity import normalize_cik
 from engine.sec.results import Ok
+from engine.sec.xbrl_facts import Concept
 
 SHORTLIST = 10  # starting value per target
 ACTIVE_DAYS = 365
@@ -404,6 +421,78 @@ def confirm(
                 (gid, c.cik, c.name, "sic" if c.source == "sic" else "owner"),
             )
     return kept, struck, added
+
+
+TTM_TOL = 45  # days, 12-month flows (D-M04-5 starting value)
+POINT_TOL = 40  # days, quarters and instants (D-M04-5 starting value)
+WEEK53_DAYS = 370
+ACQ_SHARE = 0.10  # starting value: acquisition spend or goodwill rise ÷ revenue
+NO_PERIOD = "no comparable period"
+GOODWILL = Concept("goodwill", (("us-gaap", "Goodwill"), ("ifrs-full", "Goodwill")),
+                   "currency", "instant")  # fmt: skip
+
+
+@dataclass(frozen=True)
+class Match:
+    end: str | None  # the peer period end used; None = not comparable
+    offset: int | None  # days, peer end − company end
+    note: str  # "awaiting peer filing: …", "latest period ends N days before", ""
+    latest: str | None  # the peer's latest period end of this kind
+
+    @property
+    def ok(self) -> bool:
+        return self.end is not None
+
+
+def _days(a: str, b: str) -> int:
+    return (date.fromisoformat(a) - date.fromisoformat(b)).days
+
+
+def match_period(ends: Iterable[str], ref: str, tol: int = TTM_TOL) -> Match:
+    """The peer period end closest to `ref` within ±tol days (D-M04-5)."""
+    ends = sorted(set(ends))
+    latest = ends[-1] if ends else None
+    near_ = [(abs(_days(e, ref)), e) for e in ends if abs(_days(e, ref)) <= tol]
+    if near_:
+        _, e = min(near_)
+        return Match(e, _days(e, ref), "", latest)
+    if latest is None:
+        return Match(None, None, "no period stored", None)
+    gap = _days(ref, latest)
+    if gap > 0:
+        if gap <= 92 + tol:
+            return Match(None, -gap, f"awaiting peer filing: latest period ends {gap} days before",
+                         latest)  # fmt: skip
+        return Match(None, -gap, f"latest period ends {gap} days before", latest)
+    first = ends[0]
+    return Match(None, _days(first, ref), f"periods start {_days(first, ref)} days after", latest)
+
+
+def week53(start: str | None, end: str) -> bool:
+    """A 12-month period of 370 days or more (a 53-week fiscal year)."""
+    return start is not None and _days(end, start) + 1 >= WEEK53_DAYS
+
+
+def acquisition_note(
+    revenue: float | None,
+    acquisitions: float | None,
+    goodwill_now: float | None,
+    goodwill_before: float | None,
+) -> str:
+    """'acquisition year: …' when cash for businesses or the goodwill rise is ≥ 10%† of
+    the 12-month revenue; '' otherwise (or when revenue is missing)."""
+    if not revenue or revenue <= 0:
+        return ""
+    parts = []
+    if acquisitions is not None and acquisitions >= ACQ_SHARE * revenue:
+        parts.append(f"cash for businesses {money(acquisitions)} ({acquisitions / revenue:.0%} "
+                     "of revenue)")  # fmt: skip
+    if goodwill_now is not None and goodwill_before is not None:
+        rise = goodwill_now - goodwill_before
+        if rise >= ACQ_SHARE * revenue:
+            parts.append(f"goodwill {money(goodwill_before)} → {money(goodwill_now)} "
+                         f"(+{rise / revenue:.0%} of revenue)")  # fmt: skip
+    return ("acquisition year: " + "; ".join(parts)) if parts else ""
 
 
 def confirmed_peers(engine: sqlite3.Connection, target: str) -> list[sqlite3.Row]:

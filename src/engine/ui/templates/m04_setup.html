@@ -74,15 +74,21 @@
   {% for t in g.targets %}
   <div id="peer-{{ t.item_id or t.cik }}" style="margin:8px 0 16px">
     <h4 style="margin:4px 0">{{ t.ticker }}{% if t.target_revenue %} <span class="muted">· revenue {{ t.target_revenue | num }}</span>{% endif %}{% if t.note %} <span class="muted">· {{ t.note }}</span>{% endif %}</h4>
-    {% if t.confirmed %}<p>Confirmed: {% for r in t.confirmed %}{{ r['name'] }}{% if not r['cik'] %} <span class="muted">({{ not_sec }})</span>{% endif %}{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
-    {% if t.item_id %}
+    {% if t.set_confirmed %}<p>Confirmed: {% for r in t.confirmed %}{{ r['name'] }}{% if not r['cik'] %} <span class="muted">({{ not_sec }})</span>{% endif %}{{ ', ' if not loop.last }}{% else %}<b>no peers</b> <span class="muted">(empty set: peer rows read "missing: no peers confirmed")</span>{% endfor %}</p>
+    {% if not t.item_id and viewer.is_owner %}
+    <form method="post" action="/m04/peers/{{ t.ticker }}/edit">
+      <input name="note" size="30" placeholder="Why (optional)"> <button class="btn" type="submit">Edit peers</button>
+      <span class="muted">reopens the set as a new review item; removed peers keep their stored facts but leave the comparison</span>
+    </form>
+    {% endif %}{% endif %}
+    {% if t.item_id %}{% if t.reopened %}<p class="muted">Editing the confirmed set: confirmed names are ticked, the other shortlist names unticked.</p>{% endif %}
     <form method="post" action="/review/{{ t.item_id }}/confirm">
       <input type="hidden" name="back" value="/m04/setup#peer-{{ t.item_id }}">
       <table class="data">
         <tr><th>Keep</th><th class="num">Rank</th><th>Company</th><th>Active filing</th><th class="num">Revenue</th><th>Source</th></tr>
         {% for c in t.candidates %}
         <tr{% if c.status == 'struck' %} class="muted"{% endif %}>
-          <td><input type="checkbox" name="keep" value="{{ c.key }}"{% if c.status != 'struck' %} checked{% endif %}{% if not viewer.is_owner %} disabled{% endif %}></td>
+          <td>{% set ticked = (c.status == 'confirmed' or (c.status == 'proposed' and c.source != 'sic')) if t.reopened else c.status != 'struck' %}<input type="checkbox" name="keep" value="{{ c.key }}"{% if ticked %} checked{% endif %}{% if not viewer.is_owner %} disabled{% endif %}></td>
           <td class="num">{{ c.rank or '' }}</td>
           <td>{% if c.status == 'struck' %}<s>{{ c.name }}</s>{% else %}{{ c.name }}{% endif %}</td>
           <td>{{ c.active or '—' }}</td>
@@ -100,11 +106,11 @@
       <button class="btn" type="submit">Add peer</button>
     </form>
     {% endif %}
-    {% elif not t.confirmed %}<p class="muted">No open item: run <code>uv run python scripts/run_financials.py profile</code>.</p>{% endif %}
+    {% elif not t.set_confirmed %}<p class="muted">No open item: run <code>uv run python scripts/run_financials.py profile</code>.</p>{% endif %}
   </div>
   {% endfor %}
   {% else %}<p class="empty">No peer shortlist yet: run <code>uv run python scripts/run_financials.py profile</code>.</p>{% endfor %}
-  <p class="note">Shortlist = active companies listed under the company's 4-digit SIC on EDGAR's browse-by-SIC, ranked by closeness of calendar-year revenue (XBRL frames), top 10†. A name whose frame revenue moved more than 10× from the prior year, or sits more than 10× from its own stored annual revenue, is marked "revenue suspect" and ranked after the valued names. Add product-market peers outside the SIC by ticker or CIK (e.g. WDC or QCOM for MU); a company that does not file with the SEC is stored by name and reads "{{ not_sec }}" (SK hynix, Samsung). A model tag overrides SIC: tagged companies get only the peers you add (D-M04-4, -8). Peers must be confirmed before Part 2 fetches their facts.</p>
+  <p class="note">Shortlist = active companies listed under the company's 4-digit SIC on EDGAR's browse-by-SIC, ranked by closeness of calendar-year revenue (XBRL frames), top 10†. A name whose frame revenue moved more than 10× from the prior year, or sits more than 10× from its own stored annual revenue, is marked "revenue suspect" and ranked after the valued names. Add product-market peers outside the SIC by ticker or CIK (e.g. WDC or QCOM for MU); a company that does not file with the SEC is stored by name and reads "{{ not_sec }}" (SK hynix, Samsung). A model tag overrides SIC: tagged companies get only the peers you add (D-M04-4, -8). Peers must be confirmed before Part 2 fetches their facts. An empty set may be confirmed: the company's peer rows then read "missing: no peers confirmed". "Edit peers" reopens a confirmed set (owner; a new item outside the weekly cap, kept in the review history); after re-confirming, the next <code>run_financials.py peers</code> or refresh fetches only newly added peers, and removed peers leave every comparison (their stored facts stay).</p>
 
   <h2 id="tags">3. Model tags</h2>
   {% if v.tags.error %}<div class="warnbox">The tag file was rejected, so no tag applies: {{ v.tags.error }}</div>{% endif %}

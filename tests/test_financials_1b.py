@@ -759,7 +759,7 @@ def test_financials_tab_shows_capex_trends_and_guidance(tmp_path):
                  "Greenwald (net PP&amp;E): out of range in 6 of 8 years",
                  "Maintenance capex (depreciation, capped at total capex)", "Hit rate 100%",
                  "within the range", "$3.50B to $3.90B", "rev_cagr3", "ROIC (S6.5)",
-                 "missing: not built, Part 2", "Profile"):  # fmt: skip
+                 "missing: not built, Part 3", "Profile"):  # fmt: skip
         assert text in html, text
     assert "object at 0x" not in html
 
