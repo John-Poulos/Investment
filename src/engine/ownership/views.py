@@ -16,6 +16,7 @@ from engine.ownership import classes as cls_mod
 from engine.ownership import rows as rows_mod
 from engine.ownership.cards import Card, Market, build_cards
 from engine.ownership.step import WINDOWS, NetFlow, money, net_flow, pct, shares_txt
+from engine.sec.identity import normalize_cik
 from engine.sec.insiders import coverage_start
 from engine.signals import latest_signal
 
@@ -78,8 +79,11 @@ def _card_views(c: Card, market: Market) -> list[CardView]:
             f"({', '.join(sorted({r.replaced_by or '' for r in c.replaced}))})"
         )
     if any(r.restates for r in c.rows):
-        notes.append("Form 4/A: replaces the original's rows (owner, date, shares); counts on "
-                     "the original's filing day")  # fmt: skip
+        how = ("owner, date, shares; where the shares differ, owner, date and code — the only "
+               "candidate (D-M07-15)" if any(r.match == "code" for r in c.rows)
+               else "owner, date, shares")  # fmt: skip
+        notes.append(f"Form 4/A: replaces the original's rows ({how}); counts on the original's "
+                     "filing day")  # fmt: skip
     others = [f"{r.code} {shares_txt(r.shares)} sh × {r.price if r.price is not None else 'n/a'}"
               f" = {money(r.usd)} (not in total)" for r in c.others]  # fmt: skip
     if c.buys:
@@ -194,8 +198,14 @@ def company_view(engine: sqlite3.Connection, cik: str, today: date) -> InsiderVi
 
 
 def overview_row(engine: sqlite3.Connection, cik: str) -> dict[str, Any] | None:
-    """The Overview's M07 line: the latest insider_buy and today's MY net flow."""
-    buy = latest_signal(engine, cik, "M07", "insider_buy", "MY")
+    """The Overview's M07 line: the latest insider_buy day (not a D-M07-13 missing row) and the
+    latest MY net-flow reading (written on change, D-M07-14)."""
+    buy = engine.execute(
+        "SELECT * FROM signal WHERE cik = ? AND module_id = 'M07' AND signal = 'insider_buy' AND "
+        "timeframe = 'MY' AND (value IS NOT NULL OR value_text IS NOT NULL) "
+        "ORDER BY as_of DESC LIMIT 1",
+        (normalize_cik(cik) or cik,),
+    ).fetchone()
     net = latest_signal(engine, cik, "M07", "insider_net_flow", "MY")
     if buy is None and net is None:
         return None

@@ -7,8 +7,13 @@ no Form 4s, D-M02-4):
 - classes and the per-day `insider_buy` / `insider_sale` rows are recomputed only when a
   Form 4 was parsed since the last pass, the calendar year changed (CMP's 1 January reset)
   or the pass is forced (per-new-filing work);
-- `insider_net_flow` is written every pass, one row per timeframe with as_of = the run's
-  market date, because its window rolls with the calendar.
+- "no qualifying buy" (D-M07-13): per timeframe, when no open-market P was filed in the
+  window, an explicit `insider_buy` missing row (as_of = the run's market date) is written
+  on the change only — at the first computation, or when the last buy leaves the window;
+  a missing row that a stored buy contradicts (a late form, a re-parse) is deleted;
+- `insider_net_flow` (D-M07-14) is checked every pass (its window rolls with the calendar)
+  but written only when the reading changes against the latest earlier row (class, or the
+  value rounded to the dollar, or the missing reason), as_of = the run's market date.
 
 Signal rules (M07_OWNERSHIP.md "Signals out", D-M07-2, -3, -5; D-M04-9, -74):
 - one row per company and filing day (rule 6): value = summed $, value_text = the
@@ -36,6 +41,7 @@ from engine.ownership import rows as rows_mod
 from engine.ownership.cards import Card, Market, build_cards
 from engine.ownership.rows import Issuer, Row
 from engine.sec.client import iso
+from engine.sec.identity import normalize_cik
 from engine.sec.insiders import coverage_start
 from engine.signals import Source, write_signal
 
@@ -117,6 +123,16 @@ def _forms(rows: Iterable[Row]) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+def _amend_text(rows: Iterable[Row]) -> str:
+    """How the day's 4/A rows were matched to the originals (rule 7, D-M07-15)."""
+    if any(r.match == "code" for r in rows if r.restates):
+        return (
+            "4/A replaces the original rows (matched on owner, date, shares; where the "
+            "shares differ, on owner, date and code — the only candidate, D-M07-15)"
+        )
+    return "4/A replaces the original rows (matched on owner, date, shares)"
+
+
 def _buy_class(r: Row, verdicts) -> str:
     if r.kind == "issuer_buy":
         return "purchase_from_issuer"
@@ -181,7 +197,7 @@ def buy_days(ticker: str, issuer: Issuer, cards: dict[str, Card], verdicts, mark
                             "(not open market: shown, not scored, not in net flow)")  # fmt: skip
             bits += [f"plan basis: {r.plan_basis or 'not disclosed'}" for r in c.buys[:1]]
             if c.replaced or any(r.restates for r in c.buys):
-                bits.append("4/A replaces the original rows (matched on owner, date, shares)")
+                bits.append(_amend_text(rows))
             parts.append("form " + ", ".join(bits))
         n = _cluster(eff, verdicts, day)
         parts.append(f"cluster: {n} distinct opportunistic buyer(s) in {CLUSTER_DAYS} days to {day}"
@@ -225,7 +241,7 @@ def sale_days(issuer: Issuer, cards: dict[str, Card], market: Market | None) -> 
                 continue
             if not c.sales:  # an original whose rows a 4/A replaced
                 by = ", ".join(sorted({r.replaced_by or "" for r in c.replaced}))
-                bits = [f"{acc}: S rows replaced by Form 4/A {by}"]
+                bits = [f"{acc}: S rows replaced by Form 4/A {by} ({_amend_text(rows)})"]
                 if c.others:
                     bits.append(
                         "not in total: "
@@ -297,6 +313,7 @@ class NetFlow:
     gross_usd: float | None = None
     gross_shares: float = 0
     insiders: int = 0
+    written: bool = False  # a changed reading was written this pass (D-M07-14)
 
 
 def _usd(rows: list[Row]) -> float | None:
@@ -381,7 +398,12 @@ class CompanyPass:
     forms: int = 0
     rows: int = 0
     links: int = 0
+    links_by_code: int = 0  # 4/A links made on owner, date and code (D-M07-15)
+    link_log: list[str] = field(default_factory=list)  # 4/A rows kept apart
     recomputed: bool = False
+    # per timeframe: None = an open-market buy in the window; "written" / "unchanged" = the
+    # explicit missing row (D-M07-13)
+    no_buy: dict[str, str | None] = field(default_factory=dict)
     classes: dict[str, int] = field(default_factory=dict)
     buys: list[DayRow] = field(default_factory=list)
     sales: list[DayRow] = field(default_factory=list)
@@ -429,6 +451,90 @@ def _write(engine: sqlite3.Connection, cik: str, ticker: str, d: DayRow) -> int:
                         sources=d.sources, info=d.info)  # fmt: skip
 
 
+_MISSING_ROW = "value IS NULL AND value_text IS NULL AND method LIKE 'missing:%'"
+
+
+def no_buy_row(engine: sqlite3.Connection, cik: str, ticker: str, tf: str, today: date,
+               buy_days_: list[str], history_start: str | None, latest: Source | None,
+               ) -> str | None:  # fmt: skip
+    """D-M07-13: the explicit "no qualifying buy" row for one timeframe, written on change.
+
+    `buy_days_` = filing days (4/A rows on the original's day) of open-market P rows, sorted.
+    Returns None when a buy is in the window, "written" or "unchanged"."""
+    label = dict(WINDOWS)[tf]
+    start, end = window_start(today, tf).isoformat(), today.isoformat()
+    base = (cik, MODULE, "insider_buy", tf)
+    where = "cik = ? AND module_id = ? AND signal = ? AND timeframe = ?"
+    for (as_of,) in engine.execute(
+        f"SELECT as_of FROM signal WHERE {where} AND {_MISSING_ROW}", base
+    ).fetchall():
+        lo = window_start(date.fromisoformat(as_of), tf).isoformat()
+        if any(lo < d <= as_of for d in buy_days_):  # a stored buy contradicts it
+            engine.execute(f"DELETE FROM signal WHERE {where} AND as_of = ?", (*base, as_of))
+    if any(start < d <= end for d in buy_days_):
+        return None
+    last_buy = max((d for d in buy_days_ if d <= end), default=None)
+    row = engine.execute(
+        f"SELECT max(as_of) FROM signal WHERE {where} AND {_MISSING_ROW} AND as_of <= ?",
+        (*base, end),
+    ).fetchone()
+    if row[0] is not None and (last_buy is None or row[0] > last_buy):
+        return "unchanged"  # the state "no buy" is already recorded since the last buy
+    parts = [
+        f"window {label} ({start} to {end}, by filing date)",
+        "qualifying = an open-market P on a non-derivative line (D-M07-2); purchase_from_issuer "
+        "and A/M/F/G rows do not qualify",
+        f"last open-market buy filed {last_buy or 'none stored'}",
+    ]
+    if history_start is None:
+        parts.append("no Form 4 stored for this company")
+    elif history_start > start:
+        parts.append(f"stored Form 4 history starts {history_start} (window partly seen)")
+    parts.append("written on change, not daily (D-M07-13)")
+    write_signal(engine, cik=cik, ticker=ticker, module_id=MODULE, signal="insider_buy",
+                 as_of=end, timeframes=(tf,), info=() if tf == "MY" else (tf,),
+                 method="; ".join(parts), missing=f"no qualifying buy in {label}",
+                 sources=[latest] if latest else ())  # fmt: skip
+    return "written"
+
+
+def _same_reading(prev: sqlite3.Row, nf: NetFlow) -> bool:
+    """D-M07-14: same class and value rounded to the dollar, or the same missing reason."""
+    if nf.missing is not None:
+        return (prev["value_text"] is None and prev["value"] is None
+                and f"{prev['method'] or ''};".startswith(f"missing: {nf.missing};"))  # fmt: skip
+    if prev["value_text"] != nf.text:
+        return False
+    a, b = prev["value"], nf.value
+    if a is None or b is None:
+        return a is None and b is None
+    return round(float(a)) == round(b)
+
+
+def write_net_flow(engine: sqlite3.Connection, cik: str, ticker: str, nf: NetFlow,
+                   today: date) -> int:  # fmt: skip
+    """Write the reading only when it changed against the latest earlier row (D-M07-14); a
+    same-day row whose reading went back to the earlier one is removed."""
+    base = (cik, MODULE, "insider_net_flow", nf.tf)
+    where = "cik = ? AND module_id = ? AND signal = ? AND timeframe = ?"
+    prev = engine.execute(
+        f"SELECT value, value_text, method FROM signal WHERE {where} AND as_of < ? "
+        "ORDER BY as_of DESC LIMIT 1",
+        (*base, today.isoformat()),
+    ).fetchone()
+    if prev is not None and _same_reading(prev, nf):
+        engine.execute(f"DELETE FROM signal WHERE {where} AND as_of = ?",
+                       (*base, today.isoformat()))  # fmt: skip
+        return 0
+    nf.written = True
+    common = dict(cik=cik, ticker=ticker, module_id=MODULE, signal="insider_net_flow",
+                  as_of=today.isoformat(), timeframes=(nf.tf,), info=(nf.tf,))  # fmt: skip
+    if nf.missing is not None:
+        return write_signal(engine, **common, method=nf.method, missing=nf.missing)
+    return write_signal(engine, **common, method=nf.method, value=nf.value, value_text=nf.text,
+                        sources=nf.sources)  # fmt: skip
+
+
 def company_pass(
     engine: sqlite3.Connection,
     ticker: str,
@@ -440,6 +546,7 @@ def company_pass(
     with_market: bool = True,
 ) -> CompanyPass:
     """One company's M07 pass. Each write is one short transaction."""
+    cik = normalize_cik(cik) or cik
     cp = CompanyPass(ticker, cik)
     cp.history_start = coverage_start(engine, cik)
     fp = _fingerprint(engine, cik, today.year)
@@ -448,7 +555,8 @@ def company_pass(
 
     engine.execute("BEGIN")
     try:
-        cp.links = rows_mod.link_amendments(engine, cik)
+        linked = rows_mod.link_amendments(engine, cik)
+        cp.links, cp.links_by_code, cp.link_log = linked.links, linked.by_code, linked.log
         engine.execute("COMMIT")
     except Exception:
         engine.execute("ROLLBACK")
@@ -477,9 +585,9 @@ def company_pass(
                 marks = ",".join("?" * len(keep)) or "''"
                 engine.execute(
                     f"DELETE FROM signal WHERE cik = ? AND module_id = ? AND signal = ? AND "
-                    f"as_of NOT IN ({marks})",
+                    f"as_of NOT IN ({marks}) AND NOT ({_MISSING_ROW})",
                     (cik, MODULE, sig, *keep),
-                )  # stale days (a re-parse or a 4/A moved a row)
+                )  # stale days (a re-parse or a 4/A moved a row); D-M07-13 rows stay
                 for d in rows:
                     cp.signals += _write(engine, cik, ticker, d)
             for d in cp.buys:
@@ -505,16 +613,17 @@ def company_pass(
         latest_src = (Source(latest["accession"], latest["filed"], "A",
                              "latest stored Form 4; no P/S in the window")
                       if latest else None)  # fmt: skip
+        no_buy_src = (Source(latest["accession"], latest["filed"], "A",
+                             "latest stored Form 4; no open-market buy in the window")
+                      if latest else None)  # fmt: skip
+        open_days = sorted({r.day for r in issuer.effective() if r.kind == "buy" and r.day})
         for tf, _ in WINDOWS:
+            cp.no_buy[tf] = no_buy_row(engine, cik, ticker, tf, today, open_days,
+                                       cp.history_start, no_buy_src)  # fmt: skip
+            cp.signals += 1 if cp.no_buy[tf] == "written" else 0
             nf = net_flow(issuer, tf, today, cp.history_start, market, latest_src)
             cp.net[tf] = nf
-            common = dict(cik=cik, ticker=ticker, module_id=MODULE, signal="insider_net_flow",
-                          as_of=today.isoformat(), timeframes=(tf,), info=(tf,))  # fmt: skip
-            if nf.missing is not None:
-                cp.signals += write_signal(engine, **common, method=nf.method, missing=nf.missing)
-            else:
-                cp.signals += write_signal(engine, **common, method=nf.method, value=nf.value,
-                                           value_text=nf.text, sources=nf.sources)  # fmt: skip
+            cp.signals += write_net_flow(engine, cik, ticker, nf, today)
         engine.execute("COMMIT")
     except Exception:
         engine.execute("ROLLBACK")
@@ -556,6 +665,7 @@ def run_local_part(engine: sqlite3.Connection, comps: dict[str, str], now: datet
         f"{sum(c.signals for c in cs)}; new alerts {len(op.alerts)}"
     ]
     lines += [f"  alert: {a}" for a in op.alerts]
+    lines += [f"  {c.ticker}: {x}" for c in cs if c.recomputed for x in c.link_log]  # D-M07-15
     lines += [f"  {c.ticker}: error — {c.error}" for c in cs if c.error]
     return lines
 

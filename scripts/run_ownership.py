@@ -322,10 +322,15 @@ def insiders_run(
         net = " · ".join(
             f"{tf} {nf.text or 'missing'}" + (f" {step.money(nf.value)}" if nf.value is not None
                                               else "") + (f" ({nf.missing})" if nf.missing else "")
+            + (" [written]" if nf.written else " [unchanged]")
             for tf, nf in c.net.items())  # fmt: skip
+        no_buy = " · ".join(f"{tf} {s}" for tf, s in c.no_buy.items() if s) or "none"
         log(f"  {t}: history from {c.history_start or 'none'}; {c.forms} forms, {c.rows} rows, "
-            f"4/A links {c.links}; classes this year: {cl}; buy days {len(c.buys)}, sale days "
-            f"{len(c.sales)} ({warn} with a warning); net flow {net}")  # fmt: skip
+            f"4/A links {c.links} ({c.links_by_code} on code); classes this year: {cl}; buy days "
+            f"{len(c.buys)}, sale days {len(c.sales)} ({warn} with a warning); net flow {net}; "
+            f"no-qualifying-buy rows {no_buy}")  # fmt: skip
+        for x in c.link_log:
+            log(f"    4/A kept apart: {x}")
         for d in c.buys:
             log(f"    buy {d.day}: {d.text} {step.money(d.value)}")
         for d in c.sales[-5:]:

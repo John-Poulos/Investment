@@ -138,12 +138,17 @@ def cover(engine, cik, day, value, acc="cov-1"):
     )
 
 
-def signals(engine, cik, name, tf="MY"):
-    return engine.execute(
+def signals(engine, cik, name, tf="MY", *, missing=False):
+    """Stored M07 rows; `insider_buy` day rows only unless `missing` (D-M07-13 rows)."""
+    rows = engine.execute(
         "SELECT * FROM signal WHERE cik = ? AND module_id = 'M07' AND signal = ? AND "
         "timeframe = ? ORDER BY as_of",
         (cik, name, tf),
     ).fetchall()
+    if name != "insider_buy":
+        return rows
+    is_missing = [r["value"] is None and r["value_text"] is None for r in rows]
+    return [r for r, m in zip(rows, is_missing, strict=True) if m == missing]
 
 
 def collector() -> tuple[list[str], object]:
@@ -475,6 +480,203 @@ def test_net_flow_plan_sales_beside_and_missing_history(dbs):
     assert (none.text, none.value, none.sources) == ("none", None, [latest])
     nothing = step.net_flow(issuer, "ST", date(2026, 9, 1), "2026-08-01", None, None)
     assert nothing.missing == "no Form 4 stored for this company"
+
+
+def pass_on(engine, cik, day: date, ticker="XSEM", force=True):
+    now = datetime(day.year, day.month, day.day, 12, 0, tzinfo=UTC)
+    return step.company_pass(engine, ticker, cik, now, today=day, force=force)
+
+
+def test_no_qualifying_buy_missing_row_written_on_change(dbs):
+    """D-M07-13: explicit missing row per timeframe, only when the state changes."""
+    engine, _ = dbs
+    trade(engine, XSEM, "0000000711", "Buyer", "2026-09-20", "P", 1000, 50)
+    record_coverage(engine, XSEM, "2022-10-01", NOW)
+    cp = pass_on(engine, XSEM, TODAY)  # the buy is in every window
+    assert cp.no_buy == {"MY": None, "PT": None, "ST": None}
+    assert signals(engine, XSEM, "insider_buy", "ST", missing=True) == []
+    # the buy leaves the 30-day window → one ST missing row on that day
+    cp = pass_on(engine, XSEM, date(2026, 10, 25))
+    assert cp.no_buy == {"MY": None, "PT": None, "ST": "written"}
+    [st] = signals(engine, XSEM, "insider_buy", "ST", missing=True)
+    assert st["as_of"] == "2026-10-25" and st["value"] is None and st["value_text"] is None
+    assert st["method"].startswith("missing: no qualifying buy in 30 days; window 30 days")
+    assert "last open-market buy filed 2026-09-20" in st["method"]
+    assert st["method"].endswith("info (weight 0)")
+    # next days: unchanged, never a new identical row; the day row is kept
+    for d in (date(2026, 10, 26), date(2026, 11, 2)):
+        assert pass_on(engine, XSEM, d, force=False).no_buy["ST"] == "unchanged"
+    assert len(signals(engine, XSEM, "insider_buy", "ST", missing=True)) == 1
+    assert [r["as_of"] for r in signals(engine, XSEM, "insider_buy", "ST")] == ["2026-09-20"]
+    # a new buy, then it ages out again → a second missing row
+    trade(engine, XSEM, "0000000712", "Buyer 2", "2026-11-03", "P", 10, 50, filed="2026-11-04")
+    assert pass_on(engine, XSEM, date(2026, 11, 5)).no_buy["ST"] is None
+    assert pass_on(engine, XSEM, date(2026, 12, 10)).no_buy["ST"] == "written"
+    got = [r["as_of"] for r in signals(engine, XSEM, "insider_buy", "ST", missing=True)]
+    assert got == ["2026-10-25", "2026-12-10"]
+    assert signals(engine, XSEM, "insider_buy", "MY", missing=True) == []
+
+
+def test_no_buy_first_computation_and_contradicted_row(dbs):
+    engine, _ = dbs
+    other = "0000000045"
+    trade(engine, other, "0000000721", "Seller", "2026-06-01", "S", 100, 10)
+    record_coverage(engine, other, "2022-10-01", NOW)
+    cp = pass_on(engine, other, TODAY)  # first computation: one row per timeframe
+    assert cp.no_buy == {"MY": "written", "PT": "written", "ST": "written"}
+    [my] = signals(engine, other, "insider_buy", "MY", missing=True)
+    assert my["method"].startswith("missing: no qualifying buy in 12 months")
+    assert "info (weight 0)" not in my["method"]  # MY: the vote's missing state (D-M07-2)
+    assert "last open-market buy filed none stored" in my["method"]
+    assert pass_on(engine, other, date(2026, 10, 8)).no_buy["MY"] == "unchanged"
+    # a late-stored buy filed before the missing row contradicts it: the row goes
+    trade(engine, other, "0000000722", "Late Buyer", "2026-09-30", "P", 10, 10,
+          filed="2026-10-01")  # fmt: skip
+    cp = pass_on(engine, other, date(2026, 10, 9))
+    assert cp.no_buy == {"MY": None, "PT": None, "ST": None}
+    for tf in ("MY", "PT", "ST"):
+        assert signals(engine, other, "insider_buy", tf, missing=True) == []
+    assert [r["as_of"] for r in signals(engine, other, "insider_buy")] == ["2026-10-01"]
+    # the Overview reads the latest buy day, never the missing row
+    assert views.overview_row(engine, other)["buy"]["as_of"] == "2026-10-01"
+
+
+def test_net_flow_written_only_on_change(dbs):
+    """D-M07-14: one row per timeframe per change; as_of = the run date of the change."""
+    engine, _ = dbs
+    trade(engine, XSEM, "0000000731", "Buyer", "2026-09-20", "P", 1000, 50)
+    record_coverage(engine, XSEM, "2022-10-01", NOW)
+    cp = pass_on(engine, XSEM, TODAY)
+    assert all(nf.written for nf in cp.net.values())
+    cp = pass_on(engine, XSEM, date(2026, 10, 8))
+    assert not any(nf.written for nf in cp.net.values())
+    assert [r["as_of"] for r in signals(engine, XSEM, "insider_net_flow")] == ["2026-10-07"]
+    # the buy leaves the ST window: only ST changes (net_buy → none)
+    cp = pass_on(engine, XSEM, date(2026, 10, 21))
+    assert [tf for tf, nf in cp.net.items() if nf.written] == ["ST"]
+    st = signals(engine, XSEM, "insider_net_flow", "ST")
+    assert [(r["as_of"], r["value_text"]) for r in st] == [("2026-10-07", "net_buy"),
+                                                           ("2026-10-21", "none")]  # fmt: skip
+    # a sale changes MY on its day; a same-day revert removes that day's row again
+    acc = trade(engine, XSEM, "0000000732", "Seller", "2026-10-21", "S", 100, 50,
+                filed="2026-10-22")  # fmt: skip
+    pass_on(engine, XSEM, date(2026, 10, 22))
+    my = signals(engine, XSEM, "insider_net_flow")
+    assert [(r["as_of"], float(r["value"])) for r in my] == [("2026-10-07", 50_000),
+                                                             ("2026-10-22", 45_000)]  # fmt: skip
+    engine.execute("DELETE FROM insider_txn WHERE accession = ?", (acc,))
+    engine.execute("DELETE FROM form4_doc WHERE accession = ?", (acc,))
+    pass_on(engine, XSEM, date(2026, 10, 22))
+    assert [r["as_of"] for r in signals(engine, XSEM, "insider_net_flow")] == ["2026-10-07"]
+    # a missing reading is written once, then unchanged
+    other = "0000000046"
+    trade(engine, other, "0000000733", "Seller", "2026-09-25", "S", 10, 5)
+    record_coverage(engine, other, "2026-08-01", NOW)
+    pass_on(engine, other, TODAY)
+    assert not pass_on(engine, other, date(2026, 10, 9)).net["MY"].written
+    [miss] = signals(engine, other, "insider_net_flow")
+    assert miss["method"].startswith("missing: history starts 2026-08-01")
+
+
+def test_same_reading_rounds_to_the_dollar():
+    nf = step.NetFlow("MY", "a", "b", "net_buy", 30_000.4, "m")
+    row = {"value": 30_000.2, "value_text": "net_buy", "method": "m"}
+    assert step._same_reading(row, nf)
+    assert not step._same_reading({**row, "value": 30_001.0}, nf)
+    assert not step._same_reading({**row, "value_text": "net_sell"}, nf)
+    gone = step.NetFlow("MY", "a", "b", None, None, "m", missing="history starts 2026-08-01")
+    prev = {"value": None, "value_text": None, "method": "missing: history starts 2026-08-01; w"}
+    assert step._same_reading(prev, gone)
+    assert not step._same_reading({**prev, "method": "missing: history starts 2026-07-01; w"},
+                                  gone)  # fmt: skip
+
+
+def test_amendment_fallback_on_owner_date_and_code(dbs):
+    """D-M07-15: a 4/A that corrects the shares replaces the only same-code candidate."""
+    engine, _ = dbs
+    o = "0000000741"
+    trade(engine, XSEM, o, "Corrector", "2026-05-04", "S", 200, 10, filed="2026-05-05")
+    a = trade(engine, XSEM, o, "Corrector", "2026-05-04", "S", 250, 10, filed="2026-05-20",
+              doc_type="4/A")  # fmt: skip
+    record_coverage(engine, XSEM, "2022-10-01", NOW)
+    cp = run_pass(engine, XSEM)
+    assert (cp.links, cp.links_by_code, cp.link_log) == (1, 1, [])
+    [sale] = signals(engine, XSEM, "insider_sale")
+    assert sale["as_of"] == "2026-05-05" and float(sale["value"]) == 2_500  # the 4/A's shares
+    assert "on owner, date and code — the only candidate, D-M07-15" in sale["method"]
+    [r] = [x for x in rows.load(engine, XSEM).rows if x.accession == a]
+    assert r.match == "code" and r.day == "2026-05-05"
+
+
+def test_amendment_two_phase_match_and_logged_misses(dbs):
+    engine, _ = dbs
+    o = "0000000751"
+    # original: S 100 and S 200; 4/A: S 250 (corrected) listed before S 100 (unchanged)
+    put(engine, form4(XSEM, o, "Two Rows", [("2026-04-01", "S", 100, 10, "D", 900, "D"),
+                                            ("2026-04-01", "S", 200, 10, "D", 700, "D")]),
+        "0000000042-26-000801", XSEM, "2026-04-02")  # fmt: skip
+    amend = form4(XSEM, o, "Two Rows", [("2026-04-01", "S", 250, 10, "D", 650, "D"),
+                                        ("2026-04-01", "S", 100, 10, "D", 900, "D")],
+                  doc_type="4/A")  # fmt: skip
+    put(engine, amend, "0000000042-26-000802", XSEM, "2026-04-10", "4/A")
+    link = rows.match_amendments(
+        [
+            (r.accession, r.line, r.owner_cik, r.txn_date, r.shares, r.code, r.doc_type)
+            for r in rows.load(engine, XSEM).rows
+        ]  # fmt: skip
+    )
+    assert sorted(x[4] for x in link.links) == ["code", "shares"] and link.unmatched == []
+    # ambiguous: two same-code candidates; none: a P with no P on the original
+    q = "0000000752"
+    put(engine, form4(XSEM, q, "Ambiguous", [("2026-04-15", "S", 100, 10, "D", 900, "D"),
+                                             ("2026-04-15", "S", 200, 10, "D", 700, "D")]),
+        "0000000042-26-000803", XSEM, "2026-04-16")  # fmt: skip
+    amend = form4(XSEM, q, "Ambiguous", [("2026-04-15", "S", 260, 10, "D", 640, "D"),
+                                         ("2026-04-15", "P", 5, 10, "A", 645, "D")],
+                  doc_type="4/A")  # fmt: skip
+    put(engine, amend, "0000000042-26-000804", XSEM, "2026-04-20", "4/A")
+    record_coverage(engine, XSEM, "2022-10-01", NOW)
+    cp = run_pass(engine, XSEM)
+    assert (cp.links, cp.links_by_code) == (2, 1)
+    assert len(cp.link_log) == 2
+    assert (
+        "2 of the same owner, date and code: ambiguous, kept apart (both count)" in (cp.link_log[0])
+    )
+    assert "none of the same owner, date and code: stands alone" in cp.link_log[1]
+    sales = {s["as_of"]: float(s["value"]) for s in signals(engine, XSEM, "insider_sale")}
+    assert sales["2026-04-02"] == 3_500  # 250 + 100 on the original's day
+    assert sales["2026-04-16"] == 3_000 and sales["2026-04-20"] == 2_600  # both count
+    engine.execute("DELETE FROM refresh_state WHERE name LIKE 'm07_pass:%'")
+    lines = step.run_local_part(engine, {"XSEM": XSEM}, NOW)
+    assert any("XSEM: Form 4/A 0000000042-26-000804 line 1" in x for x in lines)
+
+
+def test_offering_purchases_stay_purchase_from_issuer(dbs):
+    """D-M07-16: P rows in an underwritten or registered offering are not open-market buys."""
+    engine, _ = dbs
+    notes = (
+        "Shares purchased in the Issuer's underwritten public offering.",
+        "Purchased in a registered offering at $10.00 per share.",
+        "Purchased in the Company's registered direct offering.",
+        "Shares bought in the underwritten offering of the Issuer.",
+        "Purchased in the offering at $10.00 per share.",
+    )
+    for i, n in enumerate(notes):
+        trade(engine, XSEM, f"00000007{60 + i}", f"Buyer {i}", "2026-09-28", "P", 1000, 10,
+              notes={"F1": n}, filed="2026-09-29")  # fmt: skip
+    trade(engine, XSEM, "0000000770", "Open Buyer", "2025-01-10", "P", 10, 10,
+          notes={"F1": "Weighted average price; open-market purchases."})  # fmt: skip
+    kinds = {r.owner_name: r.kind for r in rows.load(engine, XSEM).rows}
+    assert kinds.pop("Open Buyer") == "buy"
+    assert set(kinds.values()) == {"issuer_buy"}
+    record_coverage(engine, XSEM, "2022-10-01", NOW)
+    run_pass(engine, XSEM)  # baseline
+    cp = run_pass(engine, XSEM)
+    assert cp.alerts == [] and cp.net["MY"].text == "none"  # not in net flow
+    buy = next(b for b in signals(engine, XSEM, "insider_buy") if b["as_of"] == "2026-09-29")
+    assert buy["value_text"] == "purchase_from_issuer" and buy["value"] is None
+    assert "no vote" in buy["method"] and buy["method"].endswith("info (weight 0)")
+    assert cp.no_buy["MY"] == "unchanged"  # no qualifying buy: the D-M07-13 row stands
 
 
 def test_float_unknown_adv_split_guard_and_no_bars(dbs):
