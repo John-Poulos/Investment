@@ -29,7 +29,7 @@ cik = "0000723125"
 window = "FY2012"
 set = "calibrate"
 label = "CYCLICAL_TROUGH"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -39,7 +39,7 @@ cik = "0000723125"
 window = "FY2016"
 set = "calibrate"
 label = "CYCLICAL_TROUGH"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -49,7 +49,7 @@ cik = "0000045012"
 window = "2015–2016"
 set = "calibrate"
 label = "CYCLICAL_TROUGH"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -59,7 +59,7 @@ cik = "0000073309"
 window = "2015–2016"
 set = "calibrate"
 label = "CYCLICAL_TROUGH"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -69,7 +69,7 @@ cik = "0000018230"
 window = "2015–2016"
 set = "calibrate"
 label = "CYCLICAL_TROUGH"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -79,7 +79,7 @@ cik = "0000315189"
 window = "2015–2016"
 set = "calibrate"
 label = "CYCLICAL_TROUGH"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -89,7 +89,7 @@ cik = "0001064728"
 window = "2015–2016"
 set = "calibrate"
 label = "CYCLE_PLUS_DAMAGE"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -99,7 +99,7 @@ cik = "0000895126"
 window = "2015–2016"
 set = "calibrate"
 label = "CYCLE_PLUS_DAMAGE"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -109,7 +109,7 @@ cik = "0000831259"
 window = "2015–2016"
 set = "calibrate"
 label = "CYCLE_PLUS_DAMAGE"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -119,7 +119,7 @@ cik = "0000002488"
 window = "2012–2015"
 set = "calibrate"
 label = "STUMBLE"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -129,7 +129,7 @@ cik = "0001166126"
 window = "FY2012"
 set = "calibrate"
 label = "STRUCTURAL_DECLINE"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -139,7 +139,7 @@ cik = "0001500435"
 window = "2016"
 set = "calibrate"
 label = "STRUCTURAL_DECLINE"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -149,7 +149,7 @@ cik = "0001310067"
 window = "2012–2017"
 set = "calibrate"
 label = "STRUCTURAL_DECLINE"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -159,7 +159,7 @@ cik = "0000096289"
 window = "2012–2014"
 set = "calibrate"
 label = "STRUCTURAL_DECLINE"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -169,7 +169,7 @@ cik = "0001447599"
 window = "2017"
 set = "calibrate"
 label = "STRUCTURAL_DECLINE"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -179,7 +179,7 @@ cik = "0000723125"
 window = "FY2019–FY2020"
 set = "test"
 label = "CYCLICAL_TROUGH"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -189,7 +189,7 @@ cik = "0000723125"
 window = "FY2023"
 set = "test"
 label = "CYCLICAL_TROUGH"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -199,7 +199,7 @@ cik = "0000106040"
 window = "FY2023"
 set = "test"
 label = "CYCLICAL_TROUGH"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -209,7 +209,7 @@ cik = "0000050863"
 window = "2022–2025"
 set = "test"
 label = "CYCLE_PLUS_DAMAGE"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -219,7 +219,7 @@ cik = "0001501134"
 window = "2022–2023"
 set = "test"
 label = "STRUCTURAL_DECLINE"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -229,7 +229,7 @@ cik = "0000886158"
 window = "2019–2023"
 set = "test"
 label = "STRUCTURAL_DECLINE"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -239,7 +239,7 @@ cik = "0000084129"
 window = "2021–2023"
 set = "test"
 label = "STRUCTURAL_DECLINE"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -249,7 +249,7 @@ cik = "0001166126"
 window = "2017–2020"
 set = "test"
 label = "STRUCTURAL_DECLINE"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -259,7 +259,7 @@ cik = "0000012927"
 window = "2019–2020"
 set = "test"
 label = "CYCLE_PLUS_DAMAGE"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -269,7 +269,7 @@ cik = "0001045810"
 window = "FY2024"
 set = "control"
 label = "NO_SLOWDOWN"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -279,7 +279,7 @@ cik = "0000723125"
 window = "FY2018"
 set = "control"
 label = "NO_SLOWDOWN"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -289,7 +289,7 @@ cik = "0000018230"
 window = "2018"
 set = "control"
 label = "NO_SLOWDOWN"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[episode]]
@@ -299,7 +299,7 @@ cik = "0000073309"
 window = "2021"
 set = "control"
 label = "NO_SLOWDOWN"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 # --- Red flags (D-M04-73): one row per company and flag family --------------------------
@@ -316,7 +316,7 @@ cik = "0000040545"
 window = "2016–2017"
 family = "earnings_quality"
 label = "flag"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[red_flag]]
@@ -326,7 +326,7 @@ cik = "0001501134"
 window = "2021–2023"
 family = "distress"
 label = "flag"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[red_flag]]
@@ -336,7 +336,7 @@ cik = "0001501134"
 window = "2021–2023"
 family = "dilution"
 label = "flag"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[red_flag]]
@@ -356,7 +356,7 @@ cik = "0001310067"
 window = "2012–2017"
 family = "distress"
 label = "flag"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[red_flag]]
@@ -366,7 +366,7 @@ cik = "0001874178"
 window = "2022–2026"
 family = "unit_economics"
 label = "flag"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[red_flag]]
@@ -386,7 +386,7 @@ cik = "0001050446"
 window = "2025–2026"
 family = "dilution"
 label = "flag"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[red_flag]]
@@ -396,7 +396,7 @@ cik = "0000027419"
 window = "FY2022"
 family = "earnings_quality"
 label = "clean"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[red_flag]]
@@ -406,7 +406,7 @@ cik = "0001318605"
 window = "2023"
 family = "earnings_quality"
 label = "flag"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[red_flag]]
@@ -416,7 +416,7 @@ cik = "0000936468"
 window = "2016–2025"
 family = "control"
 label = "flag"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
 
 [[red_flag]]
@@ -426,5 +426,5 @@ cik = "0001652044"
 window = "2016–2025"
 family = "control"
 label = "clean"
-label_date = "10/12/2026"
+label_date = "2026-10-12"
 note = ""
