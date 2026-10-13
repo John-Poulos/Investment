@@ -245,3 +245,25 @@ Provisional IDs from docs/M04_DESIGN_PACK.md (S-new-n, S-new-r1…r6-n, S-new-bp
 - S223 Siegel (2016), "The Shiller CAPE Ratio: A New Look", Financial Analysts Journal 72(3) — changes in earnings definitions bias long-window averages — https://rpc.cfainstitute.org/research/financial-analysts-journal/2016/the-shiller-cape-ratio-a-new-look (R6) (one-clause finding written from general knowledge, not from a read passage: verify before citing)
 - S224 Mercury Research Q4 2025 server CPU share, via heise (other, grade B; extends S36) — https://heise.de/-11176017 (R6; D-M04-68)
 - S225 SEC Release 33-8400 (2004), "Additional Form 8-K Disclosure Requirements and Acceleration of Filing Date" — added Item 4.02 and the four-business-day deadline, effective 2004-08-23 (no 4.02 history before) — https://www.sec.gov/files/rules/final/33-8400.htm ; https://www.sec.gov/rule-release/33-8400 (R2; D-M04-15)
+
+## M07 design pack (numbered at M07 Part 1, 2026-10-13)
+S226–S244 are the pack's S-new-M07-1…19 in order (S-new-M07-n = S(225 + n)); the M07 docs keep the provisional names. S09's full text: NBER w16454 — https://www.nber.org/papers/w16454.pdf. The M08 pack's sources (S-new-M08-28, -29, cited by D-M07-8) are numbered at M08's build.
+- S226 Lakonishok & Lee (2001), Review of Financial Studies 14(1):79–111 — https://ideas.repec.org/a/oup/rfinst/v14y2001i1p79-111.html
+- S227 Jeng, Metrick & Zeckhauser (2003), Review of Economics and Statistics 85(2):453–471 — https://ideas.repec.org/a/tpr/restat/v85y2003i2p453-471.html
+- S228 Alldredge & Blank (2019), Journal of Financial Research 42(2):331–360 — https://ideas.repec.org/a/bla/jfnres/v42y2019i2p331-360.html
+- S229 Wang, Shin & Francis (2012), JFQA 47(4):743–762 — https://ideas.repec.org/a/cup/jfinqa/v47y2012i04p743-762_00.html
+- S230 Ali & Hirshleifer (2017), Journal of Financial Economics 126(3):490–515 — https://www.escholarship.org/uc/item/2sb6x1hj
+- S231 Jagolinzer (2009), Management Science 55(2):224–239 — https://pubsonline.informs.org/doi/references/10.1287/mnsc.1080.0928
+- S232 Scott & Xu (2004), "Some Insider Sales Are Positive Signals", Financial Analysts Journal 60(3) — https://rpc.cfainstitute.org/research/financial-analysts-journal/2004/some-insider-sales-are-positive-signals
+- S233 Yermack (2009), Journal of Financial Economics 92(1):107–123 (working-paper version) — https://archive.nyu.edu/handle/2451/27856
+- S234 Bettis, Bizjak & Kalpathy (2009 working paper), "Insiders' Use of Hedging Instruments" — https://shareholderforum.com/SOP/Library/20090318_Bettis-Bizjak-Kalpathy.pdf
+- S235 Debevoise & Plimpton (2023), Form 144 electronic-filing memo (other) — https://www.debevoise.com/insights/publications/2023/04/sec-requires-form-144-to-be-filed-electronically
+- S236 Cheng, Nagar & Rajan (2007), Review of Financial Studies 20(6):1833–1864 — https://ideas.repec.org/a/oup/rfinst/v20y2007i6p1833-1864.html ; SEC Form 4 two-business-day rule — https://www.sec.gov/resources-small-businesses/going-public/officers-directors-10-shareholders
+- S237 Brav, Jiang, Partnoy & Thomas (2008), Journal of Finance 63(4):1729–1775 — https://ideas.repec.org/a/bla/jfinan/v63y2008i4p1729-1775.html
+- S238 Field & Hanka (2001), Journal of Finance 56(2):471–500 — https://ideas.repec.org/a/bla/jfinan/v56y2001i2p471-500.html
+- S239 Agarwal, Jiang, Tang & Yang (2013), Journal of Finance 68(2):739–783 — https://ideas.repec.org/a/bla/jfinan/v68y2013i2p739-783.html
+- S240 Frank, Poterba, Shackelford & Shoven (2004), Journal of Law and Economics 47(2):515–541 — https://ideas.repec.org/a/ucp/jlawec/y2004v47i2p515-41.html
+- S241 Sias, Starks & Titman (2006), Journal of Business 79(6):2869–2910 — https://ideas.repec.org/a/ucp/jnlbus/v79y2006i6p2869-2910.html
+- S242 SEC primary pages: Form 4 transaction codes — https://www.sec.gov/edgar/searchedgar/ownershipformcodes.html ; Rule 10b5-1 fact sheet (URL for S10) — https://www.sec.gov/files/33-11138-fact-sheet.pdf ; 13D/13G modernization — https://www.sec.gov/files/33-11253-fact-sheet.pdf ; Form 13F Data Sets — https://www.sec.gov/data-research/sec-markets-data/form-13f-data-sets ; Insider Transactions Data Sets (URL for S46) — https://www.sec.gov/data-research/sec-markets-data/insider-transactions-data-sets
+- S243 Filings used in the M07 examples (primary): Musk Form 4 0001104659-25-089693, Intel 8-K 0000050863-25-000036, Tan Form 4 0001127602-25-010360, Huang Form 4 0001045810-25-000143, NVDA 10-Q 0001045810-25-000116, GFS Mubadala and FMR 13G/As, Berkshire 13F-HRs 0000950123-24-005622 and -008740, dei cover-count companyconcept files (TSLA, NVDA, AAPL); URLs in `docs/M07_DESIGN_PACK.md` "New sources"
+- S244 CNBC on Berkshire's Apple stake (other) — https://link.cnbc.com/public/36440273
