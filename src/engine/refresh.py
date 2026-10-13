@@ -33,7 +33,7 @@ from engine.sec.client import SecClient, iso
 from engine.sec.documents import ingest_filing
 from engine.sec.events import build_events, events
 from engine.sec.identity import load_entity, normalize_cik, resolve
-from engine.sec.insiders import sync_insiders
+from engine.sec.insiders import record_coverage, sync_insiders
 from engine.sec.results import Failed, NotFound, Ok, Result
 from engine.sec.submissions import (
     earnings_releases,
@@ -76,7 +76,7 @@ def facts_due(engine: sqlite3.Connection, entries: list[IndexEntry]) -> bool:
 @dataclass(frozen=True)
 class Config:
     tickers: tuple[str, ...]
-    form4_years: int = 3
+    form4_years: int = 4  # D-M07-1, D-SEC-27: CMP needs 3 prior calendar years
     earnings_8k: int = 4
     latest_annual: bool = True
     latest_quarterly: bool = True
@@ -92,7 +92,7 @@ def load_config(path: Path) -> Config:
     backfill, nightly = raw.get("backfill", {}), raw.get("nightly", {})
     return Config(
         tickers=tickers,
-        form4_years=int(backfill.get("form4_years", 3)),
+        form4_years=int(backfill.get("form4_years", Config.form4_years)),
         earnings_8k=int(backfill.get("earnings_8k", 4)),
         latest_annual=bool(backfill.get("latest_annual", True)),
         latest_quarterly=bool(backfill.get("latest_quarterly", True)),
@@ -296,6 +296,8 @@ def _process_company(
     if ins is not None:
         rep.insider_rows = ins.transactions
         fails.extend(f"form 4 {f}" for f in ins.failed)
+        if ins.complete and not ins.deferred:  # M07 history start (D-SEC-27)
+            record_coverage(engine, cik, since, now)
     form4_acc = [e.accession for e in entries if e.form in ("4", "4/A")]
     if form4_acc:
         marks = ",".join("?" * len(form4_acc))
