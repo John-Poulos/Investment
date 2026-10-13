@@ -10,6 +10,8 @@
     uv run python scripts/run_financials.py peers --no-sec   # local re-run, 0 SEC requests
     uv run python scripts/run_financials.py flags            # Part 3 live check
     uv run python scripts/run_financials.py flags --no-sec   # local re-run, 0 SEC requests
+    uv run python scripts/run_financials.py gate             # Part 4a live check
+    uv run python scripts/run_financials.py gate --no-sec    # local re-run, 0 SEC requests
     uv run python scripts/run_financials.py units            # Part 7a live check
     uv run python scripts/run_financials.py units --no-sec   # local re-run, 0 SEC requests
     uv run python scripts/run_financials.py --list           # the subcommand table
@@ -67,6 +69,12 @@ UI ("RIVN not covered yet: promote it on the UI first" until then; D-M04-81); In
 `m04_unit_kpi` items for category breaks; prints what the owner looks for. `--no-sec`
 re-scans stored text only.
 
+`gate` (Part 4a): Invitae's (and Rivian's, unless the refresh covers it) gate inputs as
+companyconcept files (17 tags each, cached 30 days; ~17–34 requests); then the survival
+gate, distress score, debt, FCF-burn and negative-equity rows for every covered company
+from stored facts (0 requests), the Part 4a review items, one line per company and the
+regression cases. `--no-sec` recomputes from stored data only.
+
 Takes data/refresh.lock (one SEC process at a time). Writes
 logs/financials_<subcommand>_<YYYYMMDD-HHMMSS>.txt as it goes, with requests, MB and
 seconds per fetch type, rows added per table and engine.db size before and after; its own
@@ -102,7 +110,7 @@ SUBCOMMANDS = (
     ("cvd", "8a", "CvD assembly, health vote, M04 tab"),
     ("backtest", "8b", "calibration"),
 )
-BUILT = {"data", "capex", "profile", "peers", "flags", "units"}
+BUILT = {"data", "capex", "profile", "peers", "flags", "gate", "units"}
 NVDA_CIK = "0001045810"
 NVDA_YEARS = range(2013, 2022)  # FY2013–FY2021: capex only under the extension tag
 WDC_CIK = "0000106040"
@@ -1818,6 +1826,251 @@ def run_units(args, log: Log, folder: Path) -> int:
     return 0
 
 
+# --- gate (Part 4a) ------------------------------------------------------------------------
+
+GATE_TABLES = ("credit_line", "fact", "entity", "signal", "m04_proposal", "review_queue",
+               "refresh_state")  # fmt: skip
+# Episode companies for the gate's regression lines (D-M04-32, SB.18): one companyconcept
+# file per gate input (D-SEC-25); a company the refresh already covers (RIVN once promoted,
+# D-M04-81) reads its stored facts instead (0 requests).
+GATE_EPISODES = (
+    ("Invitae", "0001501134", "8071", "INVITAE CORP"),
+    ("RIVN", "0001874178", "3711", "Rivian Automotive, Inc. / DE"),
+)
+GATE_TAGS = (
+    "CashAndCashEquivalentsAtCarryingValue", "AvailableForSaleSecuritiesDebtSecuritiesCurrent",
+    "MarketableSecuritiesCurrent", "ShortTermInvestments", "RestrictedCash",
+    "NetCashProvidedByUsedInOperatingActivities",
+    "PaymentsToAcquirePropertyPlantAndEquipment", "Assets", "AssetsCurrent", "LiabilitiesCurrent",
+    "Liabilities", "RetainedEarningsAccumulatedDeficit", "StockholdersEquity",
+    "OperatingIncomeLoss", "RevenueFromContractWithCustomerExcludingAssessedTax",
+    "NetIncomeLoss", "LongTermDebtNoncurrent",
+)  # fmt: skip
+INVITAE_103 = "2024-02-14"  # 8-K items 1.03 and 2.04 (S-new-r4-6)
+BA_CIK = "0000012927"
+# Stated credit lines for the Boeing regression lines (PROBE_RESULTS S11); shown, never stored.
+BA_LINES = {
+    "FY2019": ("2020-01-31", "2019-12-31", (("364-day", 3.2e9, "2020-10-30"),
+               ("three-year", 3.2e9, "2022-10-30"), ("five-year", 3.2e9, "2024-10-30"))),
+    "Q2 2024": ("2024-07-31", "2024-06-30", (("five-year", 4.0e9, "2029-05-15"),
+                ("364-day", 3.0e9, "2025-08-25"), ("three-year", 3.0e9, "2028-08-25"))),
+    "Q2 2022": ("2022-07-27", "2022-06-30", ()),
+}  # fmt: skip
+BA_EXPECT = {
+    "FY2019": (
+        "fail 3.6; 12-month test passes; + 4 × burn warns (DebtCurrent 7,340 holds CP 6,109)",
+        "fail 5.9 (6,400 beyond 12 months)",
+    ),
+    "Q2 2024": ("fail 3.1", "fail 5.5; 7,000 beyond 24 months"),
+    "Q2 2022": ("warn 6.1 cash-only (wall warn: 5,406 + 4 × 1,874 > 11,448)", ""),
+}
+
+
+def gate_counts(engine) -> dict[str, int]:
+    return {t: engine.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in GATE_TABLES}
+
+
+def gate_episodes(client, engine, comps, now, log, clog=None) -> None:
+    """Companyconcept files for the episode companies the refresh does not cover."""
+    from engine.sec.results import NotFound, Ok
+    from engine.sec.xbrl_facts import CONCEPT_URL, store_concept
+
+    t0 = time.monotonic()
+    for name, cik, sic, legal in GATE_EPISODES:
+        engine.execute(
+            "INSERT INTO entity (cik, name, sic, fiscal_year_end, source_ref, fetched_at) "
+            "VALUES (?, ?, ?, '1231', 'M04 Part 4a episode', ?) ON CONFLICT (cik) DO UPDATE SET "
+            "sic = coalesce(entity.sic, excluded.sic)",
+            (cik, legal, sic, now.isoformat(timespec="seconds")),
+        )
+        if cik in comps.values():
+            log(f"  {name}: covered (refresh facts stored), 0 requests")
+            continue
+        got = []
+        for tag in GATE_TAGS:
+            url = CONCEPT_URL.format(cik=cik, taxonomy="us-gaap", tag=tag)
+            res = client.get_json(url, ttl_s=30 * 86400)
+            if isinstance(res, Ok):
+                engine.execute("BEGIN")
+                seen, new = store_concept(engine, cik, res.data)
+                engine.execute("COMMIT")
+                got.append(f"{tag} {seen}/{new}")
+            elif isinstance(res, NotFound):
+                got.append(f"{tag} 404")
+            else:
+                got.append(f"{tag} failed: {res}")
+        log(f"  {name}: " + "; ".join(got))
+    if clog is not None:
+        clog.seconds["companyconcept"] += time.monotonic() - t0
+
+
+def _gate_line(log, label, g, expect) -> None:
+    from engine.financials import gate
+
+    rb = " · ".join(f"{k} {v:.1f}" if v is not None else f"{k} —"
+                    for k, v in g.runway_by_basis.items()) or "—"  # fmt: skip
+    trig = ("; trigger: " + "; ".join(g.triggers)) if g.triggers else ""
+    miss = ("; missing: " + "; ".join(g.missing)) if g.missing else ""
+    log(f"  {label}: {g.state} [{g.scope_name}] — runway {g.runway_text()} "
+        f"({g.tier_text}; {rb}); liquidity "
+        f"{gate.money(g.liquidity)} as of {g.balance_date}; wall {g.wall_test[0]} "
+        f"({g.debt12_text or 'no debt tags'}){trig}{miss} | expected: {expect}")  # fmt: skip
+
+
+def gate_regression(engine, now, log, mf=None) -> None:
+    """The fixture cases against the stored data (M04_BUILD_LOG Part 4a; SB.18)."""
+    from datetime import date
+
+    from engine.financials import distress, gate
+
+    log("Regression cases (stored data, as of the dates shown; credit lines stated in the "
+        "probe are passed in, never stored):")  # fmt: skip
+    nv = gate.evaluate(engine, "0001501134", "Invitae", "2022-03-01", calendar=False, models=mf)
+    lead = (date.fromisoformat(INVITAE_103) - date(2022, 3, 1)).days
+    _gate_line(log, f"Invitae FY2021 (as of 2022-03-01, {lead} days before its 8-K 1.03)", nv,
+               "fail, 5.6 (last two quarters) / 6.8 (TTM)")  # fmt: skip
+    sc = distress.score(engine, "0001501134", "Invitae", "2022-03-01", models=mf)
+    log(f"    Invitae distress {sc.text()} (expected Z'' 1.31 grey); {sc.method()}")
+    today = now.date().isoformat()
+    rv = gate.evaluate(engine, "0001874178", "RIVN", today, models=mf)
+    _gate_line(log, "Rivian latest, cash-only unless a line is confirmed", rv,
+               "Q2 2026: fail 5.5 cash-only; 6.1 (warn) with the ABL past 12 months")  # fmt: skip
+    if rv.balance_date:
+        abl = gate.Credit(None, "ABL (pack: 536 derived; not confirmed)", 536e6,
+                          f"{int(rv.balance_date[:4]) + 3}{rv.balance_date[4:]}", rv.balance_date,
+                          "B", "M04_DESIGN_PACK Rivian worked example", False, "")  # fmt: skip
+        _gate_line(log, "Rivian with the ABL as if confirmed",
+                   gate.evaluate(engine, "0001874178", "RIVN", today, extra_credit=(abl,),
+                                 models=mf), "warn 6.1")  # fmt: skip
+        rs = distress.score(engine, "0001874178", "RIVN", today, close_day=today, models=mf)
+        zpp = f" (Z'' {rs.zpp:.2f}; expected −5.37 at Q2 2026)" if rs.zpp is not None else ""
+        log(f"    Rivian distress {rs.text()}{zpp}")
+    for label, (as_of, bs, lines_) in BA_LINES.items():
+        cash = gate.evaluate(engine, BA_CIK, "BA", as_of, calendar=False, models=mf)
+        _gate_line(log, f"Boeing {label} cash-only", cash, BA_EXPECT[label][0])
+        if lines_:
+            extra = tuple(gate.Credit(None, f, a, m, bs, "A", "PROBE_RESULTS S11", False, "")
+                          for f, a, m in lines_)  # fmt: skip
+            g = gate.evaluate(
+                engine, BA_CIK, "BA", as_of, calendar=False, extra_credit=extra, models=mf
+            )
+            _gate_line(log, f"Boeing {label} with the stated lines", g, BA_EXPECT[label][1])
+            far = sum(c.amount for c in g.credits if c.beyond_24m)
+            log(f"    credit beyond 24 months: {gate.money(far)}")
+    ig = gate.evaluate(engine, "0000050863", "INTC", "2025-01-31", calendar=False, models=mf)
+    _gate_line(log, "Intel FY2024 (as of 2025-01-31)", ig,
+               "warn, capex-funded 5.6 → m04_runway (balance sheet 2024-12-28)")  # fmt: skip
+    log(f"    method: {ig.method()}")
+    fq = gate.evaluate(engine, "0002007825", "INFQ", "2026-02-12", calendar=False, models=mf)
+    _gate_line(log, "INFQ before the closing (as of 2026-02-12)", fq,
+               "trust only: pass on the trust account (spac_shell before 2026-02-13)")  # fmt: skip
+    log(f"    method: {fq.method()}")
+
+
+def gate_summary(engine, gp, now) -> list[str]:
+    from engine.financials import gate_step
+
+    out = [f"{SUMMARY_MARK} gate (Part 4a) · {now:%Y-%m-%d %H:%M} UTC"]
+    states: dict[str, int] = {}
+    for c in gp.companies.values():
+        if c.gate:
+            states[c.gate.state] = states.get(c.gate.state, 0) + 1
+    out.append("Gate states: " + ", ".join(f"{k} {v}" for k, v in sorted(states.items())))
+    no_trigger = [c.ticker for c in gp.companies.values()
+                  if c.gate and c.gate.state == "fail" and not c.gate.triggers]  # fmt: skip
+    out.append(f"Fails without a trigger: {len(no_trigger)}"
+               + (f" ({', '.join(no_trigger)})" if no_trigger else ""))  # fmt: skip
+    queued: dict[str, int] = {}
+    for c in gp.companies.values():
+        for k, v in c.queued.items():
+            v = "already proposed by an earlier run" if v == "suppressed" else v
+            key = f"{k.split(':')[0]} {v}"
+            queued[key] = queued.get(key, 0) + 1
+    out.append("Part 4a items this run: "
+               + (", ".join(f"{k} {v}" for k, v in sorted(queued.items())) or "none"))  # fmt: skip
+    held = [f"{c.ticker} {k}" for _, c in sorted(gp.companies.items()) for k in c.held]
+    if held:
+        out.append("Tracked names, rows only, no review items (D-M04-80): " + ", ".join(held))
+    items = gate_step.open_items(engine)
+    out.append(f"Open Part 4a items: {len(items)}")
+    out += [f"  {x}" for x in items]
+    withdrawn = sum(c.withdrawn for c in gp.companies.values())
+    if withdrawn:
+        out.append(f"Items withdrawn (condition no longer holds): {withdrawn}")
+    out += [f"  alert: {a}" for a in gp.alerts]
+    n_lines = engine.execute(
+        "SELECT count(*) FROM credit_line WHERE status = 'confirmed'"
+    ).fetchone()[0]
+    out.append(f"Credit lines confirmed: {n_lines}")
+    out.append("One line per company:")
+    out += [f"  {gate_step.company_line(c)}" for _, c in sorted(gp.companies.items())]
+    return out
+
+
+def gate_run(engine, comps: dict[str, str], now, log, client=None, clog=None, mf=None):
+    """The `gate` work on open connections (tests inject a scratch DB and a fake client;
+    `client=None` = no SEC requests)."""
+    from engine.financials import gate, gate_step
+
+    if client is not None:
+        log("Episode companyconcept files (Invitae; Rivian unless covered):")
+        gate_episodes(client, engine, comps, now, log, clog)
+        log("")
+    else:
+        log("SEC skipped (--no-sec): stored facts only", "")
+    t0 = time.monotonic()
+    gp = gate_step.gate_pass(engine, comps, now, mf=mf)
+    log(f"Gate, distress, debt and FCF rows recomputed for {len(gp.companies)} companies "
+        f"(0 requests, {time.monotonic() - t0:.1f} s)", "")  # fmt: skip
+    for _, c in sorted(gp.companies.items()):
+        log(gate_step.company_line(c))
+        if c.gate is not None:
+            log(f"    method: {c.gate.method()}")
+            if c.score is not None:
+                log(f"    distress: {c.score.text()}; {c.score.method()}")
+            for cr in c.gate.credits:
+                log(f"    credit: {cr.facility} {gate.money(cr.amount)} to {cr.maturity} "
+                    f"(stated for {cr.as_of}): {cr.why}")  # fmt: skip
+    log("")
+    gate_regression(engine, now, log, mf)
+    log("")
+    log(*gate_summary(engine, gp, now))
+    return gp
+
+
+def run_gate(args, log: Log, folder: Path) -> int:
+    from engine.store.db import open_db
+    from engine.store.http import SqliteCache, SqliteFetchLog
+
+    engine = open_db("engine", folder)
+    corpus = open_db("corpus", folder, check_same_thread=False)
+    now = datetime.now(UTC)
+    mb_before, before = db_mb(folder), gate_counts(engine)
+    comps = companies(engine)
+    if args.tickers:
+        wanted = {t.strip().upper() for t in args.tickers.split(",")}
+        comps = {t: c for t, c in comps.items() if t in wanted}
+    head = f"run_financials gate · {now:%Y-%m-%d %H:%M} UTC · {len(comps)} companies"
+    log(head + (" · no SEC" if args.no_sec else ""), f"engine.db before: {mb_before:,.1f} MB", "")
+    client = clog = None
+    if not args.no_sec:
+        from engine.sec.client import SecClient, user_agent_from_env
+
+        clog = CountingLog(SqliteFetchLog(engine))
+        client = SecClient(user_agent_from_env(), cache=SqliteCache(corpus), log=clog)
+    gate_run(engine, comps, now, log, client, clog)
+    if clog is not None:
+        log(*clog.lines())
+    else:
+        log("SEC requests: 0 (--no-sec)")
+    after = gate_counts(engine)
+    log("Rows added per table: " + ", ".join(f"{t} {after[t] - before[t]:+,}" for t in after))
+    log(f"engine.db: {mb_before:,.1f} MB → {db_mb(folder):,.1f} MB")
+    corpus.close()
+    engine.close()
+    return 0
+
+
 def _main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("subcommand", nargs="?", choices=[s for s, _, _ in SUBCOMMANDS])
@@ -1853,6 +2106,8 @@ def _main() -> int:
             return run_flags(args, log, data_dir())
         if args.subcommand == "units":
             return run_units(args, log, data_dir())
+        if args.subcommand == "gate":
+            return run_gate(args, log, data_dir())
         return run_data(args, log, data_dir())
     except Exception:
         log("FAILED with a traceback:", traceback.format_exc())

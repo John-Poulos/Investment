@@ -4,9 +4,11 @@
   <tr><th>Life-cycle stage</th><td><b>{{ pf.stage_text }}</b> · flag set: {{ pf.flag_set }}<br><span class="muted">computed: {{ pf.computed_text }}</span></td></tr>
   <tr><th>Model tag</th><td>{{ pf.tag_text }}</td></tr>
   <tr><th>Peers</th><td>{{ pf.peers_text }}{% if pf.peer_names %}: {{ pf.peer_names | join(', ') }}{% endif %}</td></tr>
+  {% if m04_gate %}<tr><th>Survival gate</th><td><a href="#gate"><b>{{ m04_gate.badge }}</b></a></td></tr>{% endif %}
 </table>
 <p class="note">Stage routes red flags only; R12, inventory-vs-sales and the survival gate run at every stage. The owner's confirmed stage keeps routing until the owner changes it; unconfirmed = young and mature sets both computed, labelled, not counted (D-M04-7, -12, -46). A model tag applies first (D-M04-8). Confirm or change on <a href="/m04/setup">M04 setup</a>{% if pf.item_ids %} · open items: {% for i in pf.item_ids %}<a href="/review/{{ i }}">{{ i }}</a>{{ ', ' if not loop.last }}{% endfor %}{% endif %}.</p>
 {% endif %}
+{% include "tabs/_m04_gate.html" %}
 {% for t in tables %}
 <h2>{{ t.title }}</h2>
 {% if t.rows %}

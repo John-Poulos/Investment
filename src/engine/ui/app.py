@@ -242,6 +242,11 @@ def create_app(settings: UiSettings) -> FastAPI:
 
             ctx["m04_flags"] = flags_view(engine, corpus, cik, datetime.now(UTC).date())
             ctx["m04_units"] = m04_units_view.company_view(engine, cik, ticker)  # Part 7a
+            from engine.financials import gate_view as m04_gate_view  # Part 4a
+
+            ctx["m04_gate"] = m04_gate_view.company_view(
+                engine, cik, ticker, datetime.now(UTC).date(), m04_companies(engine)
+            )
         elif tab == "insiders":
             ctx["txns"] = services.insider_txns(engine, cik)
         elif tab == "events":
@@ -854,6 +859,70 @@ def create_app(settings: UiSettings) -> FastAPI:
         msg = f"{it.ticker or it.cik}: {c.name} added" + (f" ({m04_peers.NOT_SEC})" if not c.cik
                                                            else "")  # fmt: skip
         return RedirectResponse(f"/m04/setup?msg={quote(msg)}#peer-{item_id}", 303)
+
+    # --- M04 survival gate (Part 4a; D-UI-28, D-M04-86) ---------------------------------
+
+    def m04_gate_back(ticker: str, msg: str) -> RedirectResponse:
+        return RedirectResponse(f"/c/{ticker}?tab=financials&msg={quote(msg)}#gate", 303)
+
+    def m04_gate_recompute(engine: sqlite3.Connection, ticker: str, cik: str) -> str:
+        from engine.financials import gate_step, profile
+
+        cg = gate_step.company_gate(
+            engine, ticker, cik, datetime.now(UTC),
+            queue_items=cik in profile.full_scope(engine, m04_companies(engine)).values(),
+        )  # fmt: skip
+        return f"gate recomputed: {cg.gate.state}, runway {cg.gate.runway_text()}"
+
+    @app.post("/m04/gate/{ticker}/credit-line")
+    def m04_credit_line_add(
+        ticker: str, engine: Engine, owner: OwnerDep,
+        facility: Annotated[str, Form()] = "", amount: Annotated[str, Form()] = "",
+        maturity: Annotated[str, Form()] = "", as_of: Annotated[str, Form()] = "",
+        source: Annotated[str, Form()] = "", note: Annotated[str, Form()] = "",
+    ) -> RedirectResponse:  # fmt: skip
+        """ "Add confirmed credit line" (D-M04-86): the owner is the confirmer; the gate
+        recomputes at once."""
+        from engine.financials import gate_view as m04_gate_view
+
+        ticker = ticker.upper()
+        cik = services.resolve_ticker(engine, ticker)
+        if cik is None:
+            raise HTTPException(404, f"Unknown ticker {ticker}.")
+        try:
+            lid = m04_gate_view.add_credit_line(
+                engine, cik, facility, amount, maturity, as_of, source, owner.id,
+                datetime.now(UTC), note,
+            )  # fmt: skip
+        except m04_gate_view.CreditLineError as e:
+            return m04_gate_back(ticker, f"Credit line not added: {e}")
+        return m04_gate_back(ticker, f"Credit line {lid} added; "
+                             + m04_gate_recompute(engine, ticker, cik))  # fmt: skip
+
+    @app.post("/m04/gate/{ticker}/credit-line/{line_id}/withdraw")
+    def m04_credit_line_withdraw(ticker: str, line_id: int, engine: Engine,
+                                 owner: OwnerDep) -> RedirectResponse:  # fmt: skip
+        from engine.financials import gate_view as m04_gate_view
+
+        ticker = ticker.upper()
+        cik = services.resolve_ticker(engine, ticker)
+        if cik is None:
+            raise HTTPException(404, f"Unknown ticker {ticker}.")
+        ok = m04_gate_view.withdraw_credit_line(engine, cik, line_id, owner.id, datetime.now(UTC))
+        msg = (
+            f"Credit line {line_id} withdrawn"
+            if ok
+            else f"Credit line {line_id}: nothing to withdraw"
+        )
+        return m04_gate_back(ticker, msg + "; " + m04_gate_recompute(engine, ticker, cik))
+
+    @app.post("/m04/gate/{ticker}/recompute")
+    def m04_gate_recompute_route(ticker: str, engine: Engine, owner: OwnerDep) -> RedirectResponse:
+        ticker = ticker.upper()
+        cik = services.resolve_ticker(engine, ticker)
+        if cik is None:
+            raise HTTPException(404, f"Unknown ticker {ticker}.")
+        return m04_gate_back(ticker, m04_gate_recompute(engine, ticker, cik))
 
     @app.get("/api/bars/{ticker}")
     def bars_api(ticker: str, engine: Engine, viewer: ViewerDep, bar: str = "D") -> JSONResponse:

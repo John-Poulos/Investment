@@ -606,7 +606,7 @@ def test_financials_tab_shows_the_m04_sections(tmp_path, clock):
         html = c.get("/c/META?tab=financials").text
     for text in ("Filing status", "Share counts", "Marker legend", "M04 rows still to come",
                  "2,529,555,464", "2,187,177,748", "Class B Common Stock", "R1 cover page",
-                 "missing: not built, Part 4a", "missing: not built, Part 8a", "Profile", "Capex", "Core trends", "Guidance record", "≈ broader tag",
+                 "missing: not built, Part 4b", "missing: not built, Part 8a", "Profile", "Capex", "Core trends", "Guidance record", "≈ broader tag",
                  "current", "2026-03-02"):  # fmt: skip
         assert text in html, text
     assert "object at 0x" not in html

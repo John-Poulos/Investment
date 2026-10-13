@@ -1,0 +1,4 @@
+{"cik":1501134,"taxonomy":"us-gaap","tag":"NetIncomeLoss","label":"NetIncomeLoss","description":"Hand-built companyconcept fixture (see README, Part 4a): Invitae FY2021 gate inputs","entityName":"INVITAE CORP","units":{"USD":[
+{"start":"2020-01-01","end":"2020-12-31","val":-602000000,"accn":"0001501134-21-900010","fy":2020,"fp":"FY","form":"10-K","filed":"2021-03-01"},
+{"start":"2021-01-01","end":"2021-12-31","val":-379000000,"accn":"0001501134-22-900010","fy":2021,"fp":"FY","form":"10-K","filed":"2022-03-01"}
+]}}

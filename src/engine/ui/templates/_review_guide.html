@@ -75,6 +75,20 @@
 
 <p class="note">Mentions measure attention, not money: weigh a proposal by its evidence grade and money flow first, then breadth growth. A theme that is already crowded (many new funds) is a warning, not a reason to buy.</p>
 
+<h3 class="sub">M04 survival gate (Part 4a)</h3>
+<table class="data">
+  <tr><th>Kind</th><th>Actions and their effect, with worked examples</th></tr>
+  <tr><td>Survival gate turned fail or incomplete (<code>m04_gate_fail</code>, alert, uncapped)</td><td>Opens when the gate turns fail (runway below 6 quarters for a cash burner, 12-month debt above liquidity, an open 8-K 1.03 / 2.04 / 3.01 fail) or incomplete (cash or two quarters of OCF missing, an overdue filing, a foreign filer's inputs older than 16 months, inconsistent inputs). <b>Noted</b> keeps the state; <b>Inputs wrong</b> (note required) records what is wrong.<br>
+  Examples: Rivian Q2 2026 on cash only: 5,310 ÷ 962 burn a quarter (last two quarters) = 5.5 quarters → fail. Its 536M ABL is untagged; confirm it on the gate panel ("Add confirmed credit line", maturing beyond 12 months) and the runway reads 6.1 → warn. → <b>Noted</b> before, or <b>Inputs wrong</b> "ABL not counted" and add the line. Boeing FY2019: (10,030 + 6,400 of credit maturing beyond 12 months) ÷ 2,778 = 5.9 → fail; the 364-day 3.2B line ending October 2020 does not count → <b>Noted</b>.</td></tr>
+  <tr><td>Capex-funded runway below 6 quarters (<code>m04_runway</code>, priority 1)</td><td>OCF is positive but FCF on total capex is negative and the runway is below 6 quarters: the gate warns and never fails; while open, rule-3 adds are allowed and rule-7 strength is blocked (D-M04-38). <b>Capex can be cut (allow strength)</b> when the build-out can be slowed; <b>Keep blocked</b> otherwise.<br>
+  Example: Intel FY2024: liquidity 22,062 ÷ burn 3,914 a quarter = 5.6 quarters with OCF +8,288; capex fell 39% the next year → <b>Capex can be cut</b>.</td></tr>
+  <tr><td>Gate input to map (<code>m04_gate_input</code>, operational, uncapped)</td><td>A non-financing input is missing or untagged (capex, cash, OCF; financing tags are mapped in M02). <b>Map tag</b> with a stored tag (taxonomy:Tag) makes it this company's input from the next recompute; <b>Not reported</b> keeps the labelled fallback.<br>
+  Example: Infleqtion after the de-SPAC: capex untagged → OCF-only runway 93.6 quarters (477 ÷ 5.1) → <b>Map tag</b> if its 10-Q tags capex under another name, else <b>Not reported</b>.</td></tr>
+  <tr><td>Distress score while the gate passes (<code>m04_score_gap</code>, priority 1)</td><td>Z (manufacturers) or Z'' in the distress zone while the gate reads pass or warn (S4.8). The score is a warning only, never a gate input (D-M04-31). <b>Noted</b>, or <b>Look closer</b> with what to check.<br>
+  Example: Boeing FY2025 Z 1.53 (below 1.81) with a passing gate (runway 48.7 quarters) → <b>Look closer</b> "negative retained earnings after losses; liquidity strong". GlobalFoundries 2.07 and Intel 2.00 are grey and open nothing.</td></tr>
+</table>
+<p class="note">Survival items flush first (priority 1); gate fails and gate inputs are outside the weekly cap of 5, the runway and score-gap reviews count in it (D-M04-71).</p>
+
 <h3 class="sub">M04 unit KPI category break (m04_unit_kpi)</h3>
 <table class="data">
   <tr><th>Example</th><th>Choice</th><th>Why</th></tr>

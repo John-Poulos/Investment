@@ -158,6 +158,20 @@
     <tr><th>Lines in the release filed {{ p.filed }}</th><td>{{ (p.after or []) | join(', ') or 'none' }} <span class="muted">({{ p.accession }})</span></td></tr>
   </table>
   <p class="muted">The earlier and later series stay split either way (D-M04-42). “Break” = the categories changed scope (e.g. a new model line), so a per-line trend across the release is not compared; “Same scope, renamed” = only the label changed. See the Unit KPIs table on the <a href="/c/{{ it.ticker or p.ticker }}?tab=financials">Financials tab</a>.</p>
+  {% elif it.kind in ('m04_gate_fail', 'm04_runway', 'm04_gate_input', 'm04_score_gap') %}
+  {% set p = it.payload %}
+  <table class="data">
+    <tr><th>Gate</th><td><b>{{ p.state }}</b> · {{ p.scope }} · balance sheet {{ p.balance_date or '—' }}{% if p.filing_status %} · filing status {{ p.filing_status }}{% endif %}</td></tr>
+    <tr><th>Runway</th><td>{{ p.runway }} ({{ p.tier }}){% for k, v in (p.runway_bases or {}).items() %} · {{ k }}: {{ v if v is not none else 'no burn' }}{% endfor %}</td></tr>
+    <tr><th>Liquidity</th><td>{{ p.liquidity or '—' }}</td></tr>
+    <tr><th>Maturity wall</th><td>{{ p.wall or '—' }}{% if p.wall24 %}<br><span class="muted">24 months: {{ p.wall24 }}</span>{% endif %}</td></tr>
+    {% if p.triggers %}<tr><th>Trigger</th><td>{{ p.triggers | join('; ') }}</td></tr>{% endif %}
+    {% if p.missing %}<tr><th>Missing</th><td>{{ p.missing | join('; ') }}</td></tr>{% endif %}
+    {% if p.warnings %}<tr><th>Warn</th><td>{{ p.warnings | join('; ') }}</td></tr>{% endif %}
+    {% if p.score %}<tr><th>Distress score</th><td>{{ p.score }}<br><span class="muted">{{ p.score_method }}</span></td></tr>{% endif %}
+    {% if p.input %}<tr><th>Input</th><td>{{ p.input | replace('_', ' ') }} — {{ p.why }}</td></tr>{% endif %}
+  </table>
+  <p class="muted">{{ {'m04_gate_fail': 'An alert (uncapped, priority 1): the gate turned fail or incomplete. Noted keeps the state; Inputs wrong records what is wrong (fix the input, confirm a credit line or map a tag; the gate recomputes on the next refresh or with Recompute on the Financials tab). D-M04-31…37, -61, -71.', 'm04_runway': 'Capex-funded name below 6 quarters (D-M04-38): rule-3 adds stay allowed; rule-7 strength is blocked while this is open. Capex can be cut allows strength while the runway stays in this band; Keep blocked keeps it blocked until the runway is 6 quarters or more.', 'm04_gate_input': 'A non-financing gate input is missing or untagged (financing tags are mapped in M02, D-M02-31). Map tag adds a stored tag as this input for this company (taxonomy:Tag); Not reported keeps the labelled fallback (e.g. the OCF-only runway).', 'm04_score_gap': 'The distress score is in the distress zone while the gate passes (S4.8). The score is a warning only and never a gate input (D-M04-31). Noted or Look closer (note).'}[it.kind] }} See the <a href="/c/{{ it.ticker or p.ticker }}?tab=financials#gate">survival gate panel</a>.</p>
   {% elif it.kind.startswith('m02_') %}
   {% if it.payload.earlier %}<div class="warnbox">Shown before and {{ it.payload.earlier.resolution }}ed{% if it.payload.earlier.note %} — your note: “{{ it.payload.earlier.note }}”{% endif %}. Back because it changed materially (distinct filers doubled or money-flow evidence appeared).</div>{% endif %}
   <table class="data">
@@ -203,6 +217,14 @@
   <div class="actions">
   {% for a, text in (('break_confirmed', 'Break — categories changed'), ('same_scope', 'Same scope, renamed')) %}
   <form method="post" action="/review/{{ it.item_id }}/{{ a }}"><input name="note" size="40" placeholder="Note (optional)"><button class="btn" type="submit">{{ text }}</button></form>
+  {% endfor %}
+  </div>
+  {% elif it.kind in ('m04_gate_fail', 'm04_runway', 'm04_gate_input', 'm04_score_gap') %}
+  <h3 class="sub">Resolve</h3>
+  <div class="actions">
+  {% set gate_actions = {'m04_gate_fail': (('noted', 'Noted'), ('inputs_wrong', 'Inputs wrong (note)')), 'm04_runway': (('allow_strength', 'Capex can be cut (allow strength)'), ('keep_blocked', 'Keep blocked')), 'm04_gate_input': (('map_tag', 'Map tag'), ('not_reported', 'Not reported')), 'm04_score_gap': (('noted', 'Noted'), ('look_closer', 'Look closer'))} %}
+  {% for a, text in gate_actions[it.kind] %}
+  <form method="post" action="/review/{{ it.item_id }}/{{ a }}">{% if a == 'map_tag' %}<input name="target" size="44" placeholder="us-gaap:PaymentsToAcquireProductiveAssets" required> {% endif %}<input name="note" size="36" placeholder="Note{{ '' if a == 'inputs_wrong' else ' (optional)' }}"{% if a == 'inputs_wrong' %} required{% endif %}><button class="btn" type="submit">{{ text }}</button></form>
   {% endfor %}
   </div>
   {% elif it.kind in ('m04_stage', 'm04_peer') %}

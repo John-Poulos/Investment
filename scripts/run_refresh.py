@@ -191,6 +191,20 @@ def financials_units_local_step(engine, corpus, report) -> str:
     return "\n" + "\n".join(lines) + "\n"
 
 
+def financials_gate_local_step(engine, report) -> str:
+    """M04 Part 4a local pass (0 SEC requests), after the other M04 local work so filing
+    status, filing events and the latest closes are current: the survival gate, distress
+    score and debt rows for every covered company; `m04_gate_fail` alerts (D-M04-61, -71).
+    Never fails the run."""
+    from engine.financials.gate_step import run_local_part
+
+    try:
+        lines = run_local_part(engine, companies_of(report), datetime.now(UTC))
+    except Exception as e:  # must not break the run report
+        lines = [f"M04 survival gate — local pass: error — {type(e).__name__}: {e}"]
+    return "\n" + "\n".join(lines) + "\n"
+
+
 def seasonal_step(engine, corpus, report, background: bool):
     """D-M02-51: a due seasonal pass is mined here, locally (no SEC), and a background run
     then asks Yes/No after releasing the lock. Manual runs and a pass declined today get
@@ -320,6 +334,16 @@ def m04_event_alerts(engine) -> list[str]:
         return []
 
 
+def m04_gate_alerts(engine) -> list[str]:
+    """`m04_gate_fail` items opened in the last 24 hours (D-M04-71 alerts). Never fails."""
+    try:
+        from engine.financials.gate_step import recent_alerts
+
+        return recent_alerts(engine, datetime.now(UTC))
+    except Exception:
+        return []
+
+
 def waiting_summary(engine) -> str | None:
     """What waits for the owner after a run (D-M02-12): review items, downloads, overflow."""
     from engine.themes.proposals import overflow
@@ -329,9 +353,14 @@ def waiting_summary(engine) -> str | None:
         "GROUP BY kind = 'm02_ir_download'").fetchall())  # fmt: skip
     downloads, reviews, waiting = rows.get(1, 0), rows.get(0, 0), len(overflow(engine))
     alerts = m04_event_alerts(engine)
-    if not (downloads or reviews or waiting or alerts):
+    gate_alerts = m04_gate_alerts(engine)
+    if not (downloads or reviews or waiting or alerts or gate_alerts):
         return None
     parts = []
+    if gate_alerts:  # D-M04-71: survival-gate fails and incompletes, uncapped
+        parts.append("M04 survival gate (alerts):\n" + "\n".join(f"  {a}" for a in gate_alerts[:8])
+                     + (f"\n  … {len(gate_alerts) - 8} more on the Financials tab"
+                        if len(gate_alerts) > 8 else ""))  # fmt: skip
     if alerts:  # D-M04-77: every new 8-K event, uncapped
         parts.append("M04 filing events (new):\n" + "\n".join(f"  {a}" for a in alerts[:12])
                      + (f"\n  … {len(alerts) - 12} more on the Financials tab"
@@ -437,6 +466,7 @@ def _run(args, engine, folder):
     prices = skipped if args.skip_prices else prices_step(engine, report)
     prices += financials_local_step(engine, corpus, report)
     prices += financials_units_local_step(engine, corpus, report)
+    prices += financials_gate_local_step(engine, report)
     text = format_report(report) + calls + prices
     logs = ROOT / "logs"
     logs.mkdir(exist_ok=True)

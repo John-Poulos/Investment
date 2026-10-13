@@ -65,6 +65,10 @@ KIND_LABELS = {
     "m04_restate": "M04: restatement step not explained",
     "m04_rating": "M04: credit-rating action",
     "m04_unit_kpi": "M04: unit KPI category break",  # Part 7a
+    "m04_gate_fail": "M04: survival gate turned fail or incomplete (alert)",  # Part 4a
+    "m04_runway": "M04: capex-funded runway below 6 quarters",  # Part 4a
+    "m04_gate_input": "M04: survival-gate input to map",  # Part 4a
+    "m04_score_gap": "M04: distress score in the distress zone while the gate passes",  # 4a
 }
 ACTIONS = {
     "m04_stage": ("confirm",),  # target = the stage chosen (default: the computed stage)
@@ -73,6 +77,11 @@ ACTIONS = {
     "m04_restate": ("explained", "error"),  # the owner's reading of the residual
     "m04_rating": ("noted",),
     "m04_unit_kpi": ("break_confirmed", "same_scope"),  # Part 7a; series never merged
+    # Part 4a (D-M04-38, -71, S4.8): answers are stored on the item; the gate reads them
+    "m04_gate_fail": ("noted", "inputs_wrong"),
+    "m04_runway": ("allow_strength", "keep_blocked"),
+    "m04_gate_input": ("map_tag", "not_reported"),  # map_tag: target = taxonomy:tag
+    "m04_score_gap": ("noted", "look_closer"),
 }
 
 
@@ -301,4 +310,9 @@ def apply(
         if action == "break_confirmed":
             return f"break_confirmed: {what} categories changed; earlier and later not compared"
         return f"same_scope: {what} renamed only; the owner reads the lines as one scope"
+    if kind in ("m04_gate_fail", "m04_runway", "m04_score_gap", "m04_gate_input"):
+        from engine.financials import gate_view
+
+        return gate_view.apply_action(engine, kind, action, payload, cik, by, now,
+                                      target=target, note=note)  # fmt: skip
     raise QueueError(f"'{action}' is not an action for {kind}.")
