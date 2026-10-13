@@ -234,7 +234,9 @@ def create_app(settings: UiSettings) -> FastAPI:
             ctx["awards"] = off_views.company_awards(engine, cik, datetime.now(UTC).date())
         elif tab == "financials":
             ctx["tables"] = services.financials(engine, cik)
-            ctx["m04"] = m04_views.company_view(engine, cik, datetime.now(UTC).date(), corpus)
+            ctx["m04"] = m04_views.company_view(
+                engine, cik, datetime.now(UTC).date(), corpus, ticker
+            )
         elif tab == "insiders":
             ctx["txns"] = services.insider_txns(engine, cik)
         elif tab == "events":
@@ -697,10 +699,23 @@ def create_app(settings: UiSettings) -> FastAPI:
         scale: Annotated[str, Form()] = "1",
         reason: Annotated[str, Form()] = "",
         target: Annotated[str, Form()] = "",
+        keep: Annotated[list[str] | None, Form()] = None,
+        back: Annotated[str, Form()] = "",
     ) -> RedirectResponse:
         """Owner-only review actions (U2); each closes the item with who, when and note (U3)."""
         now = datetime.now(UTC)
         done = action
+        if (it0 := review.get(engine, item_id)) and it0.kind.startswith("m04_"):
+            to = back if back.startswith("/") and not back.startswith("//") else "/review"
+            sep = "&" if "?" in to else "?"
+            try:
+                done = review.m04_action(engine, item_id, action, note, owner.id, now,
+                                         target=target, keep=tuple(keep or ()))  # fmt: skip
+            except review.ReviewError as e:
+                if to != "/review":
+                    return RedirectResponse(f"{to}{sep}error={quote(str(e))}", 303)
+                return RedirectResponse(f"/review/{item_id}?error={quote(str(e))}", 303)
+            return RedirectResponse(f"{to}{sep}msg={quote(f'Item {item_id}: {done}')}", 303)
         try:
             if action == "enter":
                 warnings = review.enter_guidance(
@@ -730,6 +745,94 @@ def create_app(settings: UiSettings) -> FastAPI:
         except review.ReviewError as e:
             return RedirectResponse(f"/review/{item_id}?error={quote(str(e))}", 303)
         return RedirectResponse(f"/review?msg={quote(f'Item {item_id}: {done}')}", 303)
+
+    # --- M04 setup (Part 1c; D-M04-4, -7, -8, -12, -71) ---------------------------------
+
+    def m04_companies(engine: sqlite3.Connection) -> dict[str, str]:
+        listed = services.watchlist(engine, services.watchlist_tickers(settings.watchlist))
+        out = {c.ticker: c.cik for c in listed if c.cik}
+        for m in tiers.members(engine, "promoted"):
+            out.setdefault(m.ticker, m.cik)
+        return out
+
+    @app.get("/m04/setup", response_class=HTMLResponse)
+    def m04_setup_page(request: Request, engine: Engine, viewer: ViewerDep, msg: str = "",
+                       error: str = ""):  # fmt: skip
+        """Stage confirmations, peer shortlists and model tags (owner's mock-up)."""
+        from engine.financials import models as m04_models
+        from engine.financials import profile as m04_profile
+        from engine.financials import stage as m04_stage
+
+        view = m04_profile.setup_view(engine, m04_companies(engine), m04_models.load_safe(),
+                                      datetime.now(UTC))  # fmt: skip
+        ctx = frame(engine) | {"viewer": viewer, "v": view, "msg": msg, "error": error,
+                               "stage_names": m04_stage.STAGE_NAMES,
+                               "reasons": m04_stage.REASONS, "routing": m04_models.ROUTING,
+                               "not_sec": m04_peers_not_sec()}  # fmt: skip
+        return templates.TemplateResponse(request, "m04_setup.html", ctx)
+
+    def m04_peers_not_sec() -> str:
+        from engine.financials.peers import NOT_SEC
+
+        return NOT_SEC
+
+    @app.post("/m04/stage/confirm-all")
+    def m04_confirm_all(
+        engine: Engine, owner: OwnerDep, items: Annotated[list[int] | None, Form()] = None
+    ) -> RedirectResponse:
+        """'Confirm all N' for the plain-mature group: each item closed through the review
+        machinery as computed (mature)."""
+        done, errors = 0, []
+        for item_id in items or []:
+            try:
+                review.m04_action(engine, item_id, "confirm", "confirm all (plain mature)",
+                                  owner.id, datetime.now(UTC))  # fmt: skip
+                done += 1
+            except review.ReviewError as e:
+                errors.append(f"item {item_id}: {e}")
+        msg = f"{done} stage(s) confirmed as mature" + (f"; {'; '.join(errors)}" if errors else "")
+        return RedirectResponse(f"/m04/setup?msg={quote(msg)}#stages", 303)
+
+    @app.post("/m04/stage/{ticker}/override")
+    def m04_override(ticker: str, engine: Engine, owner: OwnerDep,
+                     stage: Annotated[str, Form()], note: Annotated[str, Form()] = ""
+                     ) -> RedirectResponse:  # fmt: skip
+        """Owner override with no item open (D-M04-12): recorded as a resolved item."""
+        cik = services.resolve_ticker(engine, ticker.upper())
+        if cik is None:
+            raise HTTPException(404, f"Unknown ticker {ticker}.")
+        try:
+            done = review.m04_override(engine, cik, ticker.upper(), stage, note, owner.id,
+                                       datetime.now(UTC))  # fmt: skip
+        except review.ReviewError as e:
+            return RedirectResponse(f"/m04/setup?error={quote(str(e))}#stages", 303)
+        return RedirectResponse(f"/m04/setup?msg={quote(f'{ticker.upper()}: {done}')}#stages", 303)
+
+    @app.post("/m04/peer/{item_id}/add")
+    def m04_peer_add(item_id: int, engine: Engine, owner: OwnerDep,
+                     peer: Annotated[str, Form()] = "",
+                     not_sec: Annotated[str, Form()] = "") -> RedirectResponse:  # fmt: skip
+        """Add a product-market peer (any SIC) or a non-SEC peer by name to an open
+        `m04_peer` item; the item's Confirm stores the set."""
+        from engine.financials import peers as m04_peers
+
+        it = review.get(engine, item_id)
+        if it is None or it.kind != "m04_peer" or it.resolved_at or not it.cik:
+            raise HTTPException(404, "No open peer item.")
+        now = datetime.now(UTC)
+        engine.execute("BEGIN")
+        try:
+            c = m04_peers.add_peer(engine, it.cik, peer, bool(not_sec), now)
+            engine.execute("COMMIT")
+        except m04_peers.PeerError as e:
+            engine.execute("ROLLBACK")
+            return RedirectResponse(f"/m04/setup?error={quote(str(e))}#peer-{item_id}", 303)
+        except Exception:
+            engine.execute("ROLLBACK")
+            raise
+        msg = f"{it.ticker or it.cik}: {c.name} added" + (f" ({m04_peers.NOT_SEC})" if not c.cik
+                                                           else "")  # fmt: skip
+        return RedirectResponse(f"/m04/setup?msg={quote(msg)}#peer-{item_id}", 303)
 
     @app.get("/api/bars/{ticker}")
     def bars_api(ticker: str, engine: Engine, viewer: ViewerDep, bar: str = "D") -> JSONResponse:

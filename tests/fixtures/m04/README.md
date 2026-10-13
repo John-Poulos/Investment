@@ -47,3 +47,10 @@ FY2022 ($76.0B → $65–68B → $63–64B; actual $63,054M) from the R1 brief; 
 April 2022/2023 release patterns from the brief's guidance table; the withdrawal sentence
 in the January 2023 call is **illustrative** (the brief says the call "reportedly" gave a
 reason); the ROIC, gross-profit-derivation and scoring-rule companies are illustrative.
+
+## Part 1c
+
+| File | Figures and their source | Placeholders |
+|---|---|---|
+| stage_cases_20261012.json | Per company ($M): operating, investing (total) and financing cash flow, PP&E payments, acquisitions, business sale proceeds for the last 3 fiscal years, and revenue for 4 years. The Dickinson signs and 3-year revenue CAGRs follow docs/m04_review/R1_brief.md "Sitting 2": AAPL shake-out ×3 on total, mature ×3 on core, +1.8%; INTC growth ×3, −5.7%; TSLA growth ×3, +5.2%; NVDA mature ×3, +100.0%; MU mature, mature, growth, +104.6%; BA mature, introduction, shake-out, +10.3%; MRVL mature, mature, shake-out (divestiture), +11.4%; META mature, +19.9%; MSTR growth, introduction ×2, −1.5%; SPCX one fiscal year; INFQ none after the de-SPAC. Some values are near the companies' reported figures (e.g. AAPL FY2023 operating cash flow 110,543; MU FY2024–26 operating cash flow and FY2025–26 capex as in the Part 1b fixture) | **most amounts illustrative**, chosen to give the brief's signs and CAGRs; MSFT, AMZN, GOOG and GFS (plain mature) added to make the 15 setup items; fiscal year ends rounded to month ends |
+| browse_sic3674_page_trimmed.htm | EDGAR browse-by-SIC result layout (`table.tableFile2`, CIK link then company name), five real SIC 3674 names incl. "KULICKE &amp; SOFFA INDUSTRIES INC" (probe S1 printed the escaped name) | trimmed to five rows; the 505-name list, form-index rows and revenue frames of the 505/82 test are generated in `tests/test_financials_1c.py` (counts from PROBE_RESULTS S1) |

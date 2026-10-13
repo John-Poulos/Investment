@@ -34,6 +34,11 @@ Judge financial health and earnings quality, flag the outline's red flags by lif
 - **Confirmation:** the owner confirms each company's first stage once (setup batch, 15), then computed changes and ambiguous cases, about 4–5 a year (D-M04-12). Owner override.
 - **Until confirmed:** the last confirmed stage routes. With none, the young and the mature flag sets are both computed, labelled "stage unconfirmed" and not counted in D13 (D-M04-7).
 - Stage routes flags only. R12, inventory-vs-sales and the survival gate run at every stage (D-M04-7).
+- **Built (Part 1c):** `financials/stage.py`; capex = the own-history total capex (D-M04-3); acquisitions and sale proceeds without a fact count as none and are named; a value > 0 reads "+". The refresh's local pass recomputes every core and promoted company (tracked names: no items, D-M04-80); the first run opens one setup `m04_stage` item per company (15, outside the cap); later, a new fiscal year whose computed stage differs from the owner's, or is ambiguous, opens a capped item (group 2). Owner override from the setup page, recorded as a resolved item.
+
+### Peer shortlist (D-M04-4; built Part 1c)
+- Listed = EDGAR's browse-by-SIC under the company's 4-digit SIC (10-K, 20-F and 40-F browses, at most 10 pages per SIC, partial marked); active = a 10-K, 20-F or 40-F (incl. amendments, 10-KT) in the last 12 months from the stored form indexes; ranked by |ln(peer revenue ÷ company revenue)| on calendar-year revenue frames (3 tags), names without a frame value after; top 10† per company.
+- One setup `m04_peer` item per company from the shortlist only; the owner strikes names, adds product-market peers in any SIC by ticker or CIK (WDC, QCOM for MU) and non-SEC peers by name ("missing: not an SEC filer": SK hynix, Samsung), and confirms; the set goes to `peer_group` / `peer_member` ("M04 peers <cik>"). A tagged company (MSTR) gets no SIC shortlist, only owner-added peers; `fund` and `financial` get no item. `run_financials.py profile` is the only browse (owner-run).
 
 ### Model tags
 Six fixed tags; one-line reason and source each; unknown tag rejected at load; the app never edits the file. A tag overrides SIC and applies before stage. Untagged financials (FF12 group 11) read "not applicable"; the engine may propose `reit` for SIC 6798 (D-M04-8).
@@ -248,7 +253,7 @@ Every row: `cik` (key; ticker for display, D-M04-74), one row per timeframe, `va
 | `guidance_removed` | text: removed / expired | Quiet removal event (S1.7); one row per release date, metrics in `method`; built Part 1b | info | info | info |
 | `customer_signal` | text: intact / weakening / info | Q2 customer row | ✓ | ✓ | info |
 | `customer_at_stake`, `customer_hhi` | share; index | Disclosed customer exposure | info | info | info |
-| `lifecycle_stage` | text: stage, "unconfirmed" | Routing only | info | info | info |
+| `lifecycle_stage` | text: stage, "unconfirmed" | Routing only; owner-confirmed stage (date, flag set) or "unconfirmed" (computed stage and review reasons in `method`); missing "not applicable (<tag>)" for `fund` / `financial`; as_of = newest cash-flow filing; built Part 1c | info | info | info |
 | `filing_status` | text: current / stale / overdue; days in `method` | Filing age; built Part 1a (as_of = filed date, period end or due date) | ✓ | ✓ | ✓ |
 | `shares_cover` | shares (all classes, split-adjusted); classes and tag in `method` | Cover count on its cover date (D-M04-2); built Part 1a | info | info | info |
 | `implied_float_shares` | shares; float, close and date in `method` | Float ÷ close, yearly, "implied" (D-M04-2; M07 owns R22); built Part 1a | info | info | info |

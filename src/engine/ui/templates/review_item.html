@@ -111,6 +111,19 @@
   </table>
   {% endif %}
   <p class="note">{{ p.why }} Grade A = the company's own feed or 8-K release; B = trade press or a known outlet naming a watchlist/tracked company. The same release from several sources is one event (D-M02-15, D-M02-58).</p>
+  {% elif it.kind == 'm04_stage' %}
+  {% set p = it.payload %}
+  <table class="data">
+    <tr><th>Computed</th><td>{{ (p.computed or 'none holds') | replace('_', '-') }} ({{ p.fiscal_label }}){% if p.confirmed %} · your stage now: {{ p.confirmed | replace('_', '-') }}{% endif %}</td></tr>
+    <tr><th>Signs (CFO, core investing, CFF)</th><td>{% for y in p.years or [] %}{{ y.label }} {{ y.signs }} {{ (y.stage or y.missing or '') | replace('_', '-') }}{{ ' · ' if not loop.last }}{% else %}no fiscal-year cash flows{% endfor %}{% if p.total_note %}<br><span class="muted">{{ p.total_note }}</span>{% endif %}</td></tr>
+    <tr><th>Revenue CAGR 3y</th><td>{% if p.rev_cagr3 is not none %}{{ '%+.1f' | format(p.rev_cagr3 * 100) }}%{% else %}{{ p.cagr_note or '—' }}{% endif %}</td></tr>
+    {% if p.tag %}<tr><th>Model tag</th><td>{{ p.tag }} (routes first, D-M04-8)</td></tr>{% endif %}
+  </table>
+  <p class="muted">Confirm or choose the stage on the <a href="/m04/setup#stages">M04 setup page</a> (D-M04-7, -12).</p>
+  {% elif it.kind == 'm04_peer' %}
+  {% set p = it.payload %}
+  <p>SIC {{ p.sic or '—' }} · listed {{ p.listed }} · active {{ p.active }}{% if p.note %} · {{ p.note }}{% endif %}</p>
+  <p class="muted">Shortlist: {{ (p.shortlist or []) | join(', ') or 'none' }}. Strike, add and confirm on the <a href="/m04/setup#peer-{{ it.item_id }}">M04 setup page</a> (D-M04-4).</p>
   {% elif it.kind.startswith('m02_') %}
   {% if it.payload.earlier %}<div class="warnbox">Shown before and {{ it.payload.earlier.resolution }}ed{% if it.payload.earlier.note %} — your note: “{{ it.payload.earlier.note }}”{% endif %}. Back because it changed materially (distinct filers doubled or money-flow evidence appeared).</div>{% endif %}
   <table class="data">
@@ -151,6 +164,10 @@
   <p><a class="btn" href="/review/{{ it.item_id }}/pickup">I downloaded it — find the newest PDF in Downloads</a></p>
   {% endif %}
   {% endif %}
+  {% if it.kind.startswith('m04_') %}
+  <h3 class="sub">Resolve</h3>
+  <p><a class="btn" href="/m04/setup{{ '#stages' if it.kind == 'm04_stage' else '#peer-' ~ it.item_id }}">Open on the M04 setup page</a></p>
+  {% else %}
   <h3 class="sub">Resolve</h3>
   {% if 'enter' in it.actions %}
   <form method="post" action="/review/{{ it.item_id }}/enter" class="entry">
@@ -180,6 +197,7 @@
   </form>
   {% endfor %}
   </div>
+  {% endif %}
   {% endif %}
 </main>
 {% endblock %}

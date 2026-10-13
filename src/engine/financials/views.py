@@ -1,6 +1,7 @@
 """Financials tab, M04 sections (M00_UI D-UI-22, D-UI-23; M04 Parts 1a–1b). Plain data for
 the template.
 
+A Profile block at the top (Part 1c: stage and flag set, model tag, peers confirmed).
 Sections below the existing quarterly and balance-sheet tables (owner's mock-ups): Filing
 status, Share counts (Part 1a); Capex, Core trends, Guidance record (Part 1b); Marker
 legend; and "M04 rows still to come" (one row per later build part, each "missing: not
@@ -14,6 +15,8 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from engine.financials import capex as capex_mod
+from engine.financials import models as models_mod
+from engine.financials import profile as profile_mod
 from engine.financials import trends as trends_mod
 from engine.financials.shares import ShareRow, share_rows
 from engine.financials.status import stored_status
@@ -66,7 +69,6 @@ LEGEND = (
 )
 
 STILL_TO_COME = (
-    ("Life-cycle stage, model tag, peer shortlist", "1c"),
     ("Peer statistics and peer z (core trends, capex peers)", "2"),
     ("Restatements, 8-K filing events, ratings", "3"),
     ("Survival gate: runway, maturity wall, distress score", "4a"),
@@ -122,6 +124,7 @@ class M04View:
     guidance: GuidanceSection | None = None
     legend: tuple[tuple[str, str], ...] = LEGEND
     todo: list[tuple[str, str]] = field(default_factory=list)
+    profile: profile_mod.Profile | None = None
 
 
 def m(x: float | None) -> str:
@@ -294,6 +297,7 @@ def company_view(
     cik: str,
     today: date,
     corpus: sqlite3.Connection | None = None,
+    ticker: str | None = None,
 ) -> M04View:
     norm = normalize_cik(cik) or cik
     rows = stored_status(engine, norm)
@@ -315,4 +319,5 @@ def company_view(
         signals=_signal_rows(tv),
         guidance=guidance_section(rec),
         todo=[(what, f"missing: not built, Part {part}") for what, part in STILL_TO_COME],
+        profile=profile_mod.company_profile(engine, models_mod.load_safe(), norm, ticker),
     )

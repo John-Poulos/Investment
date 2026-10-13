@@ -58,9 +58,9 @@ One round per section; the owner chose the recommended option everywhere. Texts:
 | Part | Covers | Decisions | Depends on | Live check (owner) | Status |
 |---|---|---|---|---|---|
 | 0 Docs | SOURCES S122+, DS12–DS17, M04 doc redraft, this log, DESIGN code map | SB.1, S1.8, S1.9 | — | none | — |
-| 1a Data | `facts_as_of`, form list, predecessor CIKs, share series, R1 cover reader, implied float, `filing_status`, signal migration (`value_text`, `cik`) and writer | D-M04-2, -9, -36, -61, -74 | 0 | `data` (~39 requests, < 1 min) | built 2026-10-12; live check pending |
-| 1b Capex, trends | capex definitions and NVDA extension tag, `capex_split`, ROIC, trend rows, guidance record | D-M04-3, -6, -10, -11 | 1a | `capex` (~18, < 1 min) | built 2026-10-12; live check pending |
-| 1c Profile | model tags, stage, M04 queue, ranked SIC peer shortlist, setup page | D-M04-4, -7, -8, -12, -71 | 1b | `profile` (≤ 90 pages + 2–4 frames, ~1 min) | — |
+| 1a Data | `facts_as_of`, form list, predecessor CIKs, share series, R1 cover reader, implied float, `filing_status`, signal migration (`value_text`, `cik`) and writer | D-M04-2, -9, -36, -61, -74 | 0 | `data` (~39 requests, < 1 min) | merged (PR #33) |
+| 1b Capex, trends | capex definitions and NVDA extension tag, `capex_split`, ROIC, trend rows, guidance record | D-M04-3, -6, -10, -11 | 1a | `capex` (~18, < 1 min) | merged (PR #34) |
+| 1c Profile | model tags, stage, M04 queue, ranked SIC peer shortlist, setup page | D-M04-4, -7, -8, -12, -71 | 1b | `profile` (≤ 80 pages + 3 frames, ~1 min) | built 2026-10-12; live check pending |
 | Setup | owner confirms 15 stages and the peer shortlists | D-M04-12, -71 | 1c | — | — |
 | 2 Peers | trimmed peer companyfacts, offsets, small-n statistics, peer z | D-M04-3, -5, -52, -75 | 1c + setup | `peers` (40–50 companyfacts, ~1 min) | — |
 | 3 Restatements, events | 8-K triggers and sub-classes, walk, dei flag, old filings, prior 10-Ks, non-reliance, ratings, label template | D-M04-15…17, -21, -37, -71, -73 | 1a + setup | `flags` (~97, 1–2 min) | — |
@@ -76,23 +76,24 @@ One round per section; the owner chose the recommended option everywhere. Texts:
 Order: 0 → 1a → 1b → 1c → setup batch → 2 → 3 → 4a → 4b → 5 → 6 → 7a → 7b → 8a → 8b → High review. 7a reads only Part 1a and may move earlier if a later part stalls. One-off SEC requests ≈ 1,170 in all (B.9a plan, D-M04-75).
 
 ## Migrations (engine 0029 onward)
-Numbers are planned (0028_official_followup is the latest on main); take the next free number at build if another branch lands first. No corpus migration is expected: old filings and prior 10-Ks use the existing document and passage tables.
+Numbers are planned; take the next free number at build if another branch lands first. 0031 went to `0031_guidance_dropped` (Part 1b live-check fix, D-M04-85), so Part 1c took 0032 and every later number moved up by one (2026-10-12). No corpus migration is expected: old filings and prior 10-Ks use the existing document and passage tables.
 
 | Part | Migration | Adds |
 |---|---|---|
 | 1a | 0029_m04_data | `signal` rebuilt with `cik` (key: cik, module_id, signal, timeframe, as_of) and `value_text`; ticker kept for display; existing rows backfilled from `ticker` (D-M04-9, -74) · `entity_link` (predecessor or shell CIK, successor, boundary date, kind) · `cover_shares` (accession, class, shares, cover date, `error_correction_flag`) · `filing_status` (cik, period, form, category carried, due date, status) |
 | 1b | 0030_m04_capex | `capex_split` (cik, period, total, maintenance, method, rung) · `guidance_outcome` (guide row, actual, outcome: hit / miss / unscored / revised / removed / expired, reason passage) |
-| 1c | 0031_m04_profile | `company_stage` (cik, fiscal year, computed, confirmed, by, at) · `m04_proposal` (as `m02_proposal`, plus priority group and `baseline`) · `peer_candidate` (target cik, candidate cik or name, SIC, rank, active forms) |
-| 2 | 0032_m04_peers | `peer_fetch` (cik, fetched_at, tags kept, rows, MB); `peer_group` / `peer_member` (0001) now written |
-| 3 | 0033_m04_flags | `restate_step` (cik, concept, period, first and latest value and accession, label, residual, baseline) · `m04_event` (accession, item, class, state, clears_at, owner resolution) · `rating_action` |
-| 4a | 0034_m04_gate | `credit_line` (cik, facility, amount, maturity, source passage, confirmed by) |
-| 4b | 0035_m04_gate_text | `gate_text` (accession, period end, class, quote, passage id, baseline) |
-| 5 | 0036_m04_issuance | `issuance_band` (year, universe, cuts) · `offering` (424B accession, security type, amount, fee source, paired final supplement) · `overhang_item` · `lockup_release` |
-| 6 | 0037_m04_quality | `estimate_change` (accession, amount, basis, denominator, band, filing version) · `special_item` |
-| 7a | 0038_fact_dim | `fact_dim` (cik, accession, concept, axis, member, period, value, unit) · `unit_metric` (cik, period, metric, value, source) |
-| 7b | 0039_m04_margins | `r12_episode` · `margin_cause` (class, quote, arithmetic check) · `customer_class` (cik, class, proposed, confirmed) |
-| 8a | 0040_m04_cvd | `market_share` (owner entries: cik, period, share, market, source, grade) |
-| 8b | 0041_m04_backtest | `episode` (cik, window, label key) · `episode_symbol` (cik, Tiingo symbol, start, end, last real trade, match result) · `backtest_run` |
+| 1b fix | 0031_guidance_dropped | `guidance_outcome` rebuilt with outcome `dropped` (D-M04-85) |
+| 1c | 0032_m04_profile | `company_stage` (cik, fiscal year, computed, confirmed, by, at) · `m04_proposal` (as `m02_proposal`, plus priority group, `capped` and `baseline`) · `peer_candidate` (target cik, candidate cik or name, SIC, rank, active forms) · `sic_listing` / `sic_browse` (browse-by-SIC listings and pages, added at build) |
+| 2 | 0033_m04_peers | `peer_fetch` (cik, fetched_at, tags kept, rows, MB); `peer_group` / `peer_member` (0001) now written |
+| 3 | 0034_m04_flags | `restate_step` (cik, concept, period, first and latest value and accession, label, residual, baseline) · `m04_event` (accession, item, class, state, clears_at, owner resolution) · `rating_action` |
+| 4a | 0035_m04_gate | `credit_line` (cik, facility, amount, maturity, source passage, confirmed by) |
+| 4b | 0036_m04_gate_text | `gate_text` (accession, period end, class, quote, passage id, baseline) |
+| 5 | 0037_m04_issuance | `issuance_band` (year, universe, cuts) · `offering` (424B accession, security type, amount, fee source, paired final supplement) · `overhang_item` · `lockup_release` |
+| 6 | 0038_m04_quality | `estimate_change` (accession, amount, basis, denominator, band, filing version) · `special_item` |
+| 7a | 0039_fact_dim | `fact_dim` (cik, accession, concept, axis, member, period, value, unit) · `unit_metric` (cik, period, metric, value, source) |
+| 7b | 0040_m04_margins | `r12_episode` · `margin_cause` (class, quote, arithmetic check) · `customer_class` (cik, class, proposed, confirmed) |
+| 8a | 0041_m04_cvd | `market_share` (owner entries: cik, period, share, market, source, grade) |
+| 8b | 0042_m04_backtest | `episode` (cik, window, label key) · `episode_symbol` (cik, Tiingo symbol, start, end, last real trade, match result) · `backtest_run` |
 
 ## Review kinds
 Names and plumbing follow the M02 proposal pattern (D-M02-18; priority flush D-M02-53). Group = D-M04-71 priority. Volumes are for the watchlist in steady state after baselines (BP gaps #5, S5.14); all are estimates until the first logs.
@@ -211,7 +212,7 @@ Do the bookkeeping once, before any code cites it (SB.1, S1.8, S1.9). No code, n
 - UI: setup page (`m04_setup.html`): stage confirmations and overrides, peer shortlists, model tags read-only (edits go to the toml).
 - `run_financials.py profile`.
 
-**Tables.** 0031_m04_profile. **Config.** `config/company_models.toml` (new). **Review kinds.** `m04_stage` (15 at setup), `m04_peer` (~13 at setup).
+**Tables.** 0032_m04_profile. **Config.** `config/company_models.toml` (new). **Review kinds.** `m04_stage` (15 at setup), `m04_peer` (~13 at setup).
 
 **Fixtures and tests.**
 - Stage: AAPL mature on core investing (shake-out on total); INTC growth with CAGR −5.7% → review; TSLA growth → owner confirms; NVDA (+100.0%) and MU (+104.6%) mature with CAGR > 20% → review; BA no 2 of 3 → review; MRVL mature; META +19.9% stays under 20%; MSTR tag first, then review; SPCX, INFQ under 3 years → review, both sets labelled. First run: 15 setup items.
@@ -238,7 +239,7 @@ Do the bookkeeping once, before any code cites it (SB.1, S1.8, S1.9). No code, n
 - Peer robust z added to the 1b trend rows. `financials_step`: refetch a peer's companyfacts when the daily index shows its periodic filing (D-M04-70).
 - `run_financials.py peers`. UI: peer columns with end dates and n; "no comparable period" shown.
 
-**Tables.** 0032_m04_peers; `peer_group` / `peer_member` written from the confirmed setup. **Review kinds.** None new.
+**Tables.** 0033_m04_peers; `peer_group` / `peer_member` written from the confirmed setup. **Review kinds.** None new.
 
 **Fixtures and tests.** One trimmed companyfacts file per chip peer (B.9a). WDC against MU at 29–36 days → kept at ±40; a two-month gap → "no comparable period". Intel 2022 with n = 4 → fixed-gap fallback (methods spread −0.82 to −1.92). b_n cases at n = 5…9; |z| > 3 dropped once. NVDA out of peer capex in every year; AMZN fallback excluded.
 
@@ -262,7 +263,7 @@ Do the bookkeeping once, before any code cites it (SB.1, S1.8, S1.9). No code, n
 - `config/m04_labels.toml` — label template (episodes and red-flag families per D-M04-51, -73); the owner fills it during Parts 3–7.
 - `run_financials.py flags`. UI: event rows with state and clearing; walk report; review-guide rows.
 
-**Tables.** 0033_m04_flags. **Config.** `config/m04_labels.toml` (template). **Review kinds.** `m04_event`, `m04_restate`, `m04_rating`.
+**Tables.** 0034_m04_flags. **Config.** `config/m04_labels.toml` (template). **Review kinds.** `m04_event`, `m04_restate`, `m04_rating`.
 
 **Fixtures and tests.**
 - GE walk (about 8 companyconcept files: net income, revenues, CFO and its continuing-operations variant, pretax): 142 steps from 45 filings; Round 2 rows: revenue FY2017 −18,964 with NI unchanged → discontinued operations; NI FY2017 residual +94 → NCI share; CFO FY2017 −4,394 → ASU 2016-15 −4,411 and restricted cash −153; CFO FY2016 +1,404 → `cf_shift_up`, residual +4 on a −244 base → review.
@@ -297,7 +298,7 @@ Do the bookkeeping once, before any code cites it (SB.1, S1.8, S1.9). No code, n
 - M01 reading (D-M04-31): rule-3 adds and rule-7 strength open only on pass (warn counts as pass).
 - `run_financials.py gate`; price-dependent Z rows recomputed in the local pass after `prices_step`, labelled with the close date used.
 
-**Tables.** 0034_m04_gate. **Review kinds.** `m04_gate_fail`, `m04_runway`, `m04_gate_input`, `m04_score_gap`.
+**Tables.** 0035_m04_gate. **Review kinds.** `m04_gate_fail`, `m04_runway`, `m04_gate_input`, `m04_score_gap`.
 
 **Fixtures and tests** (Rivian ~12 and Invitae ~12 companyconcept files; SB.18):
 - Boeing FY2019: (10,030 + 6,400 credit beyond 12 months) ÷ ~2,750–2,785 = 5.9 quarters → fail; wall passes; CP 6,109 inside `DebtCurrent` 7,340 not double counted.
@@ -325,7 +326,7 @@ Do the bookkeeping once, before any code cites it (SB.1, S1.8, S1.9). No code, n
 - `src/engine/financials/credit_lines.py` — quote-verified facility sentences (amount, maturity) → `m04_credit_line` setup items → `credit_line` on confirmation; the gate recomputes.
 - `run_financials.py gate-text`. UI: quote view on gate rows.
 
-**Tables.** 0035_m04_gate_text. **Review kinds.** `m04_gc_text`, `m04_covenant` (incl. the `m04_current_jump` sub-class), `m04_credit_line`; fail-class text opens `m04_gate_fail`.
+**Tables.** 0036_m04_gate_text. **Review kinds.** `m04_gc_text`, `m04_covenant` (incl. the `m04_current_jump` sub-class), `m04_credit_line`; fail-class text opens `m04_gate_fail`.
 
 **Fixtures and tests** (S10's nine documents, trimmed to the sentences): Fisker → fail; Invitae Q3 2023 "substantial doubt exists" → fail; Invitae Q2 2023 ASC 205-40 boilerplate → no trigger; Proterra; Microvast "alleviate" → warn + review; Riot "could raise" → hypothetical; UTI; Albemarle EX-10.1 (relief period, buybacks barred, "Permitted Common Dividend Payments"); Boeing FY2023 "in compliance" → no trigger. INFQ FY2025 10-K "alleviated", period 2025-12-31, before the close → excluded. Boeing credit: FY2019 $9.6B = 3 × $3.2B maturing October 2020, 2022, 2024; Q2 2024 $4.0B (May 2029), $3.0B (August 2025), $3.0B (August 2028).
 
@@ -348,7 +349,7 @@ Do the bookkeeping once, before any code cites it (SB.1, S1.8, S1.9). No code, n
 - SBC block (S3.4): SBC ÷ revenue and ÷ OCF, buyback offset, FCF after SBC on total capex; owner earnings information. Buybacks (withholding separate), equity issued and debt flows for the buyback offset and `financing_capacity` are read from M02's `moneyflow/allocation.py` and `fin_tag_map`, keeping the "partial: X% mapped" label (D-M02-31); no second tag mapping.
 - `run_financials.py issuance`. UI: issuance with band and cause, offerings table, overhang, lock-up schedule.
 
-**Tables.** 0036_m04_issuance. **Review kinds.** `m04_dilution`, `m04_overhang`, `m04_financing_doc`.
+**Tables.** 0037_m04_issuance. **Review kinds.** `m04_dilution`, `m04_overhang`, `m04_financing_doc`.
 
 **Fixtures and tests.**
 - BA: gate fail Q2 2024, October 2024 raise (129.4M common + 115M mandatory units), CY2025 +17.5% (top quintile on ≥ $700M) with the gate passing → warns via the 4-quarter look-back. BA mandatory: 115M × 0.2914–0.3497 = 33.5–40.2M shares = 4.24–5.09% of 790,370,020.
@@ -377,7 +378,7 @@ Do the bookkeeping once, before any code cites it (SB.1, S1.8, S1.9). No code, n
 - `src/engine/financials/special.py` — `special_items`: restructuring, impairment and write-down tags plus FTS5 "non-recurring"/"one-time" wording in ≥ 3 of the last 4 years; cumulative size vs operating income; the company-stated non-GAAP vs GAAP gap quoted, never computed (D-M04-19). No D13 weight until ≥ 20 labels (D-M04-60).
 - `run_financials.py quality`. UI: score table with both M-score versions and bands; estimate sentences with band.
 
-**Tables.** 0037_m04_quality. **Review kinds.** `m04_estimate`, `m04_mscore`.
+**Tables.** 0038_m04_quality. **Review kinds.** `m04_estimate`, `m04_mscore`.
 
 **Fixtures and tests** (scores were computed on scratch data; the build recomputes them and records the values):
 - NVDA FY2025 M −0.96 / SGI = 1 −1.98, `misstate_f` 3.11 → "growth-driven" note; NVDA FY2026 −1.17 / −1.75 → `m04_mscore`; MRVL FY2026 −1.60 / −1.98 → note; AAPL FY2025 −2.29 / −2.35, F 1.30; MSFT −2.54 / −2.67, F 1.15; BA FY2024 incomplete, F 1.63; MSTR not meaningful (`asset_treasury`); MU FY2023 M −7.01 not meaningful (negative gross margin).
@@ -403,7 +404,7 @@ Do the bookkeeping once, before any code cites it (SB.1, S1.8, S1.9). No code, n
 - `config/watchlist.toml` — RIVN tracked (D-M04-42), backfilled with the usual facts and filings.
 - `run_financials.py units`. UI: segment and customer tables; unit KPI rows.
 
-**Tables.** 0038_fact_dim. **Review kinds.** `m04_unit_kpi` (KPI definition breaks).
+**Tables.** 0039_fact_dim. **Review kinds.** `m04_unit_kpi` (KPI definition breaks).
 
 **Fixtures and tests.** NVDA customers ≥ 10%: 3 → 2 (FY2025 → FY2026), revenue at stake 34% → 36% (≈ $77.7B). Target 2022Q1 and Q2 gross margins (−4.4, −8.9 pp; ~4 companyconcept files + trimmed instance). Tesla deliveries 2022 → 2023 (+38%). Rivian deliveries 51,579 → 42,247 (−18%). Invitae non-GAAP gross margin YoY 2020Q1 −7.0 pp, Q2 −31.6, Q3 −6.7, Q4 −2.3; units 469k → 1,290k. Multi-class counts from `fact_dim` agree with Part 1a's R1 counts (GOOG, META, MSTR, SPCX).
 
@@ -424,7 +425,7 @@ Do the bookkeeping once, before any code cites it (SB.1, S1.8, S1.9). No code, n
 - `src/engine/financials/customers.py` — stickiness class proposed by the engine, confirmed by the owner (D-M04-43); data from `fact_dim` axes, else sentences, with M02's `supply_link` read as a dated sentence source (L2 revenue shares, L3 Item 1.01 counterparties, confirmed direction; D-M02-36, -40) and M02's RPO series reused (D-M02-19 (4)); M04 keeps only the loss rules and class logic; only customer-named 8-Ks count (1.02 + 2.03 → financing, Part 3); "weakening" needs owner confirmation; contracted RPO weakening when below its 3-year minimum for 2 quarters, a ratio break alone opens review (D-M04-49); weight = min(1, revenue at stake ÷ 0.25) for design-in, 1 contracted, 0 transactional, missing excluded (D-M04-50); `customer_hhi`.
 - `run_financials.py margins`. UI: episode view with cause quotes and the arithmetic check; customer row.
 
-**Tables.** 0039_m04_margins. **Review kinds.** `m04_margin_cause`, `m04_customer`, `m04_unit_kpi`.
+**Tables.** 0040_m04_margins. **Review kinds.** `m04_margin_cause`, `m04_customer`, `m04_unit_kpi`.
 
 **Fixtures and tests.**
 - Tesla: 2022Q4 −3.6, 2023Q1 −9.8 pp, TTM +38% → fires 2023Q1; bridge volume +$6.6B, price −$14.0B, cost +$3.2B → price → `r12_warning`; GP per car $13.4k → $7.4k.
@@ -456,7 +457,7 @@ Do the bookkeeping once, before any code cites it (SB.1, S1.8, S1.9). No code, n
 - M01 reading (D-M04-58 / D-M01-5): only CYCLICAL_TROUGH with a gate pass adds rule-7 (D27) strength; NO_SLOWDOWN allows tranches; AMBIGUOUS, STUMBLE, CYCLE_PLUS_DAMAGE, STRUCTURAL_DECLINE and overdue block tranches. Exit warnings (rule 4) on CYCLE_PLUS_DAMAGE, STRUCTURAL_DECLINE, overdue, gate fail and `guidance_removed`; red-flag warnings listed in the reasons, never blocking (M04_FINANCIALS.md "How M01 reads M04").
 - UI: M04 tab (`tabs/m04.html`), mock-up first with MU and INTC grids from Round 6 values (SB.7); market-share entry form (owner, with source). `run_financials.py cvd` (`--no-sec`).
 
-**Tables.** 0040_m04_cvd (`market_share`). **Review kinds.** `m04_cvd`.
+**Tables.** 0041_m04_cvd (`market_share`). **Review kinds.** `m04_cvd`.
 
 **Fixtures and tests** (Micron closes equal stored Tiingo closes, L9; F-quality values recomputed on the 0–5 scale of D-M04-59):
 - MU Q4 FY22 (10-K 2022-10-07): TTM +11.0%, quarter ≈ −19.7% → active by D-M04-67; gap −45.1 (flagged). Q1 FY23 −34.3; Q2 FY23 −18.4 (cycle-average −60.5); Q3 FY23 +29.7; Q4 FY23 (10-K 2023-10-06) → CYCLICAL_TROUGH, confidence 1.00, Q2 on 3 of 7 rows present. The $48.88 low (2022-09-26) sits in a stale window (Q4 FY22 unfiled).
@@ -481,7 +482,7 @@ Do the bookkeeping once, before any code cites it (SB.1, S1.8, S1.9). No code, n
 - `src/engine/financials/backtest.py` — tunes only activation, the z cut, the majority rule and the gauge threshold; information rows reported, not tuned (D-M04-51); walk-forward (calibrate ≤ FY2017, test 2018+); confusion matrix, label stability, every variant logged. Red-flag report: each flag family against the owner's red-flag labels, no weights (D-M04-73).
 - `run_financials.py backtest`.
 
-**Tables.** 0041_m04_backtest. **Config.** Reads `config/m04_labels.toml` (filled by the owner). **Review kinds.** None.
+**Tables.** 0042_m04_backtest. **Config.** Reads `config/m04_labels.toml` (filled by the owner). **Review kinds.** None.
 
 **Fixtures and tests.** Trimmed companyfacts for MU, INTC, WDC and the chip peers (one file per company, SB.6). Tiingo metadata: BBBY (no data), RAD (Radiopharm, ASX), SHLD (Global X ETF) → rejected; BBBYQ (1992-06-05 … 2023-09-29) → accepted; JCP, JCPNQ absent → "missing: no prices"; NVTA meta 404 → NVTAQ used. Episode facts: BBBY revenue FY2016–FY2023 12,104 → 5,345 (tag switch at FY2019); BA 101,127 / 76,559 / 58,158 (FY2018–20); Invitae FY2021 460.4, FY2022 516.3. A stale repeated bar after cancellation is not a trade.
 
@@ -550,6 +551,13 @@ Do the bookkeeping once, before any code cites it (SB.1, S1.8, S1.9). No code, n
 - Live check 1 (2026-10-12, `logs/financials_capex_20261012-193656.txt`): 9 SEC requests (9 NVIDIA XBRL instances, 23.8 MB, each parsed and dropped from the cache; the 9 index pages were cache hits), 0 failures; NVIDIA series rebuilt from stored facts; the NVIDIA FY2010–22 capex series matches (FY2013 183.3M, FY2021 1,128.0M); Greenwald out of range MU 6/8 net, 7/8 gross, INTC 4/8; INTC FY2023 "useful-life change?" mark (depreciation −29.5%, gross PP&E +11.7%); recomputation for 18 companies at 0 requests (11.7 s); engine.db 354.5 → 359.0 MB. Fixes: (1) own-history definition = the one covering the displayed 8-year window, tie → PP&E tag (D-M04-3): AMZN was on the PP&E tag (more years over its whole history) with FY2018–25 all "definition changed" and FCF growth missing; now the broader tag for the window, FCF growth computed, older PP&E-only years still marked. (2) Capex guides scored only on an exact M02 recipe; MSFT FY2026 Q4 (≥ $40B vs PP&E-only $35.8B, clause "including the lease reclassification impact from the useful life update" not mapped) is now "unscored: capex recipe approximate (…)", not a miss (D-M04-84). (3) Direction-aware scoring: cost metrics miss above the high end; tax rate and other income unscored, "not a performance target" — NVIDIA's four and Meta's one tax-rate misses become unscored (D-M04-84). (4) Only core families (revenue, gross margin, EPS, operating income, net income, capex, FCF) count as removed / feed `guidance_removed`; INTC, NVDA operating-expense and META, NVDA tax-rate / other-income removals read "dropped (information)" (D-M04-85; migration 0031_guidance_dropped rebuilds the derived `guidance_outcome` table with outcome `dropped`, since 0030 is applied to the real database). `capex --no-sec` also rebuilds NVIDIA's series from stored facts and prints "SEC requests: 0". Re-run: `uv run python scripts/run_financials.py capex --no-sec`.
 - Re-run (2026-10-12, `logs/financials_capex_20261012-201211.txt`, 0 requests; an earlier re-run at 19:54 predated the fix commit): AMZN on the broader tag, no "definition changed" in the window, FCF growth −76.6% / owner-earnings basis +26.5%; tax-rate and other-income rows unscored (NVDA hit rate 69% → 92%, META 82% → 89%); INTC/NVDA/META minor-family removals "dropped (information)"; MSTR EPS, net income and operating income FY2026 stay "removed"; MSFT FY2027 Q1 capex guide unscored (recipe approximate). New real miss: NVDA GAAP gross margin Q1 FY2026 guide 70.1–71.1% vs 60.52% (the quarter's H20 inventory charge). **Open:** MSFT FY2026 Q4 capex (guide ≥ $40B vs $35.8B) is still a miss — the recipe in force at that guide date reads exact, so the rule scores it; whether $35.8B matches Microsoft's own "including finance leases" figure is for the owner to check on the Money tab (stated vs recipe) or against the FY2026 Q4 release, and to correct with a guidance correction if not.
 ### Part 1c — Company profile, queue and peer shortlist
+- 2026-10-12, branch `m04-part1c` (built; awaiting the owner's live check). Mock-up approved by the owner (top-bar page "M04 setup" with stages, peer shortlists and model tags; Profile block at the top of the Financials tab; D-UI-24).
+- **Built.** Migration 0032_m04_profile (0031 was taken by `guidance_dropped`; later numbers moved up by one): `company_stage`, `m04_proposal`, `peer_candidate`, plus `sic_listing` / `sic_browse`. Code: `config/company_models.toml` + `financials/models.py` (six tags, reason and source required, unknown tag or field rejected, `before` keys a tag on period end, keyed by CIK or ticker, routing table; a rejected file applies no tags and is reported); `financials/stage.py` (Dickinson on core investing, 2 of 3, review reasons, CAGR conflict 0% / 20%†, short history, D-M04-46 flag sets, `lifecycle_stage`); `financials/queue.py` (M04 proposals: cap 5, D-M04-71 groups, baseline marker; M02's `themes/proposals.py` and its cap of 10 untouched, only `week_start` shared); `sec/browse.py` + `financials/peers.py` (browse, active filter, ranking, owner additions, confirmation into `peer_group`); `financials/profile.py` (stage pass, peer pass, setup and Profile views); `review.m04_action` / `m04_override`; local pass in `financials/step.py`; `run_financials.py profile` (`profile_run` takes injected connections and client); UI `m04_setup.html`, routes `/m04/setup`, `/m04/stage/confirm-all`, `/m04/stage/<ticker>/override`, `/m04/peer/<id>/add`, M04 branch of `/review/<id>/<action>`.
+- **Decided at build.** (1) Core investing uses the own-history total capex (D-M04-3); acquisitions, business and asset sale proceeds without a fact count as none and are named in the method; a cash flow > 0 reads "+", 0 or less "−". (2) The 3-year window = the last 3 fiscal years with operating cash flow; a year missing operating, financing or capex is not classified, and fewer than 3 classified years is "short history". CAGR = the same 3-year revenue CAGR as `rev_cagr3`, on the window's last fiscal year; a missing or n/m CAGR raises no conflict (named). (3) Setup = one `m04_stage` item per core or promoted company without a confirmation (priority 0, outside the cap); after confirmation, a new item only when a newer fiscal year than the confirmed row computes a different stage or an ambiguity (priority group 2, capped); key `cik:period_end`, so at most one per 10-K. "Model tag routes first" is listed as a review reason for a tagged company (MSTR). (4) `lifecycle_stage` = the owner's latest confirmation (grade A from the cash-flow facts; B with no facts) or "unconfirmed", information in every timeframe; as_of = the newest cash-flow filing; `fund` / `financial` → "missing: not applicable (<tag>)". (5) Owner override with no item open is recorded as an `m04_stage` item opened and resolved at once (review history kept). (6) "Plain mature" (for "Confirm all") = computed mature, first confirmation only, no tag — includes a mature company with falling revenue (GFS in the fixture), since only CAGR > 20% conflicts. (7) Peers: one `m04_peer` item per core/promoted company that is not `fund`/`financial` (15 with the watchlist; the plan said ~13); a tagged company (MSTR) gets an item with no SIC shortlist (its SIC is not browsed); shortlist = top 10† active names by |ln(revenue ratio)|, names without a frame value after them; revenue from 3 CY frames (CY = last year from May, else the year before); target revenue from its frame value, else its latest fiscal year. (8) Browse: one browse per form type (10-K, 20-F, 40-F; the S1 probe browsed 10-K only), at most 10 pages per SIC (10-K ≤ 8), cached 7 days; "active" = a 10-K-family or 20-F-family filing (incl. 40-F, amendments, 10-KT) in the last 365 days from `form_filing`; quarters missing from `form_index` are named as "active counts partial". (9) Baseline exceptions: an item filed in the last 12 months queues in its own group; a current gate fail or incomplete queues at priority 1. (10) Confirmed peers go to `peer_group` "M04 peers <cik>" (source `sic`), members `sic` or `owner`; a non-SEC peer has no CIK. Re-running `profile` before confirmation replaces the proposed SIC rows (owner rows and decisions kept); after confirmation it only adds new names. (11) Tracked names (D-M04-80) get no stage, peer or review rows.
+- **Fixtures** (`tests/fixtures/m04/`, README): `stage_cases_20261012.json` (16 companies' cash-flow totals and revenue, signs and CAGRs as the R1 brief; figures illustrative where the brief gives none) and `browse_sic3674_page_trimmed.htm` (EDGAR layout); the 505-name SIC 3674 list, form indexes and frames are built in the test. 26 new tests (629 in all).
+- **Live check (owner):** `uv run python scripts/run_financials.py profile` → `logs/financials_profile_<time>.txt`. About 8 SICs (3571, 3674, 3711, 3721, 5961, 7370, 7372, 7374; MSTR's 6199 is not browsed) × 2–10 browse pages (3674 ≈ 8: 6 on 10-K + 20-F + 40-F; 7370/7372 may reach the cap of 10 and read "PARTIAL") ≤ 80 pages + 3 revenue frames ≈ 30–83 SEC requests, under a minute at 5/s. Re-runs: `… profile --no-sec`.
+- **The owner looks for:** the tag file "loaded with 3 entries" (MSTR asset_treasury, ETV fund, INFQ spac_shell before 2026-02-13); 15 computed stages and which carry an ambiguity (expected: INTC growth with falling revenue; NVDA and MU mature with CAGR > 20%; BA none holds; MSTR introduction with falling revenue and tag; SPCX and INFQ short history; AAPL's muted "on total investing … shake-out" line); "Setup stage items: 15 queued"; per SIC the listed and active counts with 20-F/40-F counted (3674: about 505 listed, 82 active on 10-K plus GFS-like 20-F filers), any "PARTIAL (cap)"; each company's shortlist (top 10 with revenue); "Companies with no usable SIC peers" (MSTR by tag; any SIC with no active name); "Setup peer items: 15 queued"; form-index gaps; the S1 full list for 3674; requests by fetch type, rows added and engine.db MB.
+- **After merge — setup batch (owner):** on M04 setup, confirm the 15 stages ("Confirm all" for the plain-mature group, a chooser for the rest) and each peer shortlist (untick names, add WDC/QCOM for MU and the other product peers, SK hynix and Samsung as "not an SEC filer"). Peers before Part 2; the whole batch before Part 3 (D-M04-71).
 ### Part 2 — Peer facts and statistics
 ### Part 3 — Restatements, filing events, prior filings
 ### Part 4a — Survival gate: numbers

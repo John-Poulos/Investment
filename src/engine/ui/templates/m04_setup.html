@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}M04 setup — Investment engine{% endblock %}
+{% block topleft %}<a href="/">← Engine</a><span class="name">M04 setup</span>{% endblock %}
+{% block body %}
+<main class="detail" style="max-width: 1200px">
+  {% if msg %}<div class="okbox">{{ msg }}</div>{% endif %}
+  {% if error %}<div class="warnbox">{{ error }}</div>{% endif %}
+  <p class="note">The setup batch, before Part 3 (D-M04-71): confirm each company's first life-cycle stage and its peer shortlist. These items sit outside the weekly cap of 5 M04 items. Every action goes through the review queue and is kept in its history (who, when, your note).</p>
+
+  <h2 id="stages">1. Life-cycle stages</h2>
+  {% if v.stages %}
+  <div style="overflow-x:auto">
+  <table class="data">
+    <tr><th>Company</th><th>Cash-flow signs, last 3 fiscal years<br><span class="muted">(operating, core investing, financing)</span></th><th class="num">Revenue CAGR 3y</th><th>Computed stage</th><th>Why review</th><th>Action</th></tr>
+    {% for s in v.stages %}
+    <tr>
+      <td><a href="/c/{{ s.ticker }}?tab=financials">{{ s.ticker }}</a>{% if s.tag %}<br><span class="muted">tag {{ s.tag }}</span>{% endif %}</td>
+      <td>{% for y in s.years %}<div>{{ y.label }} <b>{{ y.signs }}</b> {% if y.stage %}{{ stage_names[y.stage] }}{% else %}<span class="muted">{{ y.missing or 'not classified' }}</span>{% endif %}</div>{% else %}<span class="muted">no fiscal-year cash flows stored</span>{% endfor %}
+        {% if s.total_note %}<div class="muted">{{ s.total_note }}</div>{% endif %}</td>
+      <td class="num">{% if s.cagr3 is not none %}{{ '%+.1f' | format(s.cagr3 * 100) }}%{% else %}<span class="muted" title="{{ s.cagr_note }}">—</span>{% endif %}</td>
+      <td>{% if s.computed %}<b>{{ stage_names[s.computed] }}</b>{% else %}<span class="muted">none holds</span>{% endif %} <span class="muted">({{ s.fiscal_label }})</span></td>
+      <td>{% for w in s.why %}<div>{{ reasons.get(w, w) }}</div>{% endfor %}</td>
+      <td style="white-space:nowrap">
+        {% if s.confirmed %}<div class="muted">confirmed {{ stage_names[s.confirmed] }} {{ (s.confirmed_at or '')[:10] }}</div>{% endif %}
+        {% if viewer.is_owner and s.item_id %}
+        <form method="post" action="/review/{{ s.item_id }}/confirm">
+          <input type="hidden" name="back" value="/m04/setup#stages">
+          {% if s.computed and s.why == ['first'] %}
+          <button class="btn" type="submit">Confirm {{ stage_names[s.computed] }}</button>
+          {% else %}
+          <select name="target" required>
+            <option value="">— choose —</option>
+            {% for k, n in stage_names.items() %}<option value="{{ k }}"{% if k == s.computed %} selected{% endif %}>{{ n }}</option>{% endfor %}
+          </select>
+          <button class="btn" type="submit">Confirm</button>
+          {% endif %}
+        </form>
+        {% if s.computed and s.why == ['first'] %}
+        <form method="post" action="/review/{{ s.item_id }}/confirm" style="margin-top:4px">
+          <input type="hidden" name="back" value="/m04/setup#stages">
+          <select name="target" required><option value="">— other stage —</option>{% for k, n in stage_names.items() if k != s.computed %}<option value="{{ k }}">{{ n }}</option>{% endfor %}</select>
+          <button class="btn" type="submit">Set</button>
+        </form>
+        {% endif %}
+        <div class="muted"><a href="/review/{{ s.item_id }}">item {{ s.item_id }}</a></div>
+        {% elif viewer.is_owner %}
+        <form method="post" action="/m04/stage/{{ s.ticker }}/override">
+          <select name="stage" required><option value="">— change to —</option>{% for k, n in stage_names.items() %}<option value="{{ k }}">{{ n }}</option>{% endfor %}</select>
+          <button class="btn" type="submit">Change</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% if viewer.is_owner and v.plain_mature %}
+  <form method="post" action="/m04/stage/confirm-all" style="margin-top:8px">
+    {% for i in v.plain_mature %}<input type="hidden" name="items" value="{{ i }}">{% endfor %}
+    <button class="btn" type="submit">Confirm all {{ v.plain_mature | length }} plain mature</button>
+    <span class="muted">(mature holds in 2 of 3 years, CAGR not above 20%, no tag: first confirmation only)</span>
+  </form>
+  {% endif %}
+  {% else %}<p class="empty">No stage computed yet: run <code>uv run python scripts/run_financials.py profile</code> or wait for the next refresh.</p>{% endif %}
+  <p class="note">Dickinson signs with core investing = capex + acquisitions − business and asset sale proceeds; a stage holds when 2 of the last 3 fiscal years agree. Review when no stage holds, the held stage is shake-out, the stage conflicts with the 3-year revenue CAGR (introduction/growth below 0%; mature/decline above 20%†), or fewer than 3 fiscal years exist (D-M04-7). A muted line shows where total investing would read differently. <b>Stage routes red flags only</b> (young set for introduction and growth, plus the SG&amp;A rule for growth; mature set for mature and decline; all-stage flags only for shake-out, D-M04-46); R12, inventory-vs-sales and the survival gate run at every stage. <b>The owner's stage keeps routing until you change it</b>; a later 10-K whose computed stage differs, or is ambiguous, opens a new item (D-M04-12).</p>
+
+  <h2 id="peers">2. Peer shortlists</h2>
+  {% if v.index_gaps %}<div class="warnbox">Form-index quarters missing in the last 12 months: {{ v.index_gaps | join(', ') }} — active counts are partial until the refresh stores them.</div>{% endif %}
+  {% for g in v.groups %}
+  <h3 class="sub">{{ g.title }}</h3>
+  {% if g.sic %}
+  <p class="muted">Listed {{ g.listed }} · active {{ g.active }} (a 10-K, 20-F or 40-F in the last 12 months){% for b in g.browse %} · {{ b['browsed'] }} browse: {{ b['listed'] }} in {{ b['pages'] }} page(s){% if b['capped'] %} <span class="warn">partial (page cap)</span>{% endif %}{% endfor %}{% if not g.browse %} · not browsed yet{% endif %}</p>
+  {% endif %}
+  {% for t in g.targets %}
+  <div id="peer-{{ t.item_id or t.cik }}" style="margin:8px 0 16px">
+    <h4 style="margin:4px 0">{{ t.ticker }}{% if t.target_revenue %} <span class="muted">· revenue {{ t.target_revenue | num }}</span>{% endif %}{% if t.note %} <span class="muted">· {{ t.note }}</span>{% endif %}</h4>
+    {% if t.confirmed %}<p>Confirmed: {% for r in t.confirmed %}{{ r['name'] }}{% if not r['cik'] %} <span class="muted">({{ not_sec }})</span>{% endif %}{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+    {% if t.item_id %}
+    <form method="post" action="/review/{{ t.item_id }}/confirm">
+      <input type="hidden" name="back" value="/m04/setup#peer-{{ t.item_id }}">
+      <table class="data">
+        <tr><th>Keep</th><th class="num">Rank</th><th>Company</th><th>Active filing</th><th class="num">Revenue</th><th>Source</th></tr>
+        {% for c in t.candidates %}
+        <tr{% if c.status == 'struck' %} class="muted"{% endif %}>
+          <td><input type="checkbox" name="keep" value="{{ c.key }}"{% if c.status != 'struck' %} checked{% endif %}{% if not viewer.is_owner %} disabled{% endif %}></td>
+          <td class="num">{{ c.rank or '' }}</td>
+          <td>{% if c.status == 'struck' %}<s>{{ c.name }}</s>{% else %}{{ c.name }}{% endif %}</td>
+          <td>{{ c.active or '—' }}</td>
+          <td class="num">{% if c.revenue %}<span title="{{ c.revenue_ref }}">{{ c.revenue | num }}</span>{% else %}<span class="muted" title="{{ c.revenue_ref }}">—</span>{% endif %}</td>
+          <td class="muted">{{ {'sic': 'SIC shortlist', 'owner': 'added by owner', 'owner_name': not_sec}.get(c.source, c.source) }}</td>
+        </tr>
+        {% else %}<tr><td colspan="6" class="muted">No candidate: add peers below, or confirm an empty set.</td></tr>{% endfor %}
+      </table>
+      {% if viewer.is_owner %}<input name="note" size="40" placeholder="Note (optional)"> <button class="btn" type="submit">Confirm (unticked names are struck)</button>{% endif %}
+    </form>
+    {% if viewer.is_owner %}
+    <form method="post" action="/m04/peer/{{ t.item_id }}/add" style="margin-top:6px">
+      <input name="peer" size="24" placeholder="Ticker, CIK, or a name" required>
+      <label><input type="checkbox" name="not_sec" value="1"> not an SEC filer (store by name)</label>
+      <button class="btn" type="submit">Add peer</button>
+    </form>
+    {% endif %}
+    {% elif not t.confirmed %}<p class="muted">No open item: run <code>uv run python scripts/run_financials.py profile</code>.</p>{% endif %}
+  </div>
+  {% endfor %}
+  {% else %}<p class="empty">No peer shortlist yet: run <code>uv run python scripts/run_financials.py profile</code>.</p>{% endfor %}
+  <p class="note">Shortlist = active companies listed under the company's 4-digit SIC on EDGAR's browse-by-SIC, ranked by closeness of calendar-year revenue (XBRL frames), top 10†. Add product-market peers outside the SIC by ticker or CIK (e.g. WDC or QCOM for MU); a company that does not file with the SEC is stored by name and reads "{{ not_sec }}" (SK hynix, Samsung). A model tag overrides SIC: tagged companies get only the peers you add (D-M04-4, -8). Peers must be confirmed before Part 2 fetches their facts.</p>
+
+  <h2 id="tags">3. Model tags</h2>
+  {% if v.tags.error %}<div class="warnbox">The tag file was rejected, so no tag applies: {{ v.tags.error }}</div>{% endif %}
+  <table class="data">
+    <tr><th>Company</th><th>Tag</th><th>Applies to</th><th>Reason</th><th>Source</th><th>Routing (earnings quality · dilution · survival gate · health/CvD)</th></tr>
+    {% for e in v.tags.entries %}
+    {% set r = routing[e.tag] %}
+    <tr><td>{{ e.ticker or '' }}{% if e.cik %} <span class="muted">{{ e.cik }}</span>{% endif %}</td><td><b>{{ e.tag }}</b></td><td>{{ e.scope }}</td><td>{{ e.reason }}</td><td class="muted">{{ e.source }}</td><td class="muted">{{ r | join(' · ') }}</td></tr>
+    {% else %}<tr><td colspan="6" class="muted">No tags.</td></tr>{% endfor %}
+  </table>
+  <p class="note">Read-only here: edit <code>{{ v.tags.path }}</code> by hand (one-line reason and source per entry). Allowed tags: issuance_funded, asset_treasury, reit, fund, financial, spac_shell; an unknown tag is rejected at load and the engine never writes the file. A tag overrides SIC and applies before stage; untagged financials (SIC 6000–6999) read "not applicable" (D-M04-8).</p>
+
+  {% if v.overflow %}
+  <h2>M04 items waiting (weekly cap of 5)</h2>
+  <table class="data">
+    <tr><th>Since</th><th>Group</th><th>Kind</th><th>Reason</th></tr>
+    {% for o in v.overflow %}<tr><td>{{ o.first_seen_at[:10] }}</td><td>{{ o.priority }} {{ o.group }}</td><td class="muted">{{ o.label }}</td><td>{{ o.reason }}</td></tr>{% endfor %}
+  </table>
+  {% endif %}
+</main>
+{% endblock %}

@@ -1,0 +1,350 @@
+"""Ranked SIC peer shortlist (D-M04-4, S6.2; M04 Part 1c).
+
+- **Listed:** the companies EDGAR's browse-by-SIC lists under the target's 4-digit SIC
+  (`sec/browse.py`, 10-K, 20-F and 40-F browses, capped per SIC).
+- **Active:** a 10-K, 20-F or 40-F (amendments and 10-KT included) filed in the last 12
+  months, read from the stored quarterly form indexes (0 requests). A 10-K-only filter
+  would drop foreign filers such as GlobalFoundries (PROBE_RESULTS S1). Quarters of the
+  12-month window missing from the stored index are named (active count partial).
+- **Ranked** by revenue closeness to the target, |ln(peer ÷ target)|, on calendar-year
+  revenue from 3 XBRL frames (us-gaap RevenueFromContractWithCustomerExcludingAssessedTax,
+  us-gaap Revenues, ifrs-full Revenue; USD). Active names without a frame value follow,
+  marked "revenue missing". The shortlist is the top `SHORTLIST`† per target.
+- **Owner:** one `m04_peer` item per target from the shortlist only (setup batch, outside
+  the weekly cap, D-M04-71): strike names, add product-market peers outside the SIC
+  (WDC and QCOM for MU), store non-SEC peers by name ("missing: not an SEC filer": SK
+  hynix, Samsung), confirm. Confirmed sets go to `peer_group` / `peer_member`.
+- A model tag overrides SIC (D-M04-8): a tagged company (MSTR `asset_treasury`, SIC 6199)
+  gets no SIC shortlist, only owner-added peers; `fund` / `financial` get no peer item.
+"""
+
+from __future__ import annotations
+
+import math
+import sqlite3
+from collections.abc import Iterable
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
+
+from engine.sec.client import SecClient, iso
+from engine.sec.frames import fetch_frame
+from engine.sec.identity import normalize_cik
+from engine.sec.results import Ok
+
+SHORTLIST = 10  # starting value per target
+ACTIVE_DAYS = 365
+REVENUE_FRAMES = (
+    ("us-gaap", "RevenueFromContractWithCustomerExcludingAssessedTax"),
+    ("us-gaap", "Revenues"),
+    ("ifrs-full", "Revenue"),
+)
+NOT_SEC = "missing: not an SEC filer"
+
+
+class PeerError(ValueError):
+    """An owner peer entry cannot be stored (unknown ticker, duplicate)."""
+
+
+def frame_year(today: date) -> int:
+    """The latest calendar year whose annual frame is mostly filed (10-Ks by ~April)."""
+    return today.year - 1 if today.month >= 5 else today.year - 2
+
+
+# --- Inputs ----------------------------------------------------------------------------------
+
+
+def fetch_revenue_frames(
+    client: SecClient, engine: sqlite3.Connection, year: int, now: datetime
+) -> list[str]:
+    """Store the 3 revenue frames for CY<year> (each re-used for 30 days). Lines for the log."""
+    lines = []
+    for tax, tag in REVENUE_FRAMES:
+        res = fetch_frame(client, engine, tax, tag, "USD", f"CY{year}", now)
+        if isinstance(res, Ok):
+            lines.append(f"  frame {tax}:{tag} USD CY{year}: {res.data:,} companies"
+                         + (" (stored, re-used)" if res.from_cache else ""))  # fmt: skip
+        else:
+            lines.append(f"  frame {tax}:{tag} USD CY{year}: {res}")
+    return lines
+
+
+def frame_revenue(engine: sqlite3.Connection, year: int) -> dict[str, tuple[float, str]]:
+    """cik → (revenue, reference) from the stored frames, first tag in REVENUE_FRAMES wins."""
+    out: dict[str, tuple[float, str]] = {}
+    for tax, tag in REVENUE_FRAMES:
+        for r in engine.execute(
+            "SELECT cik, value, accession FROM frame_value WHERE taxonomy = ? AND tag = ? "
+            "AND unit = 'USD' AND frame = ?",
+            (tax, tag, f"CY{year}"),
+        ):
+            out.setdefault(
+                r["cik"],
+                (float(r["value"]), f"CY{year} {tax}:{tag} {r['accession'] or ''}".strip()),
+            )
+    return out  # fmt: skip
+
+
+def own_revenue(engine: sqlite3.Connection, cik: str, as_of: str) -> tuple[float, str] | None:
+    from engine.financials.capex import fy_points
+
+    pts = fy_points(engine, cik, "revenue", as_of)
+    if not pts:
+        return None
+    p = pts[max(pts)]
+    return float(p.value), f"FY to {p.end} {p.method} {p.accession}"
+
+
+def active_filers(
+    engine: sqlite3.Connection, ciks: Iterable[str], today: date
+) -> dict[str, tuple[str, str]]:
+    """cik → (form, filed) of the latest 10-K/20-F/40-F (incl. amendments, 10-KT) in the
+    last 12 months, from the stored form indexes."""
+    wanted = {normalize_cik(c) or c for c in ciks}
+    since = (today - timedelta(days=ACTIVE_DAYS)).isoformat()
+    out: dict[str, tuple[str, str]] = {}
+    for r in engine.execute(
+        "SELECT cik, form, filed FROM form_filing WHERE family IN ('10-K', '20-F') "
+        "AND filed >= ? ORDER BY filed",
+        (since,),
+    ):
+        if r["cik"] in wanted:
+            out[r["cik"]] = (r["form"], r["filed"])
+    return out
+
+
+def index_gaps(engine: sqlite3.Connection, today: date) -> list[str]:
+    """Quarters of the last 12 months missing from the stored form indexes."""
+    since = today - timedelta(days=ACTIVE_DAYS)
+    have = {(r[0], r[1]) for r in engine.execute("SELECT year, quarter FROM form_index")}
+    gaps, y, q = [], since.year, (since.month - 1) // 3 + 1
+    while (y, q) <= (today.year, (today.month - 1) // 3 + 1):
+        if (y, q) not in have:
+            gaps.append(f"{y}Q{q}")
+        y, q = (y, q + 1) if q < 4 else (y + 1, 1)
+    return gaps
+
+
+# --- Shortlist -------------------------------------------------------------------------------
+
+
+@dataclass
+class Candidate:
+    cik: str | None
+    name: str
+    sic: str | None
+    rank: int | None
+    active: str  # "10-K 2026-02-20"
+    revenue: float | None
+    revenue_ref: str
+    source: str = "sic"
+    status: str = "proposed"
+
+    @property
+    def key(self) -> str:
+        return self.cik or f"name:{self.name}"
+
+
+@dataclass
+class Shortlist:
+    target: str
+    sic: str | None
+    listed: int
+    active: int
+    target_revenue: float | None
+    target_revenue_ref: str
+    candidates: list[Candidate] = field(default_factory=list)
+    note: str = ""
+
+
+def shortlist(
+    engine: sqlite3.Connection,
+    target: str,
+    sic: str | None,
+    today: date,
+    *,
+    year: int | None = None,
+    n: int = SHORTLIST,
+    exclude: Iterable[str] = (),
+) -> Shortlist:
+    """Rank the active companies listed under the target's SIC by revenue closeness."""
+    target = normalize_cik(target) or target
+    year = year or frame_year(today)
+    listed = {r["cik"]: r["name"] for r in engine.execute(
+        "SELECT cik, name FROM sic_listing WHERE sic = ?", (sic,))} if sic else {}  # fmt: skip
+    active = active_filers(engine, listed, today)
+    revenue = frame_revenue(engine, year)
+    tv = revenue.get(target) or own_revenue(engine, target, today.isoformat())
+    out = Shortlist(target, sic, len(listed), len(active), tv[0] if tv else None,
+                    tv[1] if tv else "missing: no revenue")  # fmt: skip
+    if not sic:
+        out.note = "missing: no SIC stored for the company"
+        return out
+    if not listed:
+        out.note = f"missing: SIC {sic} not browsed yet (run_financials.py profile)"
+        return out
+    skip = {target} | {normalize_cik(c) or c for c in exclude}
+    pool = []
+    for cik, (form, filed) in active.items():
+        if cik in skip:
+            continue
+        rv = revenue.get(cik)
+        dist = None
+        if rv and rv[0] > 0 and out.target_revenue and out.target_revenue > 0:
+            dist = abs(math.log(rv[0] / out.target_revenue))
+        pool.append((dist, listed[cik], cik, form, filed, rv))
+    pool.sort(key=lambda t: (t[0] is None, t[0] if t[0] is not None else 0.0, t[1]))
+    for i, (_, name, cik, form, filed, rv) in enumerate(pool[:n], 1):
+        out.candidates.append(Candidate(cik, name, sic, i, f"{form} {filed}",
+                                        rv[0] if rv else None,
+                                        rv[1] if rv else f"missing: no CY{year} revenue frame "
+                                        "value"))  # fmt: skip
+    if out.target_revenue is None:
+        out.note = "target revenue missing: ranked by name"
+    return out
+
+
+def store_shortlist(engine: sqlite3.Connection, s: Shortlist, now: datetime) -> str:
+    """Replace the target's proposed SIC candidates (owner rows and decisions are kept).
+    A target whose set is already confirmed only gains new names. Returns 'replaced' or
+    'confirmed'. Caller owns the transaction."""
+    ts = iso(now)
+    done = engine.execute("SELECT 1 FROM peer_candidate WHERE target_cik = ? AND status = "
+                          "'confirmed' LIMIT 1", (s.target,)).fetchone()  # fmt: skip
+    if not done:
+        engine.execute("DELETE FROM peer_candidate WHERE target_cik = ? AND source = 'sic' AND "
+                       "status = 'proposed'", (s.target,))  # fmt: skip
+    for c in s.candidates:
+        engine.execute(
+            "INSERT INTO peer_candidate (target_cik, candidate_cik, name, sic, rank, "
+            "active_forms, revenue, revenue_ref, source, status, added_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'sic', 'proposed', ?) "
+            "ON CONFLICT DO NOTHING",
+            (s.target, c.cik, c.name, c.sic, c.rank, c.active, c.revenue, c.revenue_ref, ts),
+        )
+    return "confirmed" if done else "replaced"
+
+
+def candidates(engine: sqlite3.Connection, target: str) -> list[Candidate]:
+    rows = engine.execute(
+        "SELECT * FROM peer_candidate WHERE target_cik = ? ORDER BY source = 'sic' DESC, "
+        "rank IS NULL, rank, name",
+        (normalize_cik(target) or target,),
+    ).fetchall()
+    return [Candidate(r["candidate_cik"], r["name"], r["sic"], r["rank"], r["active_forms"] or "",
+                      r["revenue"], r["revenue_ref"] or "", r["source"], r["status"])
+            for r in rows]  # fmt: skip
+
+
+# --- Owner actions ---------------------------------------------------------------------------
+
+
+def add_peer(
+    engine: sqlite3.Connection, target: str, text: str, not_sec: bool, now: datetime,
+    today: date | None = None,
+) -> Candidate:  # fmt: skip
+    """The owner's peer: a ticker or CIK (any SIC), or a non-SEC company by name."""
+    target = normalize_cik(target) or target
+    text = " ".join(text.split())
+    if not text:
+        raise PeerError("Enter a ticker, a CIK, or a company name.")
+    ts = iso(now)
+    if not_sec:
+        if engine.execute("SELECT 1 FROM peer_candidate WHERE target_cik = ? AND name = ?",
+                          (target, text)).fetchone():  # fmt: skip
+            raise PeerError(f"{text} is already listed.")
+        engine.execute(
+            "INSERT INTO peer_candidate (target_cik, candidate_cik, name, sic, rank, active_forms, "
+            "revenue, revenue_ref, source, status, added_at) VALUES (?, NULL, ?, NULL, NULL, NULL, "
+            "NULL, ?, 'owner_name', 'proposed', ?)",
+            (target, text, NOT_SEC, ts),
+        )
+        return Candidate(None, text, None, None, "", None, NOT_SEC, "owner_name")
+    cik = normalize_cik(text) if text.isdigit() else None
+    if cik is None:
+        row = engine.execute(
+            "SELECT cik FROM ticker WHERE upper(ticker) = upper(?) AND valid_to IS NULL "
+            "ORDER BY valid_from DESC LIMIT 1",
+            (text,),
+        ).fetchone()
+        if row is None:
+            raise PeerError(f"Unknown ticker {text!r}. Tick 'not an SEC filer' to store it by "
+                            "name.")  # fmt: skip
+        cik = row["cik"]
+    if cik == target:
+        raise PeerError("That is the company itself.")
+    ent = engine.execute("SELECT name, sic FROM entity WHERE cik = ?", (cik,)).fetchone()
+    tick = engine.execute("SELECT ticker, name FROM ticker WHERE cik = ? AND valid_to IS NULL "
+                          "LIMIT 1", (cik,)).fetchone()  # fmt: skip
+    name = (ent["name"] if ent else None) or (tick["name"] if tick and tick["name"] else None) \
+        or (tick["ticker"] if tick else cik)  # fmt: skip
+    sic = ent["sic"] if ent else None
+    day = today or now.date()
+    act = active_filers(engine, [cik], day).get(cik)
+    rev = frame_revenue(engine, frame_year(day)).get(cik)
+    old = engine.execute("SELECT status, source FROM peer_candidate WHERE target_cik = ? AND "
+                         "candidate_cik = ?", (target, cik)).fetchone()  # fmt: skip
+    if old is not None:
+        if old["status"] == "struck":  # adding a struck name back keeps it
+            engine.execute(
+                "UPDATE peer_candidate SET status = 'proposed', decided_at = ? "
+                "WHERE target_cik = ? AND candidate_cik = ?",
+                (ts, target, cik),
+            )
+            return Candidate(cik, name, sic, None, "", None, "", old["source"])
+        raise PeerError(f"{name} is already listed.")
+    engine.execute(
+        "INSERT INTO peer_candidate (target_cik, candidate_cik, name, sic, rank, active_forms, "
+        "revenue, revenue_ref, source, status, added_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, "
+        "'owner', 'proposed', ?)",
+        (target, cik, name, sic, f"{act[0]} {act[1]}" if act else "none in 12 months",
+         rev[0] if rev else None, rev[1] if rev else "missing: no revenue frame value", ts),
+    )  # fmt: skip
+    return Candidate(cik, name, sic, None, "", None, "", "owner")
+
+
+def confirm(
+    engine: sqlite3.Connection, target: str, keep: Iterable[str], by: str, now: datetime
+) -> tuple[int, int, int]:
+    """Kept candidates → confirmed, the rest → struck; the confirmed set replaces the
+    target's `peer_group` members. Returns (kept, struck, owner-added kept)."""
+    target = normalize_cik(target) or target
+    keep = set(keep)
+    ts = iso(now)
+    rows = candidates(engine, target)
+    kept = struck = added = 0
+    for c in rows:
+        status = "confirmed" if c.key in keep else "struck"
+        engine.execute(
+            "UPDATE peer_candidate SET status = ?, decided_at = ? WHERE target_cik = ? AND "
+            + ("candidate_cik = ?" if c.cik else "candidate_cik IS NULL AND name = ?"),
+            (status, ts, target, c.cik or c.name),
+        )
+        if status == "confirmed":
+            kept += 1
+            added += c.source != "sic"
+        else:
+            struck += 1
+    sic = engine.execute("SELECT sic FROM entity WHERE cik = ?", (target,)).fetchone()
+    name = f"M04 peers {target}"
+    engine.execute(
+        "INSERT INTO peer_group (name, source, sic, created_at) VALUES (?, 'sic', ?, ?) "
+        "ON CONFLICT (name) DO UPDATE SET sic = excluded.sic",
+        (name, sic[0] if sic else None, ts),
+    )
+    gid = engine.execute("SELECT group_id FROM peer_group WHERE name = ?", (name,)).fetchone()[0]
+    engine.execute("DELETE FROM peer_member WHERE group_id = ?", (gid,))
+    for c in rows:
+        if c.key in keep:
+            engine.execute(
+                "INSERT INTO peer_member (group_id, cik, name, source) VALUES (?, ?, ?, ?)",
+                (gid, c.cik, c.name, "sic" if c.source == "sic" else "owner"),
+            )
+    return kept, struck, added
+
+
+def confirmed_peers(engine: sqlite3.Connection, target: str) -> list[sqlite3.Row]:
+    return engine.execute(
+        "SELECT m.cik, m.name, m.source FROM peer_member m JOIN peer_group g ON g.group_id = "
+        "m.group_id WHERE g.name = ? ORDER BY m.source DESC, m.name",
+        (f"M04 peers {normalize_cik(target) or target}",),
+    ).fetchall()
