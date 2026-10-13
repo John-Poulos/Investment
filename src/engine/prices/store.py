@@ -24,6 +24,18 @@ from engine.sec.results import Failed, NotFound, Ok
 FULL_START = date(1962, 1, 2)
 OVERLAP_DAYS = 5
 STALE_AFTER_DAYS = 5  # calendar days since the last bar (covers weekends and a holiday)
+# Benchmark symbol (D-UI-33, D-M09-6): fetched every run with the core names (one
+# full-history request, then one a day), stored with no CIK, never given D13 rows; M09's
+# market context, M10's move_context, M11's hurdle proxy and M12 read it.
+BENCHMARK = "SPY"
+
+
+def with_benchmark(symbols: dict[str, str | None]) -> dict[str, str | None]:
+    """The run's symbol map with the benchmark added (no CIK)."""
+    out = dict(symbols)
+    out.setdefault(BENCHMARK, None)
+    return out
+
 
 _COLS = (
     ("open", "open"), ("high", "high"), ("low", "low"), ("close", "close"), ("volume", "volume"),

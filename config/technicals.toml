@@ -1,0 +1,32 @@
+# M09 Technicals parameters (docs/M09_TECHNICALS.md "Timeframe parameters"; D-M09-1…9).
+# Frozen per version: the version is written into every M09 row's `method`. Changing a value
+# means a new version (v2) and a note in M09_TECHNICALS.md. Values marked † are starting
+# values, calibrated by backtest at tuning (Deferred R3, R6). Weekly bars (M01 default).
+
+version = "v1"
+
+[band]
+# band_z, price_band and pullback_sigma (D27, D-M09-2)
+window_weeks = 20         # 20-week mean of ln(close); price band on the close
+pullback_returns = 20     # weekly log returns for sigma_w of pullback_sigma (21 closes)
+zone_1 = 1.0              # ±1σ: the trigger zone starts (D27)
+zone_2 = 2.0              # ±2σ: beyond 2σ, rule 7 (depth uncapped)
+
+[trend]
+# trend_state (D-M09-5): close vs the 40-week MA, its 4-week slope, 2-close flip
+ma_weeks = 40
+slope_weeks = 4
+flip_closes = 2
+slope_tolerance = 0.0025  # † MA change over 4 weeks inside ±0.25% reads as not rising / falling
+min_bars = 45
+
+[momentum]
+# mom_12_1: close 4 weeks ago ÷ close 52 weeks ago
+skip_weeks = 4
+lookback_weeks = 52
+
+[reversal]
+# rev_1m: z = 4-week log return ÷ (2 σ_w), σ_w from the 26 weeks before the window
+window_weeks = 4
+sigma_weeks = 26
+extended_z = 2.0          # † |z| ≥ 2 → extended_up / extended_down

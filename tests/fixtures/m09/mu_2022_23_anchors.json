@@ -1,0 +1,13 @@
+{
+  "symbol": "MU",
+  "cik": "0000723125",
+  "note": "Daily closes between anchors are geometric interpolations on weekdays (synthetic). See README.md.",
+  "anchors": [
+    {"date": "2021-09-01", "close": 80.00, "source": "synthetic start (not a stored close)"},
+    {"date": "2022-01-03", "close": 97.36, "source": "MU max 2021-09..2022-12 = 97.36 (PROBE_RESULTS L9); its date is not stated, placed here (synthetic placement)"},
+    {"date": "2022-09-26", "close": 48.88, "source": "low $48.88 on 2022-09-26, stored Tiingo close (R6_brief, PROBE_RESULTS L9)"},
+    {"date": "2022-10-07", "close": 57.31, "source": "Q4 FY22 row (10-K 2022-10-07), stored Tiingo close (R6_brief, L9)"},
+    {"date": "2022-12-22", "close": 55.49, "source": "Q1 FY23 row (10-Q 2022-12-22), stored Tiingo close (R6_brief, L9)"},
+    {"date": "2023-10-06", "close": 69.94, "source": "Q4 FY23 row (10-K 2023-10-06), stored Tiingo close (R6_brief, L9)"}
+  ]
+}
