@@ -164,6 +164,8 @@ def _gap_rows(g: quality.Gap, line: str, ticker: str | None) -> list[dict]:
             if r.state == "definition_changed"
             else "revenue missing — not scored"
             if r.state == "no_revenue"
+            else f"{r.note} — shown, not counted"
+            if r.state == "acquisition_year"
             else ""
         )
         out.append(

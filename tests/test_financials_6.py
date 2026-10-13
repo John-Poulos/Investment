@@ -801,3 +801,244 @@ def test_queue_kinds_registered():
     assert queue.GROUP["m04_mscore"] == queue.GROUP["m04_estimate"] == 7
     assert queue.ACTIONS["m04_estimate"] == ("explained", "concern")
     assert "m04_mscore" in queue.KIND_LABELS
+
+
+# --- Live check 1 (2026-10-13, logs/financials_quality_20261013-104553.txt) -------------------
+
+INSTANT |= {"RestrictedCashCurrent", "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+            "Goodwill", "MarketableSecuritiesNoncurrent", "DeferredRevenueCurrent"}  # fmt: skip
+YYY = "0000088888"
+BA_TEXT = (
+    "THE BOEING COMPANY FORM 10-K (Dollars in millions)\n\n"
+    "Changes in estimates on long-term contracts are discussed below. BGS earnings from operations "
+    "in 2025 increased by $9,856 million compared with 2024, primarily due to a 2025 gain on the "
+    "Digital Aviation Solutions Divestiture of $9,566 million.\n\n"
+    "Net cumulative catch-up adjustments for changes in estimated revenues and costs at completion "
+    "across all long-term contracts decreased Earnings from operations by $1,377 million, $6,562 "
+    "million and $2,943 million in 2025, 2024 and 2023, respectively.\n\n"
+    "Years ended December 31\t2025\t2024\t2023\n\n"
+    "Decrease/increase to Earnings/(loss) from operations\t($1,377)\t($6,562)\t($2,943)\n\n"
+    "Decrease/increase to Diluted earnings/(loss) per share\t($1.53)\t($9.83)\t($5.43)\n\n"
+    "The year over year improvement in earnings is primarily due to lower net unfavorable "
+    "cumulative contract catch-up adjustments of $5,196 million compared to 2024.\n\n"
+    "We changed the estimated useful lives of our servers. Research and development expenses in "
+    "2025 increased $13.50 billion, or 31%, compared to 2024. Operating expenses increased $4.0 "
+    "billion or 7% driven by Gaming. Accumulated amortization of leasehold improvements and "
+    "finance leases was $519 million and $410 million as of December 31, 2025 and 2024, "
+    "respectively.\n\n"
+    "The impact of the change in estimated useful lives of certain buildings resulted in an "
+    "increase to income before income taxes of $76 million for the year ended December 31, 2025.\n\n"
+    "As noted, the impact of the change in estimated useful lives of certain buildings resulted in "
+    "an increase to income before income taxes of $76 million for the year ended December 31, 2025.\n"
+)
+
+
+def ba_like(dbs, cik=ZZZ, acc="0000099999-26-004357"):
+    engine, corpus = dbs
+    filing(engine, cik, acc, "10-K", "2026-01-30", "2025-12-31")
+    concept(engine, cik, "Revenues", [("2025-01-01", "2025-12-31", 89_000 * M, acc, "10-K", "2026-01-30")])  # fmt: skip
+    concept(engine, cik, "OperatingIncomeLoss", [("2025-01-01", "2025-12-31", 4_281 * M, acc, "10-K", "2026-01-30")])  # fmt: skip
+    doc(corpus, cik, acc, BA_TEXT)
+    return acc
+
+
+def test_estimate_finder_drops_variance_sentences_and_dedupes_table_rows(dbs):
+    engine, corpus = dbs
+    ba_like(dbs)
+    found = estimates.scan(engine, corpus, ZZZ)
+    got = sorted((f.fiscal_label, round(f.amount / M), f.basis) for f in found)
+    # −1,377 once (prose and table row, FY2025, negative); the 76M sentence once; no BGS
+    # +9,856, no catch-up variance 5,196, no R&D 13.5B, no opex 4.0B, no amortization 519,
+    # no per-share row
+    assert got == [("FY2025", -1377, "pre_tax"), ("FY2025", 76, "pre_tax")]
+    f = next(f for f in found if f.amount < 0)
+    assert f.share == pytest.approx(-1377 / 4281) and f.band == "elevated"
+    assert f.kind == "catch_up" and "Net cumulative catch-up" in f.quote
+
+
+def test_table_row_counts_with_sign_and_per_share_rows_are_skipped():
+    row = "Decrease/increase to Earnings/(loss) from operations\t($1,377)\t($6,562)\t($2,943)"
+    assert estimates.is_table_row(row)
+    c = estimates.table_candidate(row, 1e6, "FY2025")
+    assert (c.amount, c.basis, c.year) == (-1_377 * M, "pre_tax", "2025")
+    eps = "Decrease/increase to Diluted earnings/(loss) per share\t($1.53)\t($9.83)\t($5.43)"
+    assert estimates.table_candidate(eps, 1e6, "FY2025") is None
+
+
+def test_estimate_wording_in_the_sentence_before_needs_this_change():
+    ok, _ = estimates.qualifies(
+        "The effect was a reduction in depreciation expense of $3.9 billion.",
+        "We changed the estimated useful lives of our servers.",
+    )
+    assert not ok  # no reference to the change
+    ok, ctx = estimates.qualifies(
+        "These changes increased operating income by $135 million.",
+        "We changed the estimated useful lives of our servers.",
+    )
+    assert ok and "useful lives" in ctx
+    assert not estimates.qualifies("Operating expenses increased $4.0 billion or 7%.", "")[0]
+
+
+def test_withdrawn_items_when_the_finding_no_longer_holds(dbs):
+    engine, corpus = dbs
+    acc = ba_like(dbs)
+    text = BA_TEXT
+    old = {"bgs": text.index("BGS earnings"), "table": text.index("Decrease/increase to Earnings")}
+    engine.execute("BEGIN")
+    for k, off in old.items():  # what the first live run queued (key cik:accession:offset)
+        queue.propose(engine, "m04_estimate", f"{ZZZ}:{acc}:{off}", f"old {k}", {}, NOW, cik=ZZZ,
+                      filed="2026-01-30")  # fmt: skip
+    engine.execute("COMMIT")
+    n = engine.execute("SELECT count(*) FROM review_queue WHERE kind = 'm04_estimate'").fetchone()[
+        0
+    ]
+    assert n == 2
+    cq = quality_step.company_quality(engine, corpus, "ZZZ", ZZZ, NOW)
+    assert cq.proposals.get("m04_estimate withdrawn") == 2
+    rows = engine.execute("SELECT resolution, resolved_by FROM review_queue WHERE kind = 'm04_estimate' "
+                          "AND note LIKE 'recomputed%'").fetchall()  # fmt: skip
+    assert [tuple(r) for r in rows] == [("withdrawn", "engine")] * 2
+    keys = {r[0] for r in engine.execute("SELECT prop_key FROM m04_proposal WHERE kind = 'm04_estimate'")}  # fmt: skip
+    assert keys == {f"m04_estimate:{ZZZ}:{acc}:{text.index('Net cumulative')}"}
+
+
+GE_RESPECTIVELY = (
+    "GENERAL ELECTRIC COMPANY FORM 10-K (In millions)\n\n"
+    "LONG-TERM SERVICE AGREEMENTS. Revisions that affect a product services agreement’s total "
+    "estimated profitability result in an adjustment of earnings; such adjustments increased "
+    "earnings by $2.2 billion, $1.4 billion and $1.6 billion in 2016, 2015 and 2014, "
+    "respectively.\n"
+)
+
+
+def test_ge_named_reports_and_respectively_years(dbs):
+    engine, corpus = dbs
+    ge_facts(engine)
+    for y, acc in ((2018, "0000040545-19-000010"), (2019, "0000040545-20-000015"),
+                   (2020, "0000040545-21-000011")):  # newer GE 10-Ks stored by Part 3  # fmt: skip
+        concept(engine, GE, "NetIncomeLoss", [(f"{y}-01-01", f"{y}-12-31", 1_000 * M, acc, "10-K", f"{y + 1}-02-20")])  # fmt: skip
+        doc(corpus, GE, acc, f"GE FORM 10-K {y} (In millions)\n\nNothing about estimates here.\n")
+    doc(corpus, GE, "0000040545-17-000010", GE_RESPECTIVELY)
+    assert estimates.scan(engine, corpus, GE) == []  # the newest three hold no estimate text
+    (f,) = estimates.scan(engine, corpus, GE, accessions=["0000040545-17-000010"])
+    assert (f.amount, f.fiscal_label) == (2_200 * M, "FY2016")
+    assert f.share == pytest.approx(0.2436, abs=0.0005) and f.band == "watch"
+
+
+def test_near_misses_list_the_best_candidate_sentences(dbs):
+    engine, corpus = dbs
+    ge_facts(engine)
+    doc(corpus, GE, "0000040545-17-000010",
+        "GE FORM 10-K (In millions)\n\nWe estimate that service agreements are profitable. "
+        "Earnings rose by $1.0 billion on higher volume as estimated. Profitability on long-term "
+        "service agreements improved.\n")  # fmt: skip
+    assert estimates.scan(engine, corpus, GE, accessions=["0000040545-17-000010"]) == []
+    near = estimates.near_misses(engine, corpus, GE, ["0000040545-17-000010"])
+    assert len(near) == 3 and all(len(t) <= 200 for _, _, t in near)
+    assert near[0][0] >= near[-1][0]
+
+
+def test_issue_reads_stock_plans_named_and_zero_only_when_tagged_elsewhere(dbs):
+    engine, _ = dbs
+    synth(engine, ZZZ, [("2024-12-31", {"Revenues": 100, "ProceedsFromStockPlans": 5}),
+                        ("2025-12-31", {"Revenues": 110})])  # fmt: skip
+    fx = quality.Facts(engine, ZZZ)
+    inp = quality.Inputs()
+    assert quality.issue_flag(fx, "2024-12-31", inp) == 1.0
+    assert "ProceedsFromStockPlans" in inp.subs[0]
+    inp = quality.Inputs()
+    assert quality.issue_flag(fx, "2025-12-31", inp) == 0.0 and "other years" in inp.subs[0]
+    synth(engine, YYY, [("2025-12-31", {"Revenues": 110})], accn_prefix="0000088888")
+    inp = quality.Inputs()
+    assert quality.issue_flag(quality.Facts(engine, YYY), "2025-12-31", inp) is None
+    assert "unknown" in inp.missing[0]
+    # an owner mapping in M02's fin_tag_map (an extension tag as equity issued) counts
+    engine.execute("INSERT INTO fin_tag_map (cik, taxonomy, tag, role, mapped_by, mapped_at) VALUES "
+                   "(?, 'yyy', 'ProceedsFromEmployeePlans', 'equity_issued', 'owner', 'x')", (YYY,))  # fmt: skip
+    concept(engine, YYY, "ProceedsFromEmployeePlans",
+            [("2025-01-01", "2025-12-31", 7 * M, "0000088888-26-900000", "10-K", "2026-02-15")],
+            taxonomy="yyy")  # fmt: skip
+    inp = quality.Inputs()
+    assert quality.issue_flag(quality.Facts(engine, YYY), "2025-12-31", inp) == 1.0
+    assert "yyy:ProceedsFromEmployeePlans" in inp.subs[0]
+
+
+def test_sga_marketing_plus_ga_and_ga_only(dbs):
+    engine, _ = dbs
+    synth(engine, ZZZ, [("2025-12-31", {"Revenues": 100, "MarketingExpense": 20, "GeneralAndAdministrativeExpense": 10})])  # fmt: skip
+    v, how = quality.sga(quality.Facts(engine, ZZZ), "2025-12-31")
+    assert v.value == 30 * M and how == "SG&A = marketing + G&A"
+    synth(engine, YYY, [("2025-12-31", {"Revenues": 100, "GeneralAndAdministrativeExpense": 12})],
+          accn_prefix="0000088888")  # fmt: skip
+    v, how = quality.sga(quality.Facts(engine, YYY), "2025-12-31")
+    assert v.value == 12 * M and "G&A only" in how
+
+
+def test_ifrs_trade_receivables_cash_fallback_and_noncurrent_securities(dbs):
+    engine, _ = dbs
+    synth(engine, ZZZ, [("2025-12-31", {"Revenues": 100, "RestrictedCashCurrent": 4,
+          "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents": 54,
+          "MarketableSecuritiesNoncurrent": 70})])  # fmt: skip
+    concept(engine, ZZZ, "CurrentTradeReceivables", [(None, "2025-12-31", 9 * M, "0000099999-25-900000", "20-F", "2026-02-15")],
+            taxonomy="ifrs-full")  # fmt: skip
+    fx = quality.Facts(engine, ZZZ)
+    assert fx.at("receivables", "2025-12-31", True).tag == "ifrs-full:CurrentTradeReceivables"
+    v, how = quality.cash_at(fx, "2025-12-31")
+    assert v.value == 50 * M and "restricted" in how
+    assert (
+        fx.at("lt_investments", "2025-12-31", True).tag == "us-gaap:MarketableSecuritiesNoncurrent"
+    )
+
+
+def test_cost_of_revenue_from_components_only_when_unambiguous(dbs):
+    engine, _ = dbs
+    synth(engine, ZZZ, [("2025-12-31", {"Revenues": 1000, "CostOfServices": 300, "CostOfGoodsAndServicesSoldDepreciation": 20,
+          "SellingAndMarketingExpense": 100, "GeneralAndAdministrativeExpense": 50,
+          "ResearchAndDevelopmentExpense": 80, "OperatingExpenses": 550})])  # fmt: skip
+    v, how = quality.cogs(quality.Facts(engine, ZZZ), "2025-12-31")
+    assert v.value == 320 * M and "checked against OperatingExpenses" in how
+    synth(engine, YYY, [("2025-12-31", {"Revenues": 1000, "CostOfServices": 300, "OperatingExpenses": 900})],
+          accn_prefix="0000088888")  # fmt: skip
+    v, how = quality.cogs(quality.Facts(engine, YYY), "2025-12-31")
+    assert v is None and "ambiguous" in how
+
+
+def test_readings_must_be_consecutive_to_the_latest_year(dbs):
+    engine, _ = dbs
+    yrs = []
+    for y in range(2016, 2027):
+        vals = {"Revenues": 100 + 10 * (y - 2016)}
+        dr = {2016: 50, 2017: 100, 2018: 70, 2024: 60, 2025: 2}.get(y)
+        if dr:
+            vals["DeferredRevenueCurrent"] = dr
+        yrs.append((f"{y}-12-31", vals))
+    synth(engine, ZZZ, yrs)
+    d = quality.deferred_rev_gap(quality.Facts(engine, ZZZ))
+    assert [r.label for r in d.readings] == ["FY2017", "FY2018", "FY2025"]
+    assert d.state == "short_history" and "FY2026" in d.why
+
+
+def test_acquisition_year_reading_shown_not_counted(dbs):
+    engine, _ = dbs
+    synth(engine, ZZZ, [
+        ("2023-12-31", {"Revenues": 1000, "ContractWithCustomerAssetNetCurrent": 100, "Goodwill": 500}),
+        ("2024-12-31", {"Revenues": 1440, "ContractWithCustomerAssetNetCurrent": 384, "Goodwill": 900,
+                        "PaymentsToAcquireBusinessesNetOfCashAcquired": 300}),
+        ("2025-12-31", {"Revenues": 1780, "ContractWithCustomerAssetNetCurrent": 1003, "Goodwill": 905})])  # fmt: skip
+    g = quality.contract_asset_gap(quality.Facts(engine, ZZZ))
+    r24, r25 = g.readings
+    assert r24.state == "acquisition_year" and "acquisition year" in r24.note
+    assert r25.state == "scored" and g.state == "none" and "acquisition year" in g.why
+
+
+def test_special_items_rule_is_one_function():
+    y = special.YearItems("2025-12-31", "FY2025", text=[("one-time", "q", "a")])
+    assert special.qualifies(y) and y.has
+    assert not special.qualifies(special.YearItems("2025-12-31", "FY2025"))
+
+
+def test_a_sentence_cut_by_a_line_break_keeps_the_wording_before():
+    prev = "The effect of this change in estimate, based on servers included in “Property and equipment,"
+    sent = "net” as of December 31, 2023, was a benefit to net income of $2.5 billion."
+    assert estimates.qualifies(sent, prev)[0]
+    assert not estimates.qualifies(sent, "We changed the estimated useful lives.")[0]

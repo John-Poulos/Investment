@@ -49,7 +49,14 @@ class YearItems:
 
     @property
     def has(self) -> bool:
-        return bool(self.tags or self.text)
+        return qualifies(self)
+
+
+def qualifies(y: YearItems) -> bool:
+    """Whether a fiscal year counts toward `special_items` (D-M04-19, -93): a tagged charge or
+    the wording. The one place to change if wording-only years stop counting (open owner
+    question, Part 6 live check 1)."""
+    return bool(y.tags or y.text)
 
 
 @dataclass

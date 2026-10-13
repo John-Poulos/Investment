@@ -2097,7 +2097,8 @@ QUALITY_EXPECTED = {
     ("MRVL", "FY2026"): "M −1.60 / SGI = 1 −1.98 → note; F missing (issue unknown)",
     ("AAPL", "FY2025"): "M −2.29 / SGI = 1 −2.35, F 1.30",
     ("MSFT", "FY2025"): "M −2.54 / SGI = 1 −2.67, F 1.15",
-    ("BA", "FY2024"): "M incomplete (no SG&A tag), F 1.63",
+    ("BA", "FY2024"): "M incomplete in Round 2 (no SG&A tag); since live check 1 on G&A only, "
+                      "F 1.63",
     ("MU", "FY2023"): "M −7.01 → not meaningful (gross margin ≤ 0)",
     ("MSTR", "FY2025"): "not meaningful (asset_treasury)",
 }  # fmt: skip
@@ -2242,7 +2243,11 @@ def _score_lines(ticker: str, cq) -> list[str]:
         rs = "; ".join(
             f"{r.label} {r.line_growth:+.1%} vs revenue "
             + (f"{r.revenue_growth:+.1%}" if r.revenue_growth is not None else "—")
-            + ("" if r.state == "scored" else f" [{r.state}]")
+            + (
+                ""
+                if r.state == "scored"
+                else f" [{r.state}" + (f": {r.note}" if r.note else "") + "]"
+            )  # fmt: skip
             for r in g.readings[-3:]
         )
         out.append(
@@ -2251,7 +2256,7 @@ def _score_lines(ticker: str, cq) -> list[str]:
     return out
 
 
-def quality_summary(engine, qp, ge_findings, ge_gap, lmt) -> list[str]:
+def quality_summary(engine, qp, ge_findings, ge_gap, lmt, ge_near=()) -> list[str]:
     """What the owner looks for (M04_BUILD_LOG Part 6 live check)."""
     from collections import Counter
 
@@ -2310,10 +2315,14 @@ def quality_summary(engine, qp, ge_findings, ge_gap, lmt) -> list[str]:
                      f"{quality.money(f.amount)}M {f.basis} ÷ {f.denominator_what or f.why} — "
                      f"“{f.quote[:220]}”")  # fmt: skip
     if not ge_findings:
-        lines.append("  no estimate sentence with an amount in GE's stored 10-K texts")
+        lines.append("  no estimate sentence with an amount in GE's FY2016 / FY2017 10-K texts; "
+                     "best candidates (score of 8 · accession · first 200 chars):")  # fmt: skip
+        lines += [f"    {sc} · {acc} · “{t}”" for sc, acc, t in ge_near] or [
+            "    none (no GE 10-K text stored for FY2016 / FY2017)"]  # fmt: skip
     lines.append(
-        "GE contract assets (expected FY2016 25,162 ge:ContractAsset → FY2017 28,861 "
-        "UnbilledContractsReceivable, +14.7%: definition changed, not scored):"
+        "GE contract assets (expected FY2016 +18.9% (spec +18.8%, owner accepted 2026-10-13), "
+        "scored; FY2017 25,162 ge:ContractAsset → 28,861 UnbilledContractsReceivable, +14.7%: "
+        "definition changed, not scored):"
     )
     for r in ge_gap.readings[-3:]:
         lines.append(f"  {r.label}: {r.prior.tag} {quality.money(r.prior.value)} → {r.line.tag} "
@@ -2367,7 +2376,8 @@ def quality_run(engine, corpus, comps: dict[str, str], now, log, client=None, cl
         log("SEC skipped (--no-sec): stored facts and text used", "")
     t0 = time.monotonic()
     qp = quality_step.quality_pass(engine, corpus, comps, now)
-    ge_findings = estimates.scan(engine, corpus, GE_CIK)
+    ge_accs = [r["accession"] for r in (ge_annual(engine, e) for e in GE_YEARS) if r]
+    ge_findings = estimates.scan(engine, corpus, GE_CIK, accessions=ge_accs or None)
     engine.execute("BEGIN")
     estimates.store(engine, ge_findings, GE_CIK, iso(now), False)
     engine.execute("COMMIT")
@@ -2378,7 +2388,9 @@ def quality_run(engine, corpus, comps: dict[str, str], now, log, client=None, cl
         f"{time.monotonic() - t0:.1f} s)", "")  # fmt: skip
     log(*quality_step.local_lines(qp))
     log("")
-    log(*quality_summary(engine, qp, ge_findings, ge_gap, lmt))
+    ge_near = (estimates.near_misses(engine, corpus, GE_CIK, ge_accs or None)
+               if not ge_findings else [])  # fmt: skip
+    log(*quality_summary(engine, qp, ge_findings, ge_gap, lmt, ge_near))
     return qp
 
 

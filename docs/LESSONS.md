@@ -1,6 +1,6 @@
 # Lessons that generalize (running)
 
-Updated: 2026-10-12 · Read at the start of every module build. One line each, with the decision that holds the detail. Add a lesson when a mistake or surprise in one module would recur in another.
+Updated: 2026-10-13 · Read at the start of every module build. One line each, with the decision that holds the detail. Add a lesson when a mistake or surprise in one module would recur in another.
 
 ## Data sources
 - Count what you mean: EDGAR full-text search counts documents, not filings; a filing whose exhibits match counts twice. Report distinct filings and companies (D-SEC-14).
@@ -52,6 +52,8 @@ Updated: 2026-10-12 · Read at the start of every module build. One line each, w
 - Fitting quoted amounts to a number needs the sentence to name the same line item: GE's ASC 606 *revenue* amount (4,225) fitted its *cash-flow* step closer than the right ASU 2016-15 amount until candidates were limited to sentences naming operating activities; also drop accounting codes ("ASC 606", "ASU 2016-15") and the recast values themselves (M04 Part 3, D-M04-16).
 - A balance-sheet line tagged for one year only is either a line that ended (the newer report still tags the older year: take none) or a tag switch (it does not: missing). Telling them apart needs the newer report's own comparative, not the value series (M04 Part 6, D-M04-90: NVIDIA's current debt vs its FY2026 short-term-investment tag).
 - Run the parser on the real corpus early; each live scan found new wording (guidance-1 → guidance-4).
+- A context window around a text match picks up the neighbouring sentence: a 400-character look-back made year-over-year variances ("increased by $9,856 million compared with 2024") into estimate changes. Require the wording in the sentence with the amount (or an explicit "this change" link) and dedupe the same amount repeated in MD&A, notes and tables (M04 Part 6, D-M04-92).
+- "The newest N stored documents" is not "the documents the check needs" once another part stores more of them (GE's FY2016 10-K behind Part 3's newer ones): name the reference documents (M04 Part 6).
 - A vendor document may carry no date (Alpha Vantage transcripts): anchor it to an SEC record (the quarter's earnings 8-K) and leave it unparsed when none matches, rather than using the fetch date (D-M02-22).
 - Spoken periods are relative ("next quarter", "this year"); resolve them only against the document's own fiscal quarter, and leave the ambiguous ones ("this year" on a Q4 call) for review (D-M02-22).
 - Spoken guidance retells old figures ("earlier this year we said …"), quotes other companies' numbers ("hyperscaler capex"), names segments ("AI revenue") and states bounds ("more than $25 billion"); a release parser applied to calls takes all of these as guidance (D-M02-23).

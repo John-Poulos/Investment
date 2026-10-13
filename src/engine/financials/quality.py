@@ -43,6 +43,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from engine.financials.capex import fiscal_label, is_fy_end, near
+from engine.financials.peers import GOODWILL, acquisition_note
 from engine.moneyflow.periods import fiscal_year_end
 from engine.sec.asof import FOREIGN_INTERIM_FORMS, PERIODIC_FORMS, is_foreign_filer
 from engine.sec.identity import normalize_cik
@@ -59,8 +60,33 @@ READINGS = 2
 HISTORY_YEARS = 5
 
 C, F, I = "currency", "flow", "instant"  # noqa: E741
-SM = Concept("selling_marketing", (("us-gaap", "SellingAndMarketingExpense"),), C, F)
+# S&M: Amazon tags `MarketingExpense` (no selling line) beside G&A (live check 1)
+SM = Concept(
+    "selling_marketing",
+    (("us-gaap", "SellingAndMarketingExpense"), ("us-gaap", "MarketingExpense")),
+    C,
+    F,
+)
 GA = Concept("general_admin", (("us-gaap", "GeneralAndAdministrativeExpense"),), C, F)
+# Receivables for Part 6: the shared concept plus the IFRS trade-receivable variants
+# (GlobalFoundries, live check 1). Local, so stored `series` rows do not change.
+_REC = ALL_CONCEPTS["receivables"]
+RECEIVABLES = Concept(
+    "receivables",
+    _REC.tags
+    + tuple(
+        ("ifrs-full", t)
+        for t in (
+            "CurrentTradeReceivables",
+            "TradeAndOtherCurrentReceivablesDueFromRelatedParties",
+            "TradeReceivables",
+            "TradeAndOtherReceivables",
+        )
+    ),
+    C,
+    I,
+    marks=_REC.marks,
+)
 LIAB_EQUITY = Concept(
     "liabilities_and_equity", (("us-gaap", "LiabilitiesAndStockholdersEquity"),), C, I
 )
@@ -85,7 +111,55 @@ CRYPTO_GAIN = Concept(
     C,
     F,
 )
-LOCAL = {c.name: c for c in (SM, GA, LIAB_EQUITY, EQUITY_NCI, CRYPTO_GAIN)}
+LOCAL = {c.name: c for c in (SM, GA, LIAB_EQUITY, EQUITY_NCI, CRYPTO_GAIN, RECEIVABLES, GOODWILL)}
+# Totals a cost-of-revenue component sum is checked against (ORCL presents every cost as an
+# operating expense, live check 1)
+COST_TOTALS = ("CostsAndExpenses", "OperatingExpenses")
+COST_TOTAL_TAGS = ("CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfGoodsSold")
+OTHER_OPEX = (
+    "SellingGeneralAndAdministrativeExpense",
+    "SellingAndMarketingExpense",
+    "MarketingExpense",
+    "GeneralAndAdministrativeExpense",
+    "ResearchAndDevelopmentExpense",
+    "AmortizationOfIntangibleAssets",
+    "RestructuringCharges",
+    "AcquisitionRelatedCostsAndOtherOperatingExpenses",
+    "OtherCostAndExpenseOperating",
+)
+SGA_PARTS = ("SellingAndMarketingExpense", "MarketingExpense", "GeneralAndAdministrativeExpense")
+COST_MATCH = 0.005  # components + other lines within 0.5% of the total
+
+# `issue` (D-M04-90): M02's financing roles "debt_raised" and "equity_issued" (built-ins
+# and the owner's `fin_tag_map`, D-M02-31) plus the stock-plan and debt tags below.
+ISSUE_EXTRA = tuple(
+    f"us-gaap:{t}"
+    for t in (
+        "ProceedsFromIssuanceOfCommonStock",
+        "ProceedsFromStockPlans",
+        "ProceedsFromIssuanceOfSharesUnderIncentiveAndShareBasedCompensationPlans",
+        "ProceedsFromIssuanceOfSharesUnderIncentiveAndShareBasedCompensationPlansIncludingStockOptions",
+        "ProceedsFromStockOptionsExercised",
+        "ProceedsFromEmployeeStockPurchasePlan",
+        "ProceedsFromIssuanceOfLongTermDebt",
+        "ProceedsFromIssuanceOfDebt",
+        "ProceedsFromIssuanceOfSeniorLongTermDebt",
+        "ProceedsFromDebtNetOfIssuanceCosts",
+        "ProceedsFromIssuanceOfCommercialPaper",
+        "ProceedsFromShortTermDebt",
+    )
+) + tuple(
+    f"ifrs-full:{t}"  # IFRS filers (GlobalFoundries)
+    for t in (
+        "ProceedsFromIssuingShares",
+        "ProceedsFromExerciseOfOptions",
+        "ProceedsFromBorrowingsClassifiedAsFinancingActivities",
+        "ProceedsFromNoncurrentBorrowings",
+        "ProceedsFromCurrentBorrowings",
+        "ProceedsFromIssueOfBondsNotesAndDebentures",
+    )
+)
+ISSUE_ROLES = ("debt_raised", "equity_issued")
 
 SWINGS = (
     ("equity_securities_gain", "gains on equity securities (fair value)", 1),
@@ -134,7 +208,17 @@ class Facts:
         return concept_for(self.cik, LOCAL.get(name) or ALL_CONCEPTS[name])
 
     def _load(self, name: str, instant: bool) -> dict[str, Val]:
-        con = self._concept(name)
+        return self.load_concept(self._concept(name), instant)
+
+    def fy_of(self, con: Concept) -> dict[str, Val]:
+        """Fiscal-year values of any concept (not cached by name; e.g. one issuance tag)."""
+        key = f"concept:{con.name}:{con.tags}"
+        if key not in self._fy:
+            pts = self.load_concept(con, instant=False)
+            self._fy[key] = {e: v for e, v in pts.items() if is_fy_end(e, self.fye)}
+        return self._fy[key]
+
+    def load_concept(self, con: Concept, instant: bool) -> dict[str, Val]:
         rank = {t: i for i, t in enumerate(con.tags)}
         best: dict[str, tuple] = {}
         for r in concept_rows(self.engine, [self.cik], con):
@@ -248,12 +332,14 @@ def _year(fx: Facts, end: str) -> str:
 
 
 def sga(fx: Facts, end: str) -> tuple[Val | None, str]:
-    """SG&A, else selling and marketing + general and administrative (method-tagged)."""
+    """SG&A; else selling and marketing (or marketing) + general and administrative; else
+    G&A alone, labelled "G&A only" (Boeing tags no selling line). Method-tagged."""
     v = fx.at("sga", end)
     if v is not None:
         return v, ""
     sm, ga = fx.at("selling_marketing", end), fx.at("general_admin", end)
     if sm is not None and ga is not None:
+        what = "marketing" if sm.tag.endswith(":MarketingExpense") else "S&M"
         return (
             Val(
                 sm.value + ga.value,
@@ -264,8 +350,10 @@ def sga(fx: Facts, end: str) -> tuple[Val | None, str]:
                 end,
                 sm.start,
             ),
-            "SG&A = S&M + G&A",
+            f"SG&A = {what} + G&A",
         )
+    if ga is not None and sm is None:
+        return ga, "SG&A = G&A only (no selling or marketing tag)"
     return None, ""
 
 
@@ -295,7 +383,73 @@ def cogs(fx: Facts, end: str) -> tuple[Val | None, str]:
             ),
             "cost of revenue = revenue − gross profit",
         )
-    return None, ""
+    return cost_components(fx, end)
+
+
+def _fy_rows(fx: Facts, end: str, where: str, args: tuple) -> list[sqlite3.Row]:
+    """us-gaap fiscal-year facts at `end` from the report that first reported the year."""
+    f = fx.filing_of(end)
+    if f is None:
+        return []
+    rows = fx.engine.execute(
+        "SELECT tag, value, period_start, period_end, accession, filed, form FROM fact WHERE "
+        f"cik = ? AND taxonomy = 'us-gaap' AND unit = 'USD' AND accession = ? AND {where}",
+        (fx.cik, f[0], *args),
+    ).fetchall()
+    return [
+        r
+        for r in rows
+        if r["period_start"]
+        and near(r["period_end"], end)
+        and classify(r["period_start"], r["period_end"]) == "FY"
+    ]
+
+
+def cost_components(fx: Facts, end: str) -> tuple[Val | None, str]:
+    """No cost-of-revenue or gross-profit tag: the sum of the year's `CostOf…` lines, taken
+    only when it is unambiguous — those lines plus the other tagged operating lines equal a
+    tagged total (`CostsAndExpenses`, else `OperatingExpenses`) within 0.5%. Otherwise
+    missing, with the reason in the method (ORCL, live check 1)."""
+    rows = _fy_rows(fx, end, "tag LIKE 'CostOf%'", ())
+    parts = {r["tag"]: r for r in rows if r["tag"] not in COST_TOTAL_TAGS}
+    if not parts:
+        return None, "no CostOfRevenue, GrossProfit or CostOf… tag"
+    marks = ",".join("?" * (len(COST_TOTALS) + len(OTHER_OPEX)))
+    more = {
+        r["tag"]: r for r in _fy_rows(fx, end, f"tag IN ({marks})", (*COST_TOTALS, *OTHER_OPEX))
+    }
+    total = next((more[t] for t in COST_TOTALS if t in more), None)
+    names = " + ".join(sorted(parts))
+    comp = sum(float(r["value"]) for r in parts.values())
+    if total is None:
+        return None, (
+            f"CostOf… lines {names} but no CostsAndExpenses "
+            "or OperatingExpenses total to check them against (ambiguous)"
+        )
+    others = [more[t] for t in OTHER_OPEX if t in more]
+    if "SellingGeneralAndAdministrativeExpense" in more:
+        others = [r for r in others if r["tag"] not in SGA_PARTS]
+    check = comp + sum(float(r["value"]) for r in others)
+    tv = float(total["value"])
+    if not tv or abs(check - tv) > COST_MATCH * abs(tv):
+        return None, (
+            f"CostOf… lines {names} {comp / 1e6:,.0f}M + "
+            f"other operating lines {(check - comp) / 1e6:,.0f}M ≠ {total['tag']} "
+            f"{tv / 1e6:,.0f}M (ambiguous)"
+        )
+    r0 = next(iter(parts.values()))
+    return (
+        Val(
+            comp,
+            " + ".join(f"us-gaap:{t}" for t in sorted(parts)),
+            r0["accession"],
+            r0["filed"],
+            r0["form"] or "",
+            end,
+            r0["period_start"],
+        ),  # fmt: skip
+        f"cost of revenue = sum of CostOf… lines ({names}), checked against {total['tag']}",
+    )
 
 
 def liabilities(fx: Facts, end: str) -> tuple[Val | None, str]:
@@ -308,6 +462,43 @@ def liabilities(fx: Facts, end: str) -> tuple[Val | None, str]:
             Val(le.value - eq.value, f"{le.tag} − {eq.tag}", le.accession, le.filed, le.form, end),
             "total liabilities = liabilities and equity − equity incl. NCI",
         )
+    return None, ""
+
+
+def cash_at(fx: Facts, end: str) -> tuple[Val | None, str]:
+    """Cash and equivalents at a year end; else the gate's fallbacks (D-M04-32, Part 4a live
+    check 1): the cash-flow total including restricted cash minus restricted cash tagged at
+    the date, else `us-gaap:Cash`; labelled."""
+    from engine.financials.gate import CASH_ONLY, CASH_WITH_RESTRICTED
+
+    v = fx.at("cash", end, instant=True)
+    if v is not None:
+        return v, ""
+    pts = fx.load_concept(CASH_WITH_RESTRICTED, instant=True)
+    cr = pts.get(end) or next((x for e, x in pts.items() if near(e, end)), None)
+    if cr is not None:
+        rc = fx.at("restricted_cash", end, instant=True)
+        if rc is not None:
+            return (
+                Val(
+                    cr.value - rc.value,
+                    f"{cr.tag} − {rc.tag}",
+                    cr.accession,
+                    cr.filed,
+                    cr.form,
+                    end,
+                ),  # fmt: skip
+                f"cash {fiscal_label(end)} = cash incl. restricted {money(cr.value)}M − "
+                f"restricted {money(rc.value)}M (fallback: no cash-and-equivalents tag)",
+            )
+        return cr, (
+            f"cash {fiscal_label(end)} = {cr.tag} (fallback: no cash-and-equivalents tag; "
+            "restricted cash, if any, inside)"
+        )
+    pts = fx.load_concept(CASH_ONLY, instant=True)
+    co = pts.get(end) or next((x for e, x in pts.items() if near(e, end)), None)
+    if co is not None:
+        return co, f"cash {fiscal_label(end)} = us-gaap:Cash (fallback: no equivalents tag)"
     return None, ""
 
 
@@ -439,9 +630,13 @@ def mscore(fx: Facts, end: str, tag: str | None = None) -> MScore:
     for y, e in (("t", end), ("p", p)):
         g[f"rev_{y}"] = inp.take(f"rev_{y}", fx.at("revenue", e), f"revenue {fiscal_label(e)}")
         v, m = cogs(fx, e)
-        if m:
+        if m and v is not None:
             inp.subs.append(m)
-        g[f"cogs_{y}"] = inp.take(f"cogs_{y}", v, f"cost of revenue {fiscal_label(e)}")
+        g[f"cogs_{y}"] = inp.take(
+            f"cogs_{y}",
+            v,
+            f"cost of revenue {fiscal_label(e)}" + (f" ({m})" if m and v is None else ""),
+        )
         for key, name in (
             ("rec", "receivables"),
             ("ca", "current_assets"),
@@ -543,15 +738,45 @@ class FScore:
         return "below_1.00"
 
 
+def issue_tags(engine: sqlite3.Connection, cik: str) -> list[str]:
+    """`taxonomy:tag` read for `issue`: M02's equity-issued and debt-raised roles (built-ins
+    overlaid by the owner's `fin_tag_map`, D-M02-31) plus `ISSUE_EXTRA`, in that order."""
+    from engine.moneyflow.allocation import mappings
+
+    roles = mappings(engine, cik)
+    tags = [t for t, r in roles.items() if r in ISSUE_ROLES]
+    return list(dict.fromkeys(tags + [t for t in ISSUE_EXTRA if roles.get(t, "") != "ignore"]))
+
+
 def issue_flag(fx: Facts, end: str, inp: Inputs) -> float | None:
-    """1 when any equity or debt proceeds were received in the year; unknown → missing."""
-    vals = [fx.at(n, end) for n in ("proceeds_common", "proceeds_plans", "proceeds_lt_debt")]
-    found = [v for v in vals if v is not None]
-    if not found:
+    """1 when any equity or debt proceeds above 0 are tagged for the year (the tag named);
+    0 when none is, provided the company tags at least one of them in some year; else
+    unknown → missing (D-M04-90)."""
+    tagged_somewhere: list[str] = []
+    zero: list[Val] = []
+    for tt in issue_tags(fx.engine, fx.cik):
+        tax, tag = tt.split(":", 1)
+        pts = fx.fy_of(Concept(f"issue_{tag}", ((tax, tag),), C, F))
+        if not pts:
+            continue
+        tagged_somewhere.append(tt)
+        v = pts.get(end) or next((x for e, x in pts.items() if near(e, end)), None)
+        if v is None:
+            continue
+        if v.value > 0:
+            inp.used.append(v)
+            inp.subs.append(f"issue {fiscal_label(end)} = 1: {v.tag} {money(v.value)}M")
+            return 1.0
+        zero.append(v)
+    if not tagged_somewhere:
         inp.missing.append(f"issue {fiscal_label(end)} (no equity- or debt-proceeds tag: unknown)")
         return None
-    inp.used += found
-    return 1.0 if any(v.value > 0 for v in found) else 0.0
+    inp.used += zero
+    inp.subs.append(
+        f"issue {fiscal_label(end)} = 0: no proceeds above 0 tagged for the year (the company "
+        f"tags {', '.join(t.split(':', 1)[1] for t in tagged_somewhere[:3])} in other years)"
+    )
+    return 0.0
 
 
 def misstate_f(fx: Facts, end: str, tag: str | None = None) -> FScore:
@@ -571,13 +796,16 @@ def misstate_f(fx: Facts, end: str, tag: str | None = None) -> FScore:
         for key, name in (
             ("ta", "total_assets"),
             ("ca", "current_assets"),
-            ("cash", "cash"),
             ("cl", "current_liabilities"),
             ("rec", "receivables"),
         ):
             v[f"{key}_{y}"] = inp.take(
                 f"{key}_{y}", fx.at(name, e, True), f"{name.replace('_', ' ')} {fiscal_label(e)}"
             )
+        cv, m = cash_at(fx, e)
+        if m and cv is not None:
+            inp.subs.append(m)
+        v[f"cash_{y}"] = inp.take(f"cash_{y}", cv, f"cash {fiscal_label(e)}")
         lv, m = liabilities(fx, e)
         if m:
             inp.subs.append(m)
@@ -775,7 +1003,8 @@ class Reading:
     prior: Val
     line_growth: float
     revenue_growth: float | None
-    state: str  # scored | definition_changed | no_revenue
+    state: str  # scored | definition_changed | no_revenue | acquisition_year
+    note: str = ""
 
     @property
     def gap_pp(self) -> float | None:
@@ -796,6 +1025,21 @@ class Gap:
         return self.readings[-1] if self.readings else None
 
 
+def acquisition_year(fx: Facts, end: str, p: str | None) -> str:
+    """Part 2's acquisition-year test on the fiscal year (cash for businesses or the goodwill
+    rise ≥ 10%† of revenue, `peers.acquisition_note`); '' when not one."""
+    rev = fx.at("revenue", end)
+    acq = fx.at("acquisitions", end)
+    gw = fx.at("goodwill", end, True)
+    gw_p = fx.at("goodwill", p, True) if p else None
+    return acquisition_note(
+        rev.value if rev else None,
+        acq.value if acq else None,
+        gw.value if gw else None,
+        gw_p.value if gw_p else None,
+    )
+
+
 def readings(fx: Facts, concept: str) -> list[Reading]:
     out = []
     for end in fx.ends():
@@ -806,82 +1050,89 @@ def readings(fx: Facts, concept: str) -> list[Reading]:
             continue
         rev, rev_p = fx.at("revenue", end), (fx.at("revenue", p) if p else None)
         rg = rev.value / rev_p.value - 1 if rev and rev_p and rev_p.value else None
-        state = "scored"
+        state, note = "scored", ""
         if line.tag != prev.tag:
             state = "definition_changed"
         elif rg is None:
             state = "no_revenue"
+        elif note := acquisition_year(fx, end, p):
+            state = "acquisition_year"
         out.append(
-            Reading(end, fiscal_label(end), line, prev, line.value / prev.value - 1, rg, state)
+            Reading(
+                end, fiscal_label(end), line, prev, line.value / prev.value - 1, rg, state, note
+            )
         )
     return out
 
 
-def contract_asset_gap(fx: Facts) -> Gap:
-    rs = readings(fx, "contract_assets")
+def latest_run(fx: Facts, rs: list[Reading]) -> list[Reading]:
+    """The readings of consecutive fiscal years ending at the latest fiscal year (live check
+    1: Micron's FY2017, FY2018 and FY2025 readings are not "the last 2")."""
+    ends = fx.ends()
+    if not rs or not ends or rs[-1].end != ends[-1]:
+        return []
+    run = [rs[-1]]
+    for r in reversed(rs[:-1]):
+        if fx.prior(run[0].end) != r.end:
+            break
+        run.insert(0, r)
+    return run
+
+
+def _gap(fx: Facts, concept: str, what: str, hit, watch_why: str) -> Gap:
+    rs = readings(fx, concept)
     if not rs:
-        return Gap(
-            "contract_assets",
-            "missing",
-            [],
-            "no contract-asset tag in two consecutive fiscal years",
-        )
-    last = rs[-READINGS:]
+        return Gap(concept, "missing", [], f"no {what} tag in two consecutive fiscal years")
+    run = latest_run(fx, rs)
+    last = run[-READINGS:]
     if len(last) < READINGS:
-        return Gap("contract_assets", "short_history", rs, "one reading")
+        ends = fx.ends()
+        why = (
+            "one reading"
+            if len(rs) == 1
+            else f"no reading at the latest fiscal year {fiscal_label(ends[-1])}"
+            if not run
+            else f"one reading in consecutive fiscal years to {fiscal_label(ends[-1])} "
+            "(older readings not counted)"
+        )
+        return Gap(concept, "short_history", rs, why)
     if any(r.state != "scored" for r in last):
         return Gap(
-            "contract_assets",
+            concept,
             "none",
             rs,
             "a reading is not scored ("
             + ", ".join(
-                f"{r.label} {r.state.replace('_', ' ')}" for r in last if r.state != "scored"
+                f"{r.label} {r.state.replace('_', ' ')}" + (f": {r.note}" if r.note else "")
+                for r in last
+                if r.state != "scored"
             )
             + ")",
         )
-    if all((r.gap_pp or 0) > GAP_PP for r in last):
-        return Gap(
-            "contract_assets",
-            "watch",
-            rs,
-            f"contract assets > {GAP_PP:.0f} pp faster than "
-            f"revenue in the last {READINGS} readings (S2.2)",
-        )
-    return Gap("contract_assets", "none", rs)
+    if all(hit(r) for r in last):
+        return Gap(concept, "watch", rs, watch_why)
+    return Gap(concept, "none", rs)
+
+
+def contract_asset_gap(fx: Facts) -> Gap:
+    return _gap(
+        fx,
+        "contract_assets",
+        "contract-asset",
+        lambda r: (r.gap_pp or 0) > GAP_PP,
+        f"contract assets > {GAP_PP:.0f} pp faster than revenue in the last {READINGS} "
+        "readings (S2.2)",
+    )
 
 
 def deferred_rev_gap(fx: Facts) -> Gap:
-    rs = readings(fx, "contract_liabilities")
-    if not rs:
-        return Gap(
-            "contract_liabilities",
-            "missing",
-            [],
-            "no deferred-revenue tag in two consecutive fiscal years",
-        )
-    last = rs[-READINGS:]
-    if len(last) < READINGS:
-        return Gap("contract_liabilities", "short_history", rs, "one reading")
-    if any(r.state != "scored" for r in last):
-        return Gap(
-            "contract_liabilities",
-            "none",
-            rs,
-            "a reading is not scored ("
-            + ", ".join(
-                f"{r.label} {r.state.replace('_', ' ')}" for r in last if r.state != "scored"
-            )
-            + ")",
-        )
-    if all(r.line_growth < 0 and (r.revenue_growth or 0) > 0 for r in last):
-        return Gap(
-            "contract_liabilities",
-            "watch",
-            rs,
-            f"deferred revenue falling while revenue grows in the last {READINGS} readings (S2.2)",
-        )
-    return Gap("contract_liabilities", "none", rs)
+    return _gap(
+        fx,
+        "contract_liabilities",
+        "deferred-revenue",
+        lambda r: r.line_growth < 0 and (r.revenue_growth or 0) > 0,
+        f"deferred revenue falling while revenue grows in the last {READINGS} readings (S2.2)",
+    )
 
 
 # --- Company bundle -------------------------------------------------------------------------
