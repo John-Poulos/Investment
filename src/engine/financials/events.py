@@ -12,6 +12,7 @@ Read from the stored `event` table (8-K items, `sec/events.py`) and `filing` tab
 | 3.01 | transfer (listing moved) | info | no | — |
 | 3.01 | regained compliance | info | no | clears an earlier deficiency |
 | 3.01 | unread (text not stored) | warn | yes | owner resolution |
+| 3.01 | unclassified (text read, no class wording) | warn | yes | owner resolution |
 | 4.01 | auditor change | info | no | — |
 | 4.01 | post-de-SPAC change, no disagreements (≤ ~90 days of the closing) | info | no | — |
 | 4.01 | escalated (a restatement within 12 months) | warn | yes | owner resolution |
@@ -48,11 +49,18 @@ ESCALATE_DAYS = 365  # D-M04-15
 WINDOW_YEARS = 3
 BASELINE_STATE = "m04_events_baseline:{cik}"
 
+_EXCHANGE = r"(?:the )?(?:New York Stock Exchange|NYSE|Nasdaq|NASDAQ)"
 TRANSFER = re.compile(
-    r"transfer(?:ring|red)? (?:the |its |our )?(?:listing|common stock|"
-    r"shares|securities)[^.]{0,160}(?:to|from) (?:the )?(?:New York Stock "
-    r"Exchange|NYSE|Nasdaq|NASDAQ)|(?:intends?|decided|elected|plans?) to "
-    r"(?:transfer|move) (?:the )?listing",
+    # "transfer the listing of …", "transfer of the listing", "transferring its Class A
+    # common stock … from Nasdaq to the NYSE", "intention to transfer", "will begin trading
+    # on the NYSE" (live check 1: INFQ's 3.01 read as unread)
+    r"transfer(?:ring|red|s)?(?: of)? (?:the |its |our |their )?(?:[\w’'-]+ ){0,4}?"
+    r"(?:listing|stock|shares|securities)[^.]{0,200}?(?:to|from|on) " + _EXCHANGE + r"|"
+    r"(?:intends?|intent|intention|decided|decision|elected|plans?|approved)(?: to)? "
+    r"(?:voluntarily )?(?:transfer|move) (?:the |its |our )?(?:[\w’'-]+ ){0,4}?listing|"
+    r"voluntar\w* (?:delist|withdraw)[^.]{0,300}?(?:and|to) (?:transfer|list|move)"
+    r"[^.]{0,200}?(?:to|on) " + _EXCHANGE + r"|"
+    r"(?:begin|commence|start)(?:s|ed)? trading on " + _EXCHANGE,
     re.I,
 )
 DELIST = re.compile(
@@ -73,12 +81,13 @@ DEFICIENCY = re.compile(
     r"below (?:the )?(?:\$1\.00|minimum)",
     re.I,
 )
+_Q = "[\"“”‘’']?"  # straight or curly quotes around a defined term
 NO_DISAGREE = re.compile(
-    r"(?:were|was|have been) no (?:\"?disagreements|reportable events)|"
-    r"no disagreements",
+    rf"(?:were|was|have been|has been|had been) no (?:such )?{_Q}(?:disagreements?|"
+    rf"reportable events?){_Q}|\bno (?:such )?{_Q}disagreements?{_Q}",
     re.I,
 )
-DISAGREE = re.compile(r"\bthere (?:were|was) (?:a )?disagreements?\b(?! with)", re.I)
+DISAGREE = re.compile(rf"\bthere (?:were|was) (?:a )?{_Q}disagreements?{_Q}(?! with)", re.I)
 
 
 @dataclass
@@ -155,7 +164,7 @@ def classify_301(text: str) -> tuple[str, str, str]:
     ):
         if m := _first_real(rx, text, hypothetical_ok=klass in ("transfer", "deficiency")):
             return klass, state, _quote(text, m)
-    return "unread", "warn", ""
+    return "unclassified", "warn", ""
 
 
 # --- Classification ----------------------------------------------------------------------------
@@ -242,6 +251,8 @@ def classify(
                 klass, state, quote = classify_301(text)
                 note = {
                     "unread": "text not stored: class unknown, read the 8-K",
+                    "unclassified": f"text read ({len(text):,} characters, {ref}) but no "
+                    "class wording found: read the 8-K",
                     "transfer": "listing transfer: information (S1.11)",
                     "deficiency": "cure-period deficiency: warn + review (D-M04-37)",
                     "delisting": "delisting: gate fail (D-M04-37)",
@@ -347,7 +358,12 @@ def _auditor(
             f"post-de-SPAC auditor change ({(filed - date.fromisoformat(after_close[0])).days}"
             f" days after the closing {after_close[0]}): information (S1.11)"
         )
-        note += "; no disagreements stated" if quote else "; text not stored (wording unchecked)"
+        if quote:
+            note += "; no disagreements stated"
+        elif text:
+            note += f"; text read ({ref}), no disagreement wording found (wording unchecked)"
+        else:
+            note += "; text not stored (wording unchecked)"
         if near:
             note += (
                 f"; restatement within 12 months ({near[0][1]}) not escalated: a routine "
@@ -447,6 +463,17 @@ def store(
         is None
     )
     counts = {"events": len(rows), "queued": 0, "overflow": 0, "baseline": 0, "suppressed": 0}
+    counts["withdrawn"] = sum(
+        queue.withdraw(
+            engine,
+            "m04_event",
+            e.key,
+            now,
+            f"recomputed: {e.klass.replace('_', ' ')} ({e.state}), no review needed",
+        )
+        for e in rows
+        if not e.review or e.state == "cleared"
+    )
     for e in rows:
         prior = engine.execute(
             "SELECT owner_resolution, resolved_at FROM m04_event WHERE accession = ? AND item = ?",

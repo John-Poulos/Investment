@@ -35,7 +35,10 @@ WALK_NOTE = (
     "(revenue, net income, operating cash flow and its continuing-operations variant, pretax "
     "income; fiscal years and reported quarters; 8-Ks and proxies never count). Labels in "
     "order (D-M04-16): standard adoption, discontinued operations, segment recast, split, tag "
-    "switch, rounding, NCI share, restricted cash, de-SPAC / predecessor; amounts come from the "
+    "switch, rounding, NCI share, restricted cash, de-SPAC / predecessor, after the data "
+    "defects of early XBRL (flip-flop: a later filing returns the value; period mix-up: the "
+    "value of another period; scope swap: a move above 40% taken back later), which explain "
+    "the whole step and never open a review; amounts come from the "
     "changing filing's text (at most two quoted amounts, kept only when they explain all but "
     "5%† of the step). Left over above both 0.5%† of the old value and $0.1M† → review "
     "(`m04_restate`, group 4). A cash-flow step up is `cf_shift_up` (watch). Sources "
@@ -165,9 +168,13 @@ def flags_view(
     n_watch = sum(1 for r in rows if r["outcome"] == "watch")
     filings_n = len({r["to_accession"] for r in rows})
     n_base = sum(1 for r in rows if r["outcome"] == "review" and r["baseline"] and not r["item_id"])
+    n_bad = sum(
+        1 for r in rows if any(lb["family"] in restate.DEFECTS for lb in json.loads(r["labels"]))
+    )
     counts = (
         f"{len(rows)} steps from {filings_n} changing filings: {len(rows) - n_rev - n_watch}"
-        f" explained, {n_watch} watch, {n_rev} over tolerance ({n_base} baseline, not queued)"
+        f" explained ({n_bad} data defects), {n_watch} watch, {n_rev} over tolerance "
+        f"({n_base} baseline, not queued)"
     )
     if hidden > 0:
         counts += (

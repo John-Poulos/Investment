@@ -141,6 +141,7 @@
     <tr><th>Step</th><td>{{ p.from_text }} ({{ p.from_accession }}, {{ p.from_filed }}) → {{ p.to_text }} ({{ p.accession }}, {{ p.to_filed }})</td></tr>
     <tr><th>Left over</th><td>{{ p.residual_text }}{% if p.residual_pct is not none %} ({{ '%.2f' | format(p.residual_pct * 100) }}% of the old value){% endif %} · {{ p.text_state }}</td></tr>
   </table>
+  {% if p.quote %}<h3 class="sub">Deciding sentence <span class="muted">({{ p.quote_label }}{% if p.quote_doc %}, {{ p.quote_doc }}{% endif %})</span></h3><div class="quote">“{{ p.quote }}”</div>{% endif %}
   <h3 class="sub">Labels</h3>
   {% for lb in p.labels or [] %}<div style="margin-bottom:8px">{{ (p.label_texts or [])[loop.index0] or lb.name }}{% if lb.quote %} <span class="muted">({{ lb.doc }})</span><div class="quote">“{{ lb.quote }}”</div>{% endif %}</div>{% else %}<p class="muted">No label applied.</p>{% endfor %}
   <p class="muted"><b>Explained</b>: the change is a recast, adoption or reclassification (the step stops counting in <code>restate_delta</code>); <b>Error</b>: a correction of an error (little r; it counts in <code>restatement</code>). D-M04-15, -16.</p>

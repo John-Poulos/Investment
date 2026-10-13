@@ -139,6 +139,7 @@ def test_ge_walk_counts_and_baseline_store(dbs):
     engine, _ = dbs
     steps = ge(dbs)
     assert len(steps) == 7  # pretax unchanged → no step
+    assert not any(s.defect for s in steps)  # Round 2's real recasts are not data defects
     engine.execute("BEGIN")
     got = restate.store(engine, GE, "GE", steps, NOW)
     engine.execute("COMMIT")
@@ -150,7 +151,14 @@ def test_ge_walk_counts_and_baseline_store(dbs):
     assert not restate.first_walk(engine, GE)
 
 
-def infq_little_r(dbs):
+INFQ_10Q_TEXT = (
+    "INFLEQTION, INC. FORM 10-Q\n\nREVISION OF PREVIOUSLY ISSUED FINANCIAL STATEMENTS. We identified an "
+    "immaterial error in our previously issued financial statements for the quarter ended March 31, 2026, and revised "
+    "revenue and net loss for that quarter.\n"
+)
+
+
+def infq_little_r(dbs, text=INFQ_10Q_TEXT):
     engine, corpus = dbs
     a1, a2 = "0002007825-26-900101", "0002007825-26-900202"
     q1 = ("2026-01-01", "2026-03-31")
@@ -173,15 +181,7 @@ def infq_little_r(dbs):
             (*q1, -30_744_000, a2, "10-Q", "2026-08-13"),
         ],
     )
-    doc(
-        corpus,
-        INFQ,
-        a2,
-        "INFLEQTION, INC. FORM 10-Q\n\nREVISION OF PREVIOUSLY ISSUED FINANCIAL STATEMENTS. We identified an "
-        "immaterial error in our previously issued financial statements for the quarter ended March 31, 2026, and revised "
-        "revenue and net loss for that quarter.\n",
-        "10-Q",
-    )
+    doc(corpus, INFQ, a2, text, "10-Q")
     return a2
 
 
@@ -553,6 +553,9 @@ def test_financials_tab_shows_part3_sections(tmp_path):
     infq_little_r((engine, corpus))
     event(engine, INFQ, "0002007825-26-000301", "3.01", "2026-02-03")
     flags_step.flags_pass(engine, corpus, {"INFQ": INFQ}, datetime.now(UTC))
+    restate_item = engine.execute(
+        "SELECT item_id FROM review_queue WHERE kind = 'm04_restate' ORDER BY item_id"
+    ).fetchone()[0]
     engine.close()
     corpus.close()
     watch = tmp_path / "watchlist.toml"
@@ -560,6 +563,8 @@ def test_financials_tab_shows_part3_sections(tmp_path):
     with TestClient(create_app(UiSettings(data_dir=data, watchlist=watch))) as c:
         html = c.get("/c/INFQ?tab=financials").text
         items = c.get("/review").text
+        one = c.get(f"/review/{restate_item}").text
+    assert "Deciding sentence" in one and "immaterial error" in one
     for want in ("Filing events (3 years)", "Restatement walk", "Credit ratings", "m04_labels.toml",
                  "error (little r)", "unread", "restate_delta", "review"):  # fmt: skip
         assert want in html, want
@@ -572,3 +577,257 @@ def test_label_template_has_28_episodes_and_red_flags_blank():
     assert lf.error == "" and lf.episodes == 28 and lf.controls == 4
     assert lf.episodes_labelled == 0 and lf.red_flags >= 12 and lf.red_flags_labelled == 0
     assert lf.problems == ()
+
+
+# --- Live check 1 fixes (data defects, 8-K texts, rating context, item quote) ---------------------
+
+
+def run_financials_module():
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import run_financials
+
+    return run_financials
+
+
+def V(value, acc, filed, form="10-Q"):
+    return restate.Version(float(value), "us-gaap:Revenues", acc, form, filed)
+
+
+def test_data_defect_patterns_on_synthetic_chains():
+    q1_11, q1_12 = ("2011-01-01", "2011-03-31", "Q"), ("2012-01-01", "2012-03-31", "Q")
+    k13, q13 = "0001-13-000001", "0001-13-000002"
+    d = restate.data_defects({
+        q1_11: [V(9_857 * M, "0001-11-000001", "2011-04-27"), V(13_185 * M, k13, "2013-01-30", "10-K")],
+        q1_12: [V(13_185 * M, "0001-12-000001", "2012-04-27"), V(9_857 * M, k13, "2013-01-30", "10-K"),
+                V(13_185 * M, q13, "2013-04-26")],
+    })  # fmt: skip
+    assert d[(q1_12, 1)][0] == "flip_flop" and d[(q1_12, 2)][0] == "flip_flop"
+    assert d[(q1_11, 1)][0] == "period_mixup" and "2012-01-01..2012-03-31" in d[(q1_11, 1)][1]
+    # a real restatement (stays changed, no other period's value) is not a defect
+    fy = ("2016-01-01", "2016-12-31", "FY")
+    assert restate.data_defects({fy: [V(94_571 * M, "a", "2017-02-08", "10-K"),
+                                      V(93_496 * M, "b", "2019-02-08", "10-K")]}) == {}  # fmt: skip
+    # the same year re-dated (52/53-week start) is not "another period"
+    fy2 = ("2015-12-27", "2016-12-31", "FY")
+    assert restate.data_defects({fy: [V(100 * M, "a", "2017-02-08", "10-K"), V(101 * M, "b", "2018-02-08", "10-K")],
+                                 fy2: [V(101 * M, "c", "2017-02-08", "10-K")]}) == {}  # fmt: skip
+    # a small change reverted only part-way is not a flip-flop
+    assert restate.data_defects({fy: [V(100 * M, "a", "2017-02-08", "10-K"), V(101 * M, "b", "2018-02-08", "10-K"),
+                                      V(100.5 * M, "c", "2019-02-08", "10-K")]}) == {}  # fmt: skip
+
+
+def ge_scope(engine):
+    """GE 2008–2010 revenue: consolidated vs GE-industrial quarters in the 10-K filed 2011-02-25
+    (figures from the live check 1 log; Q2 2010 made up to show a swap that is not a flip-flop)."""
+    k11 = "0001193125-11-047479"
+    rows = [
+        ("2009-01-01", "2009-03-31", 38_438 * M, "0000040545-09-000010", "10-Q", "2009-05-01"),
+        ("2009-01-01", "2009-03-31", 14_278 * M, k11, "10-K", "2011-02-25"),
+        ("2010-01-01", "2010-03-31", 36_605 * M, "0000040545-10-000010", "10-Q", "2010-05-01"),
+        ("2010-01-01", "2010-03-31", 12_796 * M, k11, "10-K", "2011-02-25"),
+        ("2010-01-01", "2010-03-31", 36_204 * M, "0000040545-11-000032", "10-Q", "2011-05-06"),
+        ("2010-04-01", "2010-06-30", 37_000 * M, "0000040545-10-000020", "10-Q", "2010-08-01"),
+        ("2010-04-01", "2010-06-30", 12_000 * M, k11, "10-K", "2011-02-25"),
+        ("2010-04-01", "2010-06-30", 33_000 * M, "0000040545-11-000040", "10-Q", "2011-08-01"),
+        ("2008-01-01", "2008-12-31", 182_515 * M, "0001193125-10-000001", "10-K", "2010-02-19"),
+        ("2008-01-01", "2008-12-31", 181_581 * M, k11, "10-K", "2011-02-25"),
+    ]
+    concept(engine, GE, "Revenues", rows, "GE")
+    return k11
+
+
+def test_ge_scope_swap_flip_flop_and_sibling_are_explained_defects(dbs):
+    engine, corpus = dbs
+    k11 = ge_scope(engine)
+    steps = restate.walk(engine, corpus, GE, ("revenue",))
+    by = {(s.start, s.new.filed): s for s in steps}
+    assert len(steps) == 6
+    assert by[("2010-01-01", "2011-02-25")].defect == "flip_flop"
+    assert by[("2010-01-01", "2011-05-06")].defect == "flip_flop"
+    assert (
+        by[("2010-04-01", "2011-02-25")].defect == "scope_swap"
+    )  # 33,000: past halfway, not close
+    assert by[("2010-04-01", "2011-08-01")].defect == "scope_swap"  # its back-leg
+    sib = by[("2009-01-01", "2011-02-25")]  # never reverted, but in the same 10-K as the swaps
+    assert sib.defect == "scope_swap" and "also moved" in sib.labels[0].quote
+    fy = by[("2008-01-01", "2011-02-25")]  # −0.51%: a real step, still reviewed
+    assert fy.defect is None and fy.outcome == "review"
+    bad = [s for s in steps if s.defect]
+    assert all(
+        s.outcome == "explained" and s.residual == 0 and s.text_state == "not needed" for s in bad
+    )
+    assert restate.old_filing_targets(steps) == [k11]  # only for the real step
+
+
+def test_walk_lines_count_data_defects_separately(dbs):
+    engine, corpus = dbs
+    ge_scope(engine)
+    steps = restate.walk(engine, corpus, GE, ("revenue",))
+    text = "\n".join(run_financials_module().walk_lines("GE", steps, detail=10))
+    assert "GE: 6 steps from 3 filings" in text
+    assert "data defects 5 (scope swap 3, flip-flop 2), excluding them 1 (revenue/NI/CFO 1)" in text
+    assert "explained 0, watch 0, review 1" in text
+    assert "data defect (scope swap): revenue Q 2009-01-01..2009-03-31" in text
+
+
+def test_amzn_period_mixup_and_flip_flop_stay_out_of_review_and_withdraw_old_items(dbs):
+    engine, corpus = dbs
+    k13, q13 = "0001193125-13-028520", "0001193125-13-174667"
+    q11, q12 = ("2011-01-01", "2011-03-31"), ("2012-01-01", "2012-03-31")
+    concept(engine, AMZN, "Revenues", [
+        (*q11, 9_857 * M, "0001193125-11-000101", "10-Q", "2011-04-27"),
+        (*q11, 13_185 * M, k13, "10-K", "2013-01-30"),
+        (*q12, 13_185 * M, "0001193125-12-000101", "10-Q", "2012-04-27"),
+        (*q12, 9_857 * M, k13, "10-K", "2013-01-30"),
+        (*q12, 13_185 * M, q13, "10-Q", "2013-04-26"),
+    ], "Amazon")  # fmt: skip
+    steps = restate.walk(engine, corpus, AMZN, ("revenue",))
+    assert sorted(s.defect for s in steps) == ["flip_flop", "flip_flop", "period_mixup"]
+    assert all(s.outcome == "explained" for s in steps)
+    # proposals from the earlier walk (one baseline, one queued) are withdrawn on recomputation
+    queue.propose(engine, "m04_restate", steps[0].key, "old", {}, NOW, cik=AMZN, baseline=True,
+                  filed="2013-01-30")  # fmt: skip
+    queue.propose(engine, "m04_restate", steps[1].key, "old", {}, NOW, cik=AMZN)
+    engine.execute("BEGIN")
+    got = restate.store(engine, AMZN, "AMZN", steps, NOW)
+    engine.execute("COMMIT")
+    assert got["review"] == 0 and got["withdrawn"] == 2
+    assert engine.execute("SELECT count(*) FROM m04_proposal").fetchone()[0] == 0
+    item = engine.execute("SELECT resolution, resolved_by FROM review_queue").fetchone()
+    assert tuple(item) == ("withdrawn", "engine")
+
+
+def test_review_item_quotes_the_error_sentence_not_the_standards_sentence(dbs):
+    engine, corpus = dbs
+    a2 = infq_little_r(
+        dbs,
+        "INFLEQTION, INC. FORM 10-Q\n\nRecent accounting pronouncements. In November 2024, the FASB issued ASU No. "
+        "2024-03, Disaggregation of Income Statement Expenses.\n\nREVISION OF PREVIOUSLY ISSUED FINANCIAL STATEMENTS. "
+        "We identified an immaterial error in our previously issued financial statements for the quarter ended March 31, "
+        "2026, and revised revenue and net loss for that quarter.\n",
+    )
+    steps = restate.walk(engine, corpus, INFQ)
+    rev = step_of(steps, "revenue", "2026-03-31", a2)
+    assert {"standards", "error"} <= fams(rev)
+    p = restate.restate_payload("INFQ", rev)
+    assert "immaterial error" in p["quote"] and "ASU" not in p["quote"]
+    assert p["quote_label"] == "error (little r)"
+    # without an error label: the label that explains the most
+    labs = [restate.Label("standards", -124 * M, None, "d", "small one"),
+            restate.Label("standards", -2_668 * M, None, "d", "big one"),
+            restate.Label("tag_switch", None, None, "d", "a → b")]  # fmt: skip
+    assert restate.lead_label(labs).quote == "big one"
+    assert restate.lead_label([lb.as_dict() for lb in labs])["quote"] == "big one"
+    engine.execute("BEGIN")
+    restate.store(engine, INFQ, "INFQ", steps, NOW)
+    engine.execute("COMMIT")
+    item = engine.execute("SELECT payload FROM review_queue WHERE kind = 'm04_restate'").fetchone()
+    assert "immaterial error" in json.loads(item[0])["quote"]
+
+
+def test_open_restate_item_takes_the_recomputed_quote(dbs):
+    engine, _ = dbs
+    queue.propose(engine, "m04_restate", "k", "old reason", {"quote": "ASU"}, NOW, cik=INFQ)
+    queue.propose(engine, "m04_restate", "k", "new reason", {"quote": "error"}, NOW, cik=INFQ)
+    row = engine.execute("SELECT reason, payload FROM review_queue").fetchone()
+    assert row["reason"] == "new reason" and json.loads(row["payload"])["quote"] == "error"
+
+
+@pytest.mark.parametrize("text,klass", [
+    ("On February 3, 2026, the Board approved the transfer of the Company’s listing from Nasdaq to the NYSE.", "transfer"),
+    ("The Company notified Nasdaq of its intention to transfer the listing of its Class A common stock to the NYSE.", "transfer"),
+    ("The Company intends to voluntarily delist its Class A ordinary shares from Nasdaq and to list them on the New York Stock Exchange.", "transfer"),
+    ("The Company’s common stock is expected to begin trading on the NYSE on February 13, 2026.", "transfer"),
+    ("The Company issued a press release about its quarterly results.", "unclassified"),
+])  # fmt: skip
+def test_301_wordings(text, klass):
+    assert events.classify_301("Item 3.01. " + text)[0] == klass
+
+
+def test_401_curly_quoted_disagreements_are_read():
+    base = dict(accession="a", item="4.01", cik=INFQ, form="8-K", filed="2026-03-26")
+    e = events._auditor(base, "There were no “disagreements” (as defined in Item 304(a)(1)(iv) of Regulation S-K) "
+                              "with Marcum LLP.", "a/d.htm", ["2026-02-13"], [])  # fmt: skip
+    assert (
+        e.klass == "despac_auditor" and "no disagreements stated" in e.note and "Marcum" in e.quote
+    )
+    e2 = events._auditor(base, "Item 4.01 Changes in Registrant's Certifying Accountant.", "a/d.htm",
+                         ["2026-02-13"], [])  # fmt: skip
+    assert "text read (a/d.htm)" in e2.note and "text not stored" not in e2.note
+
+
+def test_flags_run_classifies_a_fetched_8k_in_the_same_run_and_withdraws_the_unread_item(
+    dbs, make_client
+):
+    run_financials = run_financials_module()
+    from engine.sec.documents import filing_folder
+    from engine.sec.xbrl_facts import CONCEPT_URL
+
+    engine, corpus = dbs
+    acc = "0001193125-26-035805"
+    filing(engine, INFQ, acc, "8-K", "2026-02-03", items="3.01,9.01")
+    engine.execute("UPDATE filing SET primary_doc = 'd71149d8k.htm' WHERE accession = ?", (acc,))
+    event(engine, INFQ, acc, "3.01", "2026-02-03")
+    out: list[str] = []
+    run_financials.flags_run(
+        engine, corpus, {"INFQ": INFQ}, NOW, lambda *a: out.extend(a)
+    )  # --no-sec
+    assert "INFQ 2026-02-03 8-K 3.01 unread (warn)" in "\n".join(out)
+    assert engine.execute("SELECT count(*) FROM review_queue WHERE kind = 'm04_event' AND "
+                          "resolved_at IS NULL").fetchone()[0] == 1  # fmt: skip
+    html = ("<html><body><p>Item&nbsp;3.01 Notice of Delisting or Failure to Satisfy a Continued Listing Rule or "
+            "Standard; Transfer of Listing.</p><p>On February&nbsp;3, 2026, the Board of Directors approved the "
+            "transfer of the Company’s listing from The Nasdaq Stock Market LLC (“Nasdaq”) to the New York Stock "
+            "Exchange (“NYSE”).</p></body></html>").encode()  # fmt: skip
+    routes = {f"{filing_folder(INFQ, acc)}/d71149d8k.htm": [ok(html)]}
+    routes |= {CONCEPT_URL.format(cik=GE, taxonomy="us-gaap", tag=t): [ok(b"", 404)]
+               for t in run_financials.GE_TAGS}  # fmt: skip
+    out.clear()
+    run_financials.flags_run(engine, corpus, {"INFQ": INFQ}, NOW, lambda *a: out.extend(a),
+                             make_client(FakeTransport(routes)))  # fmt: skip
+    text = "\n".join(out)
+    assert f"{acc}: stored — d71149d8k.htm" in text
+    assert "INFQ 2026-02-03 8-K 3.01 transfer (info); listing transfer" in text
+    row = engine.execute(
+        "SELECT class, doc_ref FROM m04_event WHERE accession = ?", (acc,)
+    ).fetchone()
+    assert row["class"] == "transfer" and row["doc_ref"] == f"{acc}/d71149d8k.htm"
+    item = engine.execute(
+        "SELECT resolution, resolved_by FROM review_queue WHERE kind = 'm04_event'"
+    ).fetchone()
+    assert tuple(item) == ("withdrawn", "engine")
+    assert "M04 items withdrawn on recomputation (finding no longer holds): m04_event 1" in text
+
+
+def test_rating_needs_a_credit_context_and_no_sec_rerun_drops_the_false_positive(dbs):
+    assert ratings.classify_sentence("Delivered upgraded quantum hardware for NASA’s Cold Atom Lab aboard the "
+                                     "International Space Station building on Infleqtion’s quantum technology "
+                                     "operating aboard the ISS since 2018") is None  # fmt: skip
+    got = ratings.classify_sentence("S&P recently issued a ‘B-’ credit rating for Strategy*, which we believe "
+                                    "will substantially expand the addressable market for our securities,")  # fmt: skip
+    assert got is not None and got[0] == "mention" and got[2] == "B-"
+    assert (
+        ratings.classify_sentence("Moody’s upgraded the notes to investment grade.")[0] == "upgrade"
+    )
+    engine, corpus = dbs
+    acc = "0002007825-26-000514"
+    filing(engine, INFQ, acc, "8-K", "2026-05-14", items="2.02,9.01")
+    doc(corpus, INFQ, acc, "Infleqtion first quarter.\n\nDelivered upgraded quantum hardware for NASA’s Cold Atom "
+                           "Lab aboard the ISS, building on technology operating aboard the ISS since 2018.\n",
+        "EX-99.1", "ex991.htm")  # fmt: skip
+    doc_id = corpus.execute("SELECT doc_id FROM document WHERE accession = ?", (acc,)).fetchone()[0]
+    engine.execute(  # the row the old rules stored
+        "INSERT INTO rating_action (cik, accession, filed, doc_id, passage_id, start_offset, end_offset, action, "
+        "quote, review, first_seen_at) VALUES (?, ?, '2026-05-14', ?, NULL, 27, 140, 'upgrade', 'q', 0, 'x')",
+        (INFQ, acc, doc_id),
+    )
+    out: list[str] = []
+    run_financials_module().flags_run(
+        engine, corpus, {"INFQ": INFQ}, NOW, lambda *a: out.extend(a)
+    )  # --no-sec
+    text = "\n".join(out)
+    assert "SEC skipped (--no-sec)" in text and "Rating sentences: 0" in text
+    assert engine.execute("SELECT count(*) FROM rating_action").fetchone()[0] == 0

@@ -1115,19 +1115,31 @@ def ge_concepts(client, engine, log, clog) -> None:
 def walk_lines(ticker: str, steps, *, detail: int = 6) -> list[str]:
     from collections import Counter
 
-    from engine.financials.restate import LABEL_NAMES, ROUND2_CONCEPTS, money
+    from engine.financials.restate import DEFECTS, LABEL_NAMES, ROUND2_CONCEPTS, money
 
     if not steps:
         return [f"  {ticker}: 0 steps"]
     r2 = [s for s in steps if s.concept in ROUND2_CONCEPTS]
-    labs = Counter(lb.family for s in steps for lb in s.labels)
+    labs = Counter(lb.family for s in steps for lb in s.labels if lb.family not in DEFECTS)
     out = Counter(s.outcome for s in steps)
+    bad = [s for s in steps if s.defect]
+    pat = Counter(s.defect for s in bad)
+    clean_r2 = [s for s in r2 if not s.defect]
+    pats = ", ".join(f"{LABEL_NAMES[k].split(': ')[1]} {v}" for k, v in pat.most_common())
     line = (f"  {ticker}: {len(steps)} steps from {len({s.new.accession for s in steps})} filings "
             f"(revenue/NI/CFO {len(r2)} from {len({s.new.accession for s in r2})}); "
-            f"explained {out['explained']}, watch {out['watch']}, review {out['review']}; labels: "
+            f"data defects {len(bad)}" + (f" ({pats})" if bad else "")
+            + f", excluding them {len(steps) - len(bad)} (revenue/NI/CFO {len(clean_r2)}); "
+            f"explained {out['explained'] - len(bad)}, watch {out['watch']}, "
+            f"review {out['review']}; labels: "
             + (", ".join(f"{LABEL_NAMES.get(k, k)} {v}" for k, v in labs.most_common())
                or "none"))  # fmt: skip
     lines = [line]
+    for s in bad[: min(detail, 4)]:
+        lb = s.labels[0]
+        lines.append(f"    data defect ({LABEL_NAMES[lb.family].split(': ')[1]}): {s.concept} "
+                     f"{s.period} {money(s.old.value)} → {money(s.new.value)} ({s.new.form} "
+                     f"{s.new.filed} {s.new.accession}); {lb.quote}")  # fmt: skip
     for s in [s for s in steps if s.outcome == "review"][:detail]:
         lab = "; ".join(lb.family + (f" {money(lb.amount)}" if lb.amount is not None else "")
                         for lb in s.labels) or "no label"  # fmt: skip
@@ -1148,11 +1160,15 @@ def flags_summary(engine, comps, fp, ge_steps, olds, priors, lf) -> list[str]:
     lines = ["=== Summary (what the owner looks for) ==="]
     total = sum(len(c.steps) for c in fp.companies.values())
     r2 = [s for c in fp.companies.values() for s in c.steps if s.concept in restate.ROUND2_CONCEPTS]
+    r2c = [s for s in r2 if not s.defect]
+    n_bad = sum(1 for c in fp.companies.values() for s in c.steps if s.defect)
     lines.append(f"Walk, watchlist: {total} steps from "
                  f"{len({s.new.accession for c in fp.companies.values() for s in c.steps})} "
-                 f"filings; revenue/NI/CFO only (Round 2's concepts): {len(r2)} steps from "
-                 f"{len({s.new.accession for s in r2})} filings (expected about {WALK_BASELINE}; "
-                 "Round 2 counted 102)")  # fmt: skip
+                 f"filings, {n_bad} of them data defects (explained, never review); "
+                 f"revenue/NI/CFO only (Round 2's concepts): {len(r2)} steps from "
+                 f"{len({s.new.accession for s in r2})} filings, excluding data defects "
+                 f"{len(r2c)} from {len({s.new.accession for s in r2c})} (expected about "
+                 f"{WALK_BASELINE}; Round 2 counted 102)")  # fmt: skip
     for t, c in sorted(fp.companies.items()):
         if c.error:
             lines.append(f"  {t}: error — {c.error}")
@@ -1167,8 +1183,14 @@ def flags_summary(engine, comps, fp, ge_steps, olds, priors, lf) -> list[str]:
     for r in queued:
         if r["status"] != "baseline":
             p = json.loads(r["payload"] or "{}")
-            q = next((lb["quote"] for lb in p.get("labels", []) if lb.get("quote")), "")
+            lead = restate.lead_label(p.get("labels", []))
+            q = p.get("quote") or (lead["quote"] if lead else "")
             lines.append(f"  {r['status']}: {r['reason']}" + (f" — “{q[:200]}”" if q else ""))
+    wd = Counter(r["kind"] for r in engine.execute(
+        "SELECT kind FROM review_queue WHERE resolution = 'withdrawn' AND module_id = 'M04'"
+    ))  # fmt: skip
+    lines.append("M04 items withdrawn on recomputation (finding no longer holds): "
+                 + (", ".join(f"{k} {v}" for k, v in sorted(wd.items())) or "none"))  # fmt: skip
     lines.append("dei error-correction flag (annual reports filed from 2023-12-01; false "
                  "expected):")  # fmt: skip
     for t, cik in sorted(comps.items()):
@@ -1202,7 +1224,8 @@ def flags_summary(engine, comps, fp, ge_steps, olds, priors, lf) -> list[str]:
     for t, c in sorted(fp.companies.items()):
         lines.append(f"  {t}: {c.restatement or '—'} · {c.non_reliance or '—'} · "
                      f"{c.restate_delta or '—'}")  # fmt: skip
-    lines.append("GE walk (Round 2 worked example; expected 142 steps from 45 filings):")
+    lines.append("GE walk (Round 2 worked example; expected 142 steps from 45 filings, compare "
+                 "the count excluding data defects):")  # fmt: skip
     lines += walk_lines("GE", ge_steps, detail=10)
     lines.append(f"Old filings for walk labels: {olds} (cap {35})")
     lines.append(f"Prior 10-Ks: {priors} (cap 28)")

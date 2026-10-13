@@ -1,6 +1,9 @@
 """Credit-rating sentences in stored 8-Ks and earnings releases (M04 Part 3; S3.7, DS17).
 
-Text only (agency data is not free). A sentence counts when it states a rating action in
+Text only (agency data is not free). A sentence needs a credit context (a rating-scale
+token — AAA…CC with +/−, Aaa…Ca with 1/2/3, a quoted single-letter grade — "investment
+grade" / "speculative grade", an agency, or a credit-rating or outlook phrase; live check 1:
+"upgraded quantum hardware" is not a rating). It counts when it states a rating action in
 the past or present tense: downgraded / lowered / cut, upgraded / raised, outlook revised
 to negative or positive, placed on watch or review for downgrade, affirmed. No agency name
 is needed; ratings in the sentence (BBB+, Baa1 …) give from → to. The old engine's
@@ -31,12 +34,27 @@ QUERY = (
 )
 DOC_TYPES = ("8-K", "8-K/A", "EX-99.1", "EX-99.2", "EX-99")
 RATING = re.compile(
-    r"(?<![A-Za-z])(AAA|AA[+-]?|A[+-]|BBB[+-]?|BB[+-]?|B[+-]|CCC[+-]?|Aaa|"
-    r"Aa[123]|A[123]|Baa[123]|Ba[123]|B[123]|Caa[123])(?![A-Za-z0-9])"
+    r"(?<![A-Za-z])(AAA|AA[+-]?|A[+-]|BBB[+-]?|BB[+-]?|B[+-]|CCC[+-]?|CC|Aaa|"
+    r"Aa[123]|A[123]|Baa[123]|Ba[123]|B[123]|Caa[123]|Ca)(?![A-Za-z0-9])"
 )
+# Single-letter grades count only in quotes ('C', “D”).
+QUOTED_GRADE = re.compile(r"[\"“‘'](?:A|B|C|D|SD|RD)[\"”’']")
+# A credit context is required in the sentence (live check 1: "Delivered upgraded quantum
+# hardware … technology operating aboard the ISS" matched "rating" inside "operating").
 CONTEXT = re.compile(
-    r"rating|outlook|creditwatch|credit watch|Moody|S&P|Standard & Poor|Fitch", re.I
+    r"\b(?:investment|speculative)[- ]grade\b|\b(?:credit|issuer|corporate|debt|"
+    r"long-term|short-term|senior unsecured|notes?) ratings?\b|\boutlooks?\b|"
+    r"creditwatch|credit watch|Moody[’']?s|\bS&P\b|Standard & Poor|\bFitch\b",
+    re.I,
 )
+
+
+def credit_context(s: str) -> bool:
+    """A rating-scale token, a quoted grade, an agency, or a credit-rating or outlook
+    phrase in the sentence."""
+    return bool(CONTEXT.search(s) or RATING.search(s) or QUOTED_GRADE.search(s))
+
+
 ACTIONS = (
     (
         "watch_negative",
@@ -113,7 +131,7 @@ class RatingSentence:
 
 def classify_sentence(s: str) -> tuple[str, str | None, str | None, str | None] | None:
     """(action, from, to, agency) or None when the sentence states no rating action."""
-    if not CONTEXT.search(s) or HYPOTHETICAL.search(s):
+    if not credit_context(s) or HYPOTHETICAL.search(s):
         return None
     action = next((name for name, rx in ACTIONS if rx.search(s)), None)
     ratings = [m.group(1) for m in RATING.finditer(s)]
@@ -211,12 +229,41 @@ def store(
         "baseline": 0,
         "suppressed": 0,
     }
+    # a sentence the current rules no longer read as a rating action is dropped (an
+    # answered item keeps its row)
+    keep = {(r.doc_id, r.start) for r in found}
+    counts["dropped"] = 0
+    for old in engine.execute(
+        "SELECT accession, doc_id, start_offset, item_id FROM rating_action WHERE cik = ?", (norm,)
+    ).fetchall():
+        if (old["doc_id"], old["start_offset"]) in keep:
+            continue
+        key = f"{old['accession']}:{old['doc_id']}:{old['start_offset']}"
+        withdrawn = queue.withdraw(
+            engine, "m04_rating", key, now, "recomputed: not a credit-rating sentence"
+        )
+        answered = old["item_id"] is not None and not withdrawn
+        if not answered:
+            engine.execute(
+                "DELETE FROM rating_action WHERE doc_id = ? AND start_offset = ?",
+                (old["doc_id"], old["start_offset"]),
+            )
+            counts["dropped"] += 1
     for r in found:
-        cur = engine.execute(
+        counts["new"] += (
+            engine.execute(
+                "SELECT 1 FROM rating_action WHERE doc_id = ? AND start_offset = ?",
+                (r.doc_id, r.start),
+            ).fetchone()
+            is None
+        )
+        engine.execute(
             "INSERT INTO rating_action (cik, accession, filed, doc_id, passage_id, start_offset, "
             "end_offset, action, from_rating, to_rating, agency, quote, review, first_seen_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (doc_id, start_offset) "
-            "DO NOTHING",
+            "DO UPDATE SET end_offset = excluded.end_offset, action = excluded.action, "
+            "from_rating = excluded.from_rating, to_rating = excluded.to_rating, "
+            "agency = excluded.agency, quote = excluded.quote, review = excluded.review",
             (
                 norm,
                 r.accession,
@@ -234,7 +281,10 @@ def store(
                 at,
             ),
         )
-        counts["new"] += cur.rowcount
+        if not r.review:
+            queue.withdraw(
+                engine, "m04_rating", r.key, now, f"recomputed: {r.action}, no review needed"
+            )
         if not (r.review and queue_items):
             continue
         what = r.action.replace("_", " ") + (

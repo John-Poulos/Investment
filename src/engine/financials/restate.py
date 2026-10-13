@@ -25,6 +25,19 @@ between consecutive versions is a **step**. Labels are applied in this order:
 9. de-SPAC / entity boundary (the old version predates a predecessor or shell boundary
    and the new one follows it): whole step.
 
+**Data defects** (Part 3 live check 1) are found first, on the filed versions themselves,
+and explain the whole step (never review, no text needed); early XBRL (2009–2013) is full
+of them:
+
+- flip-flop — a later filing returns the value to the one before the step (within 10% of
+  the step): both legs (AMZN Q1 2012 revenue 13,185 → 9,857 → 13,185);
+- period mix-up — the new value equals (within 0.01%) a value filed for another period of
+  the same concept and length, ending more than 20 days away (AMZN Q1 2011 → 13,185, Q1
+  2012's value);
+- scope swap — a move above 40% that a later filing takes more than halfway back (GE's
+  consolidated vs GE-industrial quarters, Q1 2010 36,605 → 12,796 → 36,204): both legs,
+  and the other moves above 40% in the same direction, same concept and same filing.
+
 Text amounts: numbers in passages of the changing filing that carry a label phrase, the
 family taken from the nearest phrase; at most two amounts (either sign) are fitted to the
 step; a fit is kept only when it leaves at most 5%† of the step (else the labels stay as
@@ -102,7 +115,9 @@ ROUND2_CONCEPTS = ("revenue", "net_income", "operating_cash_flow")  # Round 2's 
 CASH_CONCEPTS = ("operating_cash_flow", "operating_cash_flow_cont")
 RECLASS_CONCEPTS = ("revenue", "operating_cash_flow", "operating_cash_flow_cont", "pretax_income")
 
+DEFECTS = ("flip_flop", "period_mixup", "scope_swap")  # data defects, before the residual test
 ORDER = (
+    *DEFECTS,
     "standards",
     "discontinued",
     "segments",
@@ -114,6 +129,9 @@ ORDER = (
     "entity_boundary",
 )
 LABEL_NAMES = {
+    "flip_flop": "data defect: flip-flop",
+    "period_mixup": "data defect: period mix-up",
+    "scope_swap": "data defect: scope swap",
     "standards": "standard adoption",
     "discontinued": "discontinued operations",
     "segments": "segment recast",
@@ -348,6 +366,26 @@ class Step:
     def has(self, family: str) -> bool:
         return any(lb.family == family for lb in self.labels)
 
+    @property
+    def defect(self) -> str | None:
+        """The data-defect pattern of the step, if any."""
+        return next((lb.family for lb in self.labels if lb.family in DEFECTS), None)
+
+
+def lead_label(labels: list) -> Label | dict | None:
+    """The label whose sentence a review item quotes: the `error` label when present, else
+    the quoted label that explains the most (largest amount; first in order on a tie).
+    Works on `Label`s and on their stored dicts."""
+
+    def get(lb, k):
+        return lb.get(k) if isinstance(lb, dict) else getattr(lb, k)
+
+    quoted = [lb for lb in labels if get(lb, "quote") and get(lb, "family") not in DEFECTS]
+    err = next((lb for lb in quoted if get(lb, "family") == "error"), None)
+    if err is not None:
+        return err
+    return max(quoted, key=lambda lb: abs(get(lb, "amount") or 0), default=None)
+
 
 def over_tolerance(residual: float, base: float) -> bool:
     if abs(residual) <= TOL_USD:
@@ -494,6 +532,130 @@ def label_step(
         step.text_state = "text read" if scan.stored else "text not stored"
 
 
+FLIP_BACK = 0.10  # a flip-flop's return lands within 10% of the step from the earlier value
+SWAP_MOVE = 0.40  # a scope swap moves the value by more than 40% …
+SWAP_BACK = 0.50  # … and a later filing takes it more than halfway back
+MIXUP_EPS = 0.0001  # a period mix-up's value equals another period's within 0.01%
+MIXUP_END_DAYS = 20  # … ending more than 20 days away (not the same period re-dated)
+
+PeriodKey = tuple[str, str, str]
+
+
+def distinct_versions(chain: list[Version]) -> list[Version]:
+    """The chain with consecutive equal values collapsed (each change is one step)."""
+    out = [chain[0]]
+    for v in chain[1:]:
+        if v.value != out[-1].value:
+            out.append(v)
+    return out
+
+
+def _back(a: float, b: float, c: float, frac: float) -> bool:
+    return b != a and abs(c - a) <= frac * abs(b - a)
+
+
+def _large(a: float, b: float) -> bool:
+    return a != 0 and abs(b - a) > SWAP_MOVE * abs(a)
+
+
+def _plain(v: float) -> str:
+    return money(v).lstrip("+")
+
+
+def _filing(v: Version) -> str:
+    return f"{v.form} {v.filed} {v.accession}"
+
+
+def data_defects(
+    distincts: dict[PeriodKey, list[Version]],
+) -> dict[tuple[PeriodKey, int], tuple[str, str]]:
+    """(period key, index of the new version) → (pattern, detail) for one concept's chains.
+    Patterns in order: flip-flop (both legs), period mix-up, scope swap (incl. same-filing
+    siblings of a reverted swap)."""
+    out: dict[tuple[PeriodKey, int], tuple[str, str]] = {}
+    for key, vs in distincts.items():
+        for k in range(1, len(vs)):
+            a, b = vs[k - 1].value, vs[k].value
+            j = next(
+                (j for j in range(k + 1, len(vs)) if _back(a, b, vs[j].value, FLIP_BACK)), None
+            )
+            if j is None:
+                continue
+            path = f"{_plain(a)} → {_plain(b)} → {_plain(vs[j].value)}"
+            out.setdefault(
+                (key, k), ("flip_flop", f"{path}: {_filing(vs[j])} returns to the earlier value")
+            )
+            out.setdefault(
+                (key, j), ("flip_flop", f"{path}: back to the value before {_filing(vs[k])}")
+            )
+    by_type: dict[str, list[tuple[float, str, str]]] = defaultdict(list)
+    for (s, e, p), vs in distincts.items():
+        for v in vs:
+            by_type[p].append((v.value, s, e))
+    for key, vs in distincts.items():
+        end0 = date.fromisoformat(key[1])
+        for k in range(1, len(vs)):
+            b = vs[k].value
+            if (key, k) in out or b == 0:
+                continue
+            hit = next(
+                (
+                    (s, e)
+                    for v, s, e in by_type[key[2]]
+                    if abs(v - b) <= MIXUP_EPS * abs(b)
+                    and abs((date.fromisoformat(e) - end0).days) > MIXUP_END_DAYS
+                ),
+                None,
+            )
+            if hit:
+                out[(key, k)] = (
+                    "period_mixup",
+                    f"{_plain(b)} is the value filed for {key[2]} {hit[0]}..{hit[1]}",
+                )
+    reverted: dict[tuple[str, bool], str] = {}
+    for key, vs in distincts.items():
+        for k in range(1, len(vs)):
+            a, b = vs[k - 1].value, vs[k].value
+            if not _large(a, b):
+                continue
+            j = next(
+                (j for j in range(k + 1, len(vs)) if _back(a, b, vs[j].value, SWAP_BACK)), None
+            )
+            if j is None:
+                continue
+            reverted.setdefault((vs[k].accession, b > a), f"{key[2]} {key[0]}..{key[1]}")
+            path = f"{_plain(a)} → {_plain(b)} ({(b - a) / abs(a) * 100:+.0f}%)"
+            out.setdefault(
+                (key, k),
+                (
+                    "scope_swap",
+                    f"{path}, taken back to {_plain(vs[j].value)} by {_filing(vs[j])}",
+                ),
+            )
+            out.setdefault(
+                (key, j),
+                ("scope_swap", f"takes back {path} of {_filing(vs[k])}"),
+            )
+    for key, vs in distincts.items():
+        for k in range(1, len(vs)):
+            a, b = vs[k - 1].value, vs[k].value
+            if (key, k) in out or not _large(a, b):
+                continue
+            if src := reverted.get((vs[k].accession, b > a)):
+                out[(key, k)] = (
+                    "scope_swap",
+                    f"{_plain(a)} → {_plain(b)} ({(b - a) / abs(a) * 100:+.0f}%) in the filing "
+                    f"that also moved {src} by more than 40%, later taken back",
+                )
+    return out
+
+
+def mark_defect(step: Step, family: str, detail: str) -> None:
+    """A data-defect step: the whole step explained, no text needed."""
+    step.labels = [Label(family, step.delta, None, step.new.accession, detail)]
+    step.residual, step.outcome, step.text_state = 0.0, "explained", "not needed"
+
+
 def walk(
     engine: sqlite3.Connection,
     corpus: sqlite3.Connection | None,
@@ -508,13 +670,16 @@ def walk(
     scans: dict[str, TextScan] = {}
     steps: list[Step] = []
     for name in concepts:
+        distincts = {key: distinct_versions(ch) for key, ch in sorted(by_concept[name].items())}
+        defects = data_defects(distincts)
         for (start, end, ptype), chain in sorted(by_concept[name].items()):
-            distinct = [chain[0]]
-            for v in chain[1:]:
-                if v.value != distinct[-1].value:
-                    distinct.append(v)
-            for old, new in zip(distinct, distinct[1:], strict=False):
+            distinct = distincts[(start, end, ptype)]
+            for i, (old, new) in enumerate(zip(distinct, distinct[1:], strict=False), start=1):
                 st = Step(norm, name, start, end, ptype, old, new, chain[0].value, chain[-1].value)
+                if d := defects.get(((start, end, ptype), i)):
+                    mark_defect(st, *d)
+                    steps.append(st)
+                    continue
                 needs_text = not _rounding(old.value, new.value)
                 scan = None
                 if needs_text and corpus is not None:
@@ -655,6 +820,14 @@ def store(
                 "period_start = ? AND period_end = ? AND to_accession = ?",
                 (item["item_id"], cik, s.concept, s.start, s.end, s.new.accession),
             )
+    counts["withdrawn"] = queue.withdraw_stale(
+        engine,
+        "m04_restate",
+        cik,
+        {s.key for s in steps if s.outcome == "review"},
+        now,
+        "recomputed: the step is no longer over tolerance (or no longer filed)",
+    )
     for r in engine.execute(
         "SELECT concept, period_start, period_end, to_accession FROM "
         "restate_step WHERE cik = ? AND owner_outcome IS NULL",
@@ -712,6 +885,10 @@ def restate_payload(ticker: str | None, s: Step) -> dict:
         "from_text": money(s.old.value).lstrip("+"),
         "to_text": money(s.new.value).lstrip("+"),
         "residual_text": money(s.residual),
+        # the sentence the item quotes: the error label's, else the label explaining most
+        "quote": (lead.quote if (lead := lead_label(s.labels)) else ""),
+        "quote_label": (LABEL_NAMES.get(lead.family, lead.family) if lead else ""),
+        "quote_doc": (lead.doc if lead else ""),
         "label_texts": [
             lb["name"] + (f" {money(lb['amount'])}" if lb["amount"] is not None else "")
             for lb in (x.as_dict() for x in s.labels)
