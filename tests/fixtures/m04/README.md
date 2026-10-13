@@ -1,4 +1,4 @@
-# M04 fixtures (Part 1a)
+# M04 fixtures (Parts 1a–1b)
 
 Hand-built, not recorded: Claude may not call SEC (CLAUDE.md, M04_BUILD_LOG "Workflow").
 Byte-exact once written (D24). Companyconcept files follow SEC's companyconcept JSON layout
@@ -21,3 +21,29 @@ EDGAR's R-page HTML layout (`table.report`, `th.tl` title, `td.pl` labels).
 
 Split guard: MSTR's 10-for-1 split (trading split-adjusted from 2024-08-08) is entered in the
 tests as a price-bar split factor, not as a fixture file.
+
+## Part 1b
+
+Trimmed companyfacts files (SEC companyfacts JSON layout, only the tags used; D-M04-75 form).
+Values in $M from docs/m04_review/R1_brief.md (worked example), the probe log
+logs/probe_m04_20261012-132155.txt (L1 Greenwald inputs, S4 NVIDIA instances) and
+M04_BUILD_LOG Part 1b. Placeholders everywhere: accession numbers (`<cik>-<yy>-9nnnnn`),
+filed dates (period end + 45 days), fiscal-year end dates where not stated (each company's
+usual 52/53-week or calendar year end).
+
+| File | Figures and their source | Placeholders |
+|---|---|---|
+| mu_companyfacts_trimmed_20261012.json | MU FY2012–FY2026 revenue (SalesRevenueNet / Revenues / ASC 606 tags as in L1), PP&E payments, Depreciation, PP&E net and gross (plain tags to FY2019, finance-lease-inclusive tags from FY2019) — L1. OCF FY2022 15,181 and FY2023 1,559 (R1 brief); FY2025 17,525 and FY2026 89,675 = the brief's FCF on total capex + capex (1,668 + 15,857; 58,963 + 30,712); FY2024 8,507 (Micron FY2024 10-K). FY2022–23 cost of goods sold 16,860 / 16,956 and gross profit 13,898 / −1,416 (GM 45.2% / −9.1%, brief). Q3 FY2023 (2023-03-03..06-01): revenue 3,752, cost 4,420, gross profit −668, diluted EPS −1.73 (brief's guidance case) | accessions; filed dates; fiscal year ends approximate (Thursday nearest Aug 31) |
+| intc_companyfacts_trimmed_20261012.json | INTC FY2017–FY2025 revenue, PP&E net and gross (plain tags to 2022, finance-lease tags 2022–25), capex FY2022–25 (24,844 / 25,750 / 23,944 / 14,646), Depreciation FY2021–25 (FY2023 7,847: −29.5%) — L1 | accessions; filed dates; year ends (last Saturday of December) approximate; capex kept to FY2022–25 so the window is the brief's 4 years |
+| msft_companyfacts_trimmed_20261012.json | MSFT FY2019–FY2026 revenue, PP&E net and gross FY2020–26, capex FY2025–26 (64,551 / 115,948), Depreciation FY2025–26 (22,000 / 34,300) — L1; Greenwald FY2026 78.7% (net) / 65.1% (gross) recomputed from them | accessions; filed dates |
+| amzn_companyfacts_trimmed_20261012.json | AMZN purchases of property and equipment (PaymentsToAcquireProductiveAssets) FY2015 4,589, FY2016 7,804, FY2017 11,955 (Amazon 10-Ks); PP&E-tag FY2016 6,737 = 7,804 ÷ 1.158, the brief's "+15.8% on the fallback tag" | the PP&E-tag value is derived from the brief's gap, not read from a filing |
+| nvda_companyfacts_trimmed_20261012.json | NVDA FY2022 PaymentsToAcquireProductiveAssets 976 (NVIDIA FY2022 10-K) | **FY2012 PP&E-tag value 100.0 is illustrative** (only the "definition changed" year is tested) |
+| nvda_10k_fy2013_instance_trimmed.xml, nvda_10k_fy2021_instance_trimmed.xml | `nvda:PurchasesOfPropertyAndEquipmentAndIntangibleAssets` FY2013 183.3M (183,300,000 to the probe's printed precision) and FY2021 1,128.0M — probe S4; one us-gaap fact kept in the FY2013 file to show the extension-only reader | one context and unit each; namespaces as in the filings' prefixes |
+| nvda_10k_fy2013_index.htm, nvda_10k_fy2021_index.htm | EDGAR filing index pages of 0001045810-13-000008 and 0001045810-21-000010 with the instance hrefs probe S4 read (nvda-20130127.xml, nvda-20210131_htm.xml) | trimmed to the two tables; sizes illustrative |
+
+Guidance rows, releases, calls and corpus sentences in `tests/test_financials_1b.py` are
+entered in the test: MU Q3 FY2023 ($3.70B ± 0.20, (23.0)% ± 2.5, ($1.79) ± 0.07) and Intel
+FY2022 ($76.0B → $65–68B → $63–64B; actual $63,054M) from the R1 brief; Intel's January and
+April 2022/2023 release patterns from the brief's guidance table; the withdrawal sentence
+in the January 2023 call is **illustrative** (the brief says the call "reportedly" gave a
+reason); the ROIC, gross-profit-derivation and scoring-rule companies are illustrative.

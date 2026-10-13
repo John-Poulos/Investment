@@ -250,6 +250,11 @@ ALIASES: dict[str, tuple[Alias, ...]] = {
     "0001045810": (  # NVIDIA (probe L2: 51,951 at FY2026 under the extension)
         Alias("short_term_investments", "nvda", "MarketableSecuritiesAndEquitySecuritiesFVNI",
               "alias, NVDA only: company extension tag (instance read)"),
+        # FY2013–FY2021 capex exists only under the extension (probe S4: FY2021 1,128.0M,
+        # FY2013 183.3M); same caption as the later PaymentsToAcquireProductiveAssets, so
+        # one definition across the switch (D-M04-3; M04 Part 1b, `run_financials.py capex`).
+        Alias("capex", "nvda", "PurchasesOfPropertyAndEquipmentAndIntangibleAssets",
+              "≈ broader tag: includes intangibles (NVDA extension tag, instance read)"),
     ),
 }  # fmt: skip
 

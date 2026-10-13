@@ -10,6 +10,7 @@ Updated: 2026-10-12 · Read at the start of every module build. One line each, w
 - Market dates are US Eastern; an evening run in UTC is already "tomorrow" (D-SEC-16).
 - A bare 403 from SEC Archives can mean "not published yet", not a block (D-SEC-16).
 - EFTS through the API: `entity_filter` lists only the top 30 filers; `NEAR(n)` returns nothing; some quoted phrases get a persistent 5xx on a long window — retry as two halves before calling it missing (D-M02-17).
+- An EDGAR filing index lists the XBRL instance in its data-files table, not the document table a document parser reads; search the raw index page for the `.xml` that is not a linkbase (D-SEC-20).
 - SEC companyfacts carries standard taxonomies only; company extension tags (e.g. `amzn:`) need the filing's XBRL instance (`<primary>_htm.xml`) — fetch it only where a recipe or coverage check needs it (D-M02-32).
 - A ratio of mapped lines to a net total swings when the net is small; measure coverage against gross flows plus the unexplained residual (D-M02-33).
 - A share needs a denominator from the same source family and window: EDGAR's quarterly form index gives exact distinct filers per form (D-M02-17).
@@ -77,3 +78,4 @@ Updated: 2026-10-12 · Read at the start of every module build. One line each, w
 - Windows PowerShell 5.1 `Set-Content -Encoding utf8` adds a BOM and mangles non-ASCII read through the console code page (part 6, twice); edit with the Edit tool or a Python script file, never PowerShell text cmdlets.
 - A scheduled job's lock needs an owner and a heartbeat, not an age: a task killed at its limit leaves the file behind (D-M02-51, -53).
 - Owner runs live tests and sends a short log; keep live output to summaries (context cost).
+- A test that calls an owner script with a subcommand that is "not built yet" runs it for real once it is built (M04 Part 1b: 9 SEC requests against the real data folder). Tests call only unbuilt subcommands or pure functions, and `tests/conftest.py` fails any `requests` call in a test not marked `live`.

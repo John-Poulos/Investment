@@ -2,6 +2,8 @@
 
     uv run python scripts/run_financials.py data             # Part 1a live check
     uv run python scripts/run_financials.py data --no-sec    # local re-run, 0 SEC requests
+    uv run python scripts/run_financials.py capex            # Part 1b live check
+    uv run python scripts/run_financials.py capex --no-sec   # local re-run, 0 SEC requests
     uv run python scripts/run_financials.py --list           # the subcommand table
 
 Subcommands: data (1a) · capex (1b) · profile (1c) · peers (2) · flags (3) · gate (4a) ·
@@ -13,6 +15,12 @@ facts-2, 0 requests); reads the R1 cover pages of the multi-class filers' 10-K/1
 of the last 3 years (GOOG, META, MSTR, SPCX: ~37 requests); fetches Western Digital's two
 revenue companyconcept files for the as-of check (2 requests); evaluates filing status for
 every covered company; prints the extra-tag report, the GFS 6-K sync rule and a summary.
+
+`capex` (Part 1b): reads NVIDIA's FY2013–FY2021 10-K XBRL instances (filing index page +
+instance per filing, ~18 requests; each instance is parsed, its extension facts stored and
+the file dropped from http_cache, SB.16), rebuilds NVIDIA's series (0 requests), then
+recomputes for every covered company the capex split, core trend rows, ROIC and the
+guidance record (0 requests) and prints what the owner looks for.
 
 Takes data/refresh.lock (one SEC process at a time). Writes
 logs/financials_<subcommand>_<YYYYMMDD-HHMMSS>.txt as it goes, with requests, MB and
@@ -49,11 +57,14 @@ SUBCOMMANDS = (
     ("cvd", "8a", "CvD assembly, health vote, M04 tab"),
     ("backtest", "8b", "calibration"),
 )
-BUILT = {"data"}
+BUILT = {"data", "capex"}
+NVDA_CIK = "0001045810"
+NVDA_YEARS = range(2013, 2022)  # FY2013–FY2021: capex only under the extension tag
 WDC_CIK = "0000106040"
 WDC_TAGS = ("Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax")
 COUNTED_TABLES = ("fact", "series", "cover_shares", "filing_status", "signal", "entity_link",
-                  "entity", "refresh_state", "fetch_log")  # fmt: skip
+                  "entity", "refresh_state", "fetch_log", "capex_split",
+                  "guidance_outcome")  # fmt: skip
 
 
 class Log:
@@ -81,6 +92,10 @@ def fetch_type(url: str) -> str:
         return "companyfacts"
     if url.rsplit("/", 1)[-1].startswith("R") and url.endswith((".htm", ".xml")):
         return "R page"
+    if url.endswith(("-index.htm", "-index.html")):
+        return "filing index"
+    if url.endswith(".xml"):
+        return "XBRL instance"
     if "/submissions/" in url:
         return "submissions"
     return "other"
@@ -366,6 +381,236 @@ def run_data(args, log: Log, folder: Path) -> int:
     return 0
 
 
+# --- capex (Part 1b) -----------------------------------------------------------------------
+
+
+def nvda_filings(engine) -> list:
+    """NVIDIA's original 10-Ks for fiscal years 2013–2021, from the stored filing index."""
+    from engine.financials.capex import fiscal_label
+
+    rows = engine.execute(
+        "SELECT f.accession, f.form, f.filed, f.report_date, f.primary_doc FROM filing f "
+        "JOIN filing_cik c ON c.accession = f.accession WHERE c.cik = ? AND f.form = '10-K' "
+        "AND f.report_date IS NOT NULL ORDER BY f.report_date",
+        (NVDA_CIK,),
+    ).fetchall()
+    want = {f"FY{y}" for y in NVDA_YEARS}
+    return [r for r in rows if fiscal_label(r["report_date"]) in want]
+
+
+def nvda_instances(client, engine, corpus, log: Log, clog: CountingLog, now) -> None:
+    """Read NVIDIA's FY2013–21 10-K instances: index page → instance → extension facts."""
+    from engine.moneyflow.instance import find_instance, store_instance
+    from engine.sec.client import cache_key
+    from engine.sec.results import Failed, Ok
+    from engine.sec.submissions import sync_filings
+    from engine.sec.xbrl_facts import rebuild_series
+
+    t0 = time.monotonic()
+    filings = nvda_filings(engine)
+    if len(filings) < len(NVDA_YEARS):
+        log(f"  stored index has {len(filings)} of {len(NVDA_YEARS)} NVIDIA 10-Ks; syncing the "
+            "submissions pages")  # fmt: skip
+        res = sync_filings(client, engine, NVDA_CIK, now)
+        log(f"  submissions sync: {res}")
+        filings = nvda_filings(engine)
+    done = {
+        r[0][len("xbrl_instance:") :]
+        for r in engine.execute("SELECT name FROM refresh_state WHERE name LIKE 'xbrl_instance:%'")
+    }
+    already = sum(f["accession"] in done for f in filings)
+    log(f"  {len(filings)} 10-K filing(s) FY2013–FY2021; {already} instance(s) already read")
+    for f in filings:
+        if f["accession"] in done:
+            continue
+        where = f"{f['report_date']} {f['accession']}"
+        found = find_instance(client, NVDA_CIK, f["accession"])
+        if not isinstance(found, Ok):
+            log(f"  {where}: {found}")
+            if isinstance(found, Failed) and found.throttled:
+                log("  SEC throttle: the rest waits for the next run")
+                break
+            continue
+        url = found.data
+        before = clog.bytes["XBRL instance"]
+        res = store_instance(client, engine, NVDA_CIK, dict(f), now, url=url)
+        corpus.execute("DELETE FROM http_cache WHERE cache_key = ?", (cache_key(url, None),))
+        mb = (clog.bytes["XBRL instance"] - before) / 1e6
+        name = url.rsplit("/", 1)[-1]
+        if isinstance(res, Ok):
+            log(f"  {where}: {name} ({mb:.1f} MB, dropped from cache): {res.data} new facts")
+        else:
+            log(f"  {where}: {name}: {res}")
+            if isinstance(res, Failed) and res.throttled:
+                log("  SEC throttle: the rest waits for the next run")
+                break
+    clog.seconds["XBRL instance"] += time.monotonic() - t0
+    b, r = rebuild_series(engine, NVDA_CIK)
+    log(f"  NVIDIA series rebuilt from stored facts (0 requests): {b} concept series, {r} rows")
+
+
+def capex_summary(ticker: str, got) -> list[str]:
+    """What the owner looks for, one company."""
+    from engine.financials.views import m
+
+    cv, tv, rec = got.capex, got.trends, got.record
+    out = []
+    if not cv.years:
+        out.append(f"  {ticker}: capex missing: no capex tag stored")
+    else:
+        y = cv.years[-1]
+        t = y.total
+        line = f"  {ticker}: total capex = {cv.definition}"
+        if cv.definition_mark:
+            line += f" [{cv.definition_mark}]"
+        line += f"; company definition: {cv.recipe_label}"
+        if cv.changed_years:
+            line += f"; definition changed: {', '.join(cv.changed_years)}"
+        out.append(line)
+        disp = f"{m(y.display.shown)}M ({y.display_label})" if y.display else "missing"
+        out.append(f"    {y.label}: total {m(t.value) if t else '—'}M · company definition {disp}")
+        out.append(
+            f"    split: {y.method}; maintenance {m(y.maintenance)}M, growth {m(y.growth)}M; "
+            f"{cv.gw_line('net')}; {cv.gw_line('gross')}"
+        )
+        oe = f"{m(y.owner_earnings)}M"
+        if y.owner_earnings is None:
+            oe += f" ({y.missing('owner_earnings')})"
+        out.append(
+            f"    FCF on total capex {m(y.fcf_total)}M · on maintenance {m(y.fcf_maintenance)}M"
+            f" · owner earnings {oe}"
+        )
+        for yy in cv.years:
+            for mk in yy.marks:
+                out.append(f"    {yy.label}: {mk}")
+    parts = []
+    for s in tv.signals:
+        if s.missing is not None:
+            parts.append(f"{s.name} missing: {s.missing}")
+        elif s.text:
+            parts.append(f"{s.name} n/m")
+        elif s.name in ("gm_trend_pp", "opex_vs_sales"):
+            parts.append(f"{s.name} {s.value:+.1f} pp")
+        else:
+            parts.append(f"{s.name} {s.value:+.1%}")
+    roic = next((r for r in tv.rows if r.key == "roic"), None)
+    if roic and tv.labels:
+        c = roic.cells.get(tv.labels[-1])
+        shown = f"{c.value:.1%}" if c and c.value is not None else (c.text if c else "missing")
+        parts.append(f"ROIC {tv.labels[-1]} {shown}")
+    out.append("    trends: " + " · ".join(parts))
+    if rec.scored:
+        g = f"hit rate {100 * rec.hits / rec.scored:.0f}% ({rec.hits}/{rec.scored})"
+        g += "; repeated" if rec.repeated else ""
+    else:
+        g = f"hit rate missing: {rec.missing}"
+    counts: dict[str, int] = {}
+    for o in rec.outcomes:
+        if o.kind == "score":
+            counts[o.outcome] = counts.get(o.outcome, 0) + 1
+    g += " · outcomes " + (", ".join(f"{k} {v}" for k, v in sorted(counts.items())) or "none")
+    out.append(f"    guidance: {g}")
+    removed = [o for o in rec.outcomes if o.kind == "removal"]
+    for o in sorted(removed, key=lambda o: o.release_filed)[-6:]:
+        why = f" “{o.reason[2][:140]}”" if o.reason else ""
+        out.append(
+            f"      {o.outcome}: {o.metric} {o.period} (release {o.release_filed}; {o.state}){why}"
+        )
+    approx = [o for o in rec.outcomes if o.kind == "score" and o.outcome == "unscored"
+              and o.state.startswith("capex recipe approximate")]  # fmt: skip
+    for o in approx[-2:]:
+        out.append(f"      unscored: capex {o.period} guide {o.guide_text}: {o.state}")
+    misses = [o for o in rec.outcomes if o.kind == "score" and o.outcome == "miss"]
+    for o in misses[-4:]:
+        out.append(
+            f"      miss: {o.metric} {o.basis} {o.period} guide {o.guide_text}, "
+            f"actual {o.actual:,.2f}"
+        )
+    return out
+
+
+def run_capex(args, log: Log, folder: Path) -> int:
+    from engine.financials.capex import total_capex
+    from engine.financials.step import part1b
+    from engine.store.db import open_db
+    from engine.store.http import SqliteCache, SqliteFetchLog
+
+    engine = open_db("engine", folder)
+    corpus = open_db("corpus", folder, check_same_thread=False)
+    now = datetime.now(UTC)
+    mb_before, before = db_mb(folder), counts(engine)
+    comps = companies(engine)
+    if args.tickers:
+        wanted = {t.strip().upper() for t in args.tickers.split(",")}
+        comps = {t: c for t, c in comps.items() if t in wanted}
+    head = f"run_financials capex · {now:%Y-%m-%d %H:%M} UTC · {len(comps)} companies"
+    log(head + (" · no SEC" if args.no_sec else ""), f"engine.db before: {mb_before:,.1f} MB", "")
+
+    clog = None
+    if not args.no_sec:
+        from engine.sec.client import SecClient, user_agent_from_env
+
+        clog = CountingLog(SqliteFetchLog(engine))
+        client = SecClient(user_agent_from_env(), cache=SqliteCache(corpus), log=clog)
+        log(
+            "NVIDIA FY2013–FY2021 capex from 10-K XBRL instances "
+            "(nvda:PurchasesOfPropertyAndEquipmentAndIntangibleAssets):"
+        )
+        nvda_instances(client, engine, corpus, log, clog, now)
+        log("")
+    else:
+        log("SEC skipped (--no-sec): NVIDIA instances not read; stored facts used")
+        if NVDA_CIK in comps.values():
+            from engine.sec.xbrl_facts import rebuild_series
+
+            b, r = rebuild_series(engine, NVDA_CIK)
+            log(f"  NVIDIA series rebuilt from stored facts (0 requests): {b} concept series, "
+                f"{r} rows")  # fmt: skip
+        log("")
+
+    t0 = time.monotonic()
+    results = {}
+    for ticker, cik in sorted(comps.items()):
+        try:
+            results[ticker] = part1b(engine, corpus, cik, ticker, now)
+        except Exception as e:  # one company's error must not stop the others
+            if engine.in_transaction:
+                engine.execute("ROLLBACK")
+            log(f"  {ticker}: error — {type(e).__name__}: {e}")
+    log(
+        f"Capex split, trends, ROIC and guidance record recomputed for {len(results)} companies "
+        f"(0 requests, {time.monotonic() - t0:.1f} s)",
+        "",
+    )
+
+    log("=== Summary (what the owner looks for) ===")
+    log(
+        "Per company: total-capex definition and marker, definition-changed years, split rung, "
+        "Greenwald in range, FCF, trend rows, guidance outcomes:"
+    )
+    for ticker, got in sorted(results.items()):
+        log(*capex_summary(ticker, got))
+    if NVDA_CIK in comps.values():
+        rows = [t for t in total_capex(engine, NVDA_CIK, now.date().isoformat())
+                if t.label <= "FY2022"]  # fmt: skip
+        log("NVIDIA pre-FY2022 capex (own history; expected FY2013 183.3M, FY2021 1,128.0M):")
+        shown = " · ".join(f"{t.label} {t.value / 1e6:,.1f}M ({t.tag.split(':')[0]})" for t in rows)
+        log("  " + (shown or "none stored"))
+    if clog is not None:
+        log(*clog.lines())
+    else:
+        log("SEC requests: 0 (--no-sec)")
+    after = counts(engine)
+    log(
+        "Rows added per table: "
+        + ", ".join(f"{t} {after[t] - before[t]:+,}" for t in COUNTED_TABLES)
+    )
+    log(f"engine.db: {mb_before:,.1f} MB → {db_mb(folder):,.1f} MB")
+    corpus.close()
+    engine.close()
+    return 0
+
+
 def _main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("subcommand", nargs="?", choices=[s for s, _, _ in SUBCOMMANDS])
@@ -388,6 +633,8 @@ def _main() -> int:
 
     log = Log(ROOT / "logs" / f"financials_{args.subcommand}_{datetime.now():%Y%m%d-%H%M%S}.txt")
     try:
+        if args.subcommand == "capex":
+            return run_capex(args, log, data_dir())
         return run_data(args, log, data_dir())
     except Exception:
         log("FAILED with a traceback:", traceback.format_exc())

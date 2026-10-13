@@ -168,12 +168,14 @@ def _latest_event(engine: sqlite3.Connection, cik: str) -> sqlite3.Row | None:
     return None
 
 
-def _states_capex(engine: sqlite3.Connection, accession: str, period: str) -> bool:
+def _states_capex(
+    engine: sqlite3.Connection, accession: str, period: str, metric: str = "capex"
+) -> bool:
+    """The document states guidance for this metric (capex by default) and period."""
     return (
         engine.execute(
-            "SELECT 1 FROM guidance WHERE accession = ? AND metric = 'capex' AND period = ? "
-            "LIMIT 1",
-            (accession, period),
+            "SELECT 1 FROM guidance WHERE accession = ? AND metric = ? AND period = ? LIMIT 1",
+            (accession, metric, period),
         ).fetchone()
         is not None
     )
@@ -185,8 +187,12 @@ def _refused(
     accessions: list[str],
     period: str,
     anchor: tuple[int, int] | None,
+    metric: str = "capex",
 ) -> bool:
-    """An explicit "no capex outlook" sentence for this period in these documents."""
+    """An explicit "no outlook" sentence for this period in these documents: for capex it
+    must name capex; for another metric family it must not be a capex refusal (M04 Part 1b:
+    "we are not providing full-year guidance" counts for revenue, "no 2027 capex outlook"
+    does not)."""
     if corpus is None or not accessions:
         return False
     marks = ",".join("?" * len(accessions))
@@ -200,7 +206,7 @@ def _refused(
             (s["start_offset"], s["end_offset"], s["start_offset"], s["accession"], s["filename"]),
         ).fetchone()
         sent = row[0] if row else ""
-        if CAPEX_WORDS.search(sent) and any(
+        if bool(CAPEX_WORDS.search(sent)) == (metric == "capex") and any(
             p.label == period or p.label.replace("CY", "FY") == period.replace("CY", "FY")
             for p in find_periods(sent, anchor=anchor)
         ):
@@ -215,8 +221,14 @@ def freshness(
     today: date,
     corpus: sqlite3.Connection | None = None,
     change: str | None = None,
+    metric: str = "capex",
+    event: sqlite3.Row | dict | None = None,
 ) -> Freshness:
-    ev = _latest_event(engine, cik)
+    """D-M02-30's states for one guided period; `metric` extends them from capex to every
+    metric family M04 scores, and `event` evaluates them at an earlier earnings release
+    instead of the latest (M04 Part 1b, `guidance/record.py`)."""
+    word = "capex" if metric == "capex" else metric.replace("_", " ")
+    ev = event if event is not None else _latest_event(engine, cik)
     if ev is None:
         return Freshness("no earnings release on file", "no 8-K Item 2.02 stored")
     filed = ev["filed"][:10]
@@ -233,18 +245,18 @@ def freshness(
         (cik, ev["accession"]),
     ).fetchall()
     docs = [ev["accession"]] + [c["accession"] for c in calls]
-    if any(_states_capex(engine, a, period) for a in docs):
+    if any(_states_capex(engine, a, period, metric) for a in docs):
         how = change or "stated again"
-        where = "release" if _states_capex(engine, ev["accession"], period) else "call"
+        where = "release" if _states_capex(engine, ev["accession"], period, metric) else "call"
         return Freshness("restated", f"{how} in the {where} of {filed}")
     anchor = None
     if calls:
         m = re.fullmatch(r"FY(\d{4}) Q([1-4])", calls[0]["quarter"])
         anchor = (int(m[1]), int(m[2])) if m else None
-    if _refused(engine, corpus, docs, period, anchor):
+    if _refused(engine, corpus, docs, period, anchor, metric):
         return Freshness(
             "company gives no outlook yet",
-            f"the results of {filed} say no capex outlook is given for {period}",
+            f"the results of {filed} say no {word} outlook is given for {period}",
         )
     if calls:
         return Freshness("not restated", f"release and call of {filed} are silent on {period}")

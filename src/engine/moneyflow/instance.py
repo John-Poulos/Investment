@@ -16,13 +16,14 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import sqlite3
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from engine.sec.client import SecClient, iso
-from engine.sec.documents import filing_folder
+from engine.sec.documents import INDEX_TTL_S, filing_folder
 from engine.sec.results import Empty, Failed, NotFound, Ok, Probe, Result
 
 STANDARD_NS = (
@@ -70,8 +71,50 @@ def _unit_name(el: ET.Element) -> str | None:
     return measures[0] if len(measures) == 1 else None
 
 
-def parse_instance(data: bytes) -> list[ExtFact]:
-    """Numeric company-extension facts on contexts without dimensions."""
+_XML_HREF = re.compile(r'href="([^"]+\.xml)"', re.IGNORECASE)
+_NOT_INSTANCE = ("_cal.xml", "_def.xml", "_lab.xml", "_pre.xml", "filingsummary.xml")
+
+
+def instance_href(html: str) -> str | None:
+    """The XBRL instance in a filing index page: a pre-inline `x-20130127.xml` or an
+    inline filing's extracted `_htm.xml` (moved from scripts/probe_m04.py, M04 Part 1b)."""
+    for href in _XML_HREF.findall(html):
+        low = href.lower()
+        if low.endswith(_NOT_INSTANCE) or "xsl" in low:
+            continue
+        return href if href.startswith("http") else "https://www.sec.gov" + href
+    return None
+
+
+def find_instance(client: SecClient, cik: str, accession: str) -> Result[str]:
+    """The instance URL from the filing's index page (`-index.htm`, else `-index.html`;
+    cached like every index page). The instance sits in the index's data-files table,
+    which `documents.parse_filing_index` does not read, so the raw page is searched."""
+    probes = []
+    for name in (f"{accession}-index.htm", f"{accession}-index.html"):
+        url = f"{filing_folder(cik, accession)}/{name}"
+        res = client.get_text(url, ttl_s=INDEX_TTL_S)
+        if isinstance(res, NotFound):
+            probes.append(Probe("filing index", url, "HTTP 404: no file at this URL"))
+            continue
+        if not isinstance(res, Ok):
+            return res
+        href = instance_href(res.data)
+        if href is None:
+            return Empty((Probe("XBRL instance", url, "no instance listed in the index"),))
+        return Ok(href, source_ref=url, fetched_at=res.fetched_at, from_cache=res.from_cache)
+    return Empty(tuple(probes))
+
+
+def instance_facts(data: bytes) -> list[tuple[str, str, str | None, str, float]]:
+    """(prefix, tag, start, end, value) for every numeric fact (standard taxonomies too)
+    on contexts without dimensions (the probe's listing form)."""
+    return [(f.prefix, f.tag, f.start, f.end, f.value) for f in parse_instance(data, standard=True)]
+
+
+def parse_instance(data: bytes, *, standard: bool = False) -> list[ExtFact]:
+    """Numeric company-extension facts on contexts without dimensions (`standard=True`:
+    us-gaap, dei and the other standard taxonomies too)."""
     prefixes: dict[str, str] = {}
     contexts: dict[str, tuple[str | None, str] | None] = {}
     units: dict[str, str | None] = {}
@@ -102,7 +145,7 @@ def parse_instance(data: bytes) -> list[ExtFact]:
             el.clear()
         elif el.get("contextRef") and el.get("unitRef") and el.tag.startswith("{"):
             uri, tag = el.tag[1:].split("}", 1)
-            if not uri.startswith(STANDARD_NS) and el.text and el.text.strip():
+            if (standard or not uri.startswith(STANDARD_NS)) and el.text and el.text.strip():
                 raw.append(
                     (uri, tag, el.get("contextRef", ""), el.get("unitRef", ""), el.text.strip())
                 )
@@ -143,10 +186,19 @@ def due_filings(engine: sqlite3.Connection, cik: str, today: datetime) -> list[s
 
 
 def store_instance(
-    client: SecClient, engine: sqlite3.Connection, cik: str, filing: sqlite3.Row, now: datetime
+    client: SecClient,
+    engine: sqlite3.Connection,
+    cik: str,
+    filing: sqlite3.Row | dict,
+    now: datetime,
+    *,
+    url: str | None = None,
 ) -> Result[int]:
-    """Fetch one filing's instance and store its extension facts. Ok(new facts)."""
-    url = instance_url(cik, filing["accession"], filing["primary_doc"])
+    """Fetch one filing's instance and store its extension facts. Ok(new facts).
+
+    `url` names the instance directly (a pre-inline filing's `x-20130127.xml`, found in its
+    index page); otherwise it is derived from the inline primary document."""
+    url = url or instance_url(cik, filing["accession"], filing["primary_doc"] or "")
     if url is None:
         return Empty((Probe("XBRL instance", filing["primary_doc"], "primary document not HTML"),))
     res = client.get_bytes(url, ttl_s=0)  # stored as facts; the large file is not cached

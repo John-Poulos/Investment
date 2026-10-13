@@ -29,6 +29,8 @@ Settings: WAL mode, `busy_timeout` 5 s, foreign keys on, `synchronous=NORMAL`. W
 | signal | cik, module_id, signal, timeframe, as_of | D13 record; ticker for display; `value` numbers only, `value_text` states; missing = both empty + "missing: <reason>" (D-M04-9, -74; D-STO-19) |
 | entity_link | predecessor_cik, successor_cik, kind | predecessor CIKs and de-SPAC shell periods with their boundary date (D-STO-19) |
 | cover_shares | accession, class_label | per-class cover counts from R1 pages, cover date, error-correction flag (D-M04-2) |
+| capex_split | cik, period_end | total capex (own-history tag), definition-changed flag, maintenance, growth, method and rung, Greenwald net/gross in range only, marks (D-M04-6; D-STO-20) |
+| guidance_outcome | cik, kind, metric, basis, period | score or removal outcome, state, actual and reference, grade, revisions, reason passage (D-M04-10, -79, -84, -85; D-STO-20, -21) |
 | filing_status | cik, period_end, form | category carried and its source, deadline, due date, NT, filed, current/stale/overdue, note (D-M04-36, -61) |
 | llm_call / llm_observation / llm_citation | ids | every owner-initiated LLM call (model, prompt version, tokens, cost, raw reply); its observations (verified or rejected with reason); citations by accession, file, offsets, quote, doc sha256 (M00_SEARCH D-SRCH-19). The 0001 `extraction` table is unused. |
 | guidance / guidance_scan | id; accession, filename | R19 ledger parsed by code: metric, basis, period, value (low/high/point/spread), prior, stated_on, exact quote + offsets, period source, doc sha256, parser version; one scan row per release (parsed/none/review) |
@@ -109,6 +111,8 @@ Freshness is event-driven (SEC data changes only when a company files); backstop
 - D-STO-17 (2026-10-08): engine migration 0012 adds `price_bar` and `price_fetch` (M00_UI D-UI-8).
 - D-STO-18 (2026-10-08): engine migration 0013 adds review_queue `resolved_by`, `note` and rebuilds `guidance` to allow source 'owner' (owner-entered rows, D-UI-12).
 - D-STO-19 (2026-10-12, M04 Part 1a): engine migration 0029_m04_data rebuilds `signal` keyed by CIK (D-M04-74) with `value_text` and CHECKs (no text in `value`; an empty row needs "missing: …"; grade and source NULL only on missing rows; D-M04-9); existing rows get the CIK of the ticker span covering their `as_of` (else the latest span, else 0000000000 with a note) and text in `value` moves to `value_text`. Adds `entity_link` (three seeded links), `cover_shares`, `filing_status` and `entity.category`.
+- D-STO-20 (2026-10-12, M04 Part 1b): engine migration 0030_m04_capex adds `capex_split` (per company and fiscal year end) and `guidance_outcome` (kind `score` | `removal`; outcome hit, miss, unscored, removed, expired, missing, pending; `revised` reserved for M11). Both are derived tables: the refresh's local pass replaces a company's rows on every run (0 SEC requests), so they need no backfill and no migration of old rows.
+- D-STO-21 (2026-10-12, M04 Part 1b live check 1): engine migration 0031_guidance_dropped rebuilds `guidance_outcome` empty with outcome `dropped` added ("dropped (information)": a non-core removal, D-M04-85); SQLite cannot alter a CHECK, and the table is derived, so the next local pass (or `run_financials.py capex --no-sec`) refills it.
 
 ## Open questions
 - Backfill universe: watchlist size and peers per group.

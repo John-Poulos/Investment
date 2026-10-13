@@ -40,6 +40,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+from engine.moneyflow.instance import instance_facts, instance_href  # noqa: E402
 from engine.sec.client import cache_key  # noqa: E402
 from engine.sec.documents import (  # noqa: E402
     extract_text,
@@ -247,65 +248,6 @@ def index_docs(ctx: Ctx, cik, acc: str):
         return parse_filing_index(html), where
     except ValueError as exc:
         return None, f"index unreadable: {exc}"
-
-
-_XML_HREF = re.compile(r'href="([^"]+\.xml)"', re.IGNORECASE)
-_NOT_INSTANCE = ("_cal.xml", "_def.xml", "_lab.xml", "_pre.xml", "filingsummary.xml")
-
-
-def instance_href(html: str) -> str | None:
-    """The XBRL instance in a filing index (pre-inline `x-2016.xml` or inline `_htm.xml`)."""
-    for href in _XML_HREF.findall(html):
-        low = href.lower()
-        if low.endswith(_NOT_INSTANCE) or "xsl" in low:
-            continue
-        return href if href.startswith("http") else "https://www.sec.gov" + href
-    return None
-
-
-_XBRLI = "{http://www.xbrl.org/2003/instance}"
-
-
-def instance_facts(data: bytes) -> list[tuple[str, str, str | None, str, float]]:
-    """(prefix, tag, start, end, value) for numeric facts on contexts without dimensions."""
-    prefixes: dict[str, str] = {}
-    contexts: dict[str, tuple[str | None, str] | None] = {}
-    raw: list[tuple[str, str, str, str]] = []
-    for event, item in ET.iterparse(io.BytesIO(data), events=("start-ns", "end")):
-        if event == "start-ns":
-            prefixes.setdefault(item[1], item[0])
-            continue
-        el = item
-        if el.tag == f"{_XBRLI}context":
-            dims = el.find(f".//{_XBRLI}segment") is not None
-            dims = dims or el.find(f".//{_XBRLI}scenario") is not None
-            p = el.find(f"{_XBRLI}period")
-            inst = p.findtext(f"{_XBRLI}instant") if p is not None else None
-            s = p.findtext(f"{_XBRLI}startDate") if p is not None else None
-            e = p.findtext(f"{_XBRLI}endDate") if p is not None else None
-            per = (None, inst.strip()) if inst else ((s.strip(), e.strip()) if s and e else None)
-            contexts[el.get("id", "")] = None if dims else per
-            el.clear()
-        elif el.get("contextRef") and el.get("unitRef") and el.tag.startswith("{"):
-            if el.text and el.text.strip():
-                uri, tag = el.tag[1:].split("}", 1)
-                raw.append((uri, tag, el.get("contextRef", ""), el.text.strip()))
-            el.clear()
-    out, seen = [], set()
-    for uri, tag, ref, txt in raw:
-        per = contexts.get(ref)
-        if per is None:
-            continue
-        try:
-            value = float(txt.replace(",", ""))
-        except ValueError:
-            continue
-        key = (uri, tag, per)
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append((prefixes.get(uri, uri), tag, per[0], per[1], value))
-    return out
 
 
 def filing_summary(ctx: Ctx, cik, acc: str) -> tuple[list[dict] | None, str]:

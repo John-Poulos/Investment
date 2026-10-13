@@ -61,6 +61,72 @@
 </table>
 <p class="note">Four share series that are never mixed: cover count on its own cover date (all classes; multi-class filers from the filing's R1 page), balance-sheet count, basic and diluted weighted averages, plus share-based compensation (D-M04-2). Hover a value for its tag, accession and filing dates.</p>
 
+{% macro m04_table(t, unit_label) %}
+<div style="overflow-x:auto">
+<table class="data">
+  <tr><th>{{ unit_label }}</th>{% for l in t.labels %}<th class="num">{{ l }}</th>{% endfor %}</tr>
+  {% for r in t.rows %}
+  <tr{% if r.sub %} class="sub"{% endif %}><td>{{ r.label }}{% if r.note %}<br><span class="muted">{{ r.note }}</span>{% endif %}</td>
+    {% for c in r.cells %}<td class="num"><span{% if c.title %} title="{{ c.title }}"{% endif %}{% if c.muted %} class="muted"{% endif %}>{{ c.text }}</span></td>{% endfor %}
+  </tr>
+  {% endfor %}
+</table>
+</div>
+{% for line in t.lines %}<p class="note">{{ line }}</p>{% endfor %}
+{% endmacro %}
+
+<h2>Capex <span class="muted">(M04)</span></h2>
+{% if m04.capex %}
+{{ m04_table(m04.capex, '$M, fiscal years') }}
+<p class="note">Three capex definitions, one per use (D-M04-3): the company's own definition as the Money flow tab shows it (M02's recipe and shown-actual rule); total capex on the longest consistent tag (own history; FCF, runway and the Q2 row use it, D-M04-78); peers on the PP&amp;E tag only (Part 2). ≈ = broader tag (see legend). Maintenance capex: disclosed → project-level → depreciation (default, capped at total capex) → D&amp;A → not split, one rung per window (D-M04-6); Greenwald is a cross-check shown only inside 0…total capex. Maintenance, growth capex and owner earnings are information. Hover a value for its tag, accession and method.</p>
+{% else %}<p class="empty">missing: no capex tag stored for this company (PaymentsToAcquirePropertyPlantAndEquipment, PaymentsToAcquireProductiveAssets or an instance-read extension).</p>{% endif %}
+
+<h2>Core trends <span class="muted">(M04, information rows — no vote until Part 8)</span></h2>
+{% if m04.trends %}
+{{ m04_table(m04.trends, 'fiscal years') }}
+{% else %}<p class="empty">missing: no fiscal-year revenue stored for this company.</p>{% endif %}
+{% if m04.signals %}
+<table class="data">
+  <tr><th>Signal (latest)</th><th class="num">Value</th><th>Method</th></tr>
+  {% for name, value, method in m04.signals %}<tr><td>{{ name }}</td><td class="num">{{ value }}</td><td class="muted">{{ method }}</td></tr>{% endfor %}
+</table>
+{% endif %}
+<p class="note">Own history now; peer robust z arrives with Part 2 (D-M04-11). Growth on a base ≤ 0 or below 1% of revenue is n/m (S2.1); a capex definition change is not scored. ROIC = NOPAT ÷ average invested capital (S6.5).</p>
+
+<h2>Guidance record <span class="muted">(M04 Q2 row; shared with M11)</span></h2>
+{% set g = m04.guidance %}
+<p><b>{{ g.headline }}</b>{% if g.repeated %} · <b>repeated</b> (2† misses in the last 4 guided quarters){% endif %}</p>
+{% if g.scored %}
+<table class="data">
+  <tr><th>Period</th><th>Metric</th><th>Latest guide before period end</th><th>Source</th><th class="num">Actual</th><th>Outcome</th><th>Revisions</th></tr>
+  {% for o in g.scored %}
+  <tr>
+    <td>{{ o.period }}</td><td>{{ o.metric }} <span class="muted">{{ o.basis }}</span></td>
+    <td>{{ o.guide_text }} <span class="muted">({{ (o.stated_on or '')[:10] }})</span></td>
+    <td>{{ o.origin }} · {{ o.grade }}</td>
+    <td class="num">{% if o.actual is none %}<span class="muted">—</span>{% else %}<span title="{{ o.actual_ref }}">{% if o.metric in ('gross_margin', 'operating_margin', 'tax_rate') %}{{ '%.1f' | format(o.actual) }}%{% elif o.metric == 'eps_diluted' %}{{ '%.2f' | format(o.actual) }}{% else %}{{ o.actual | money }}{% endif %}</span>{% endif %}</td>
+    <td><b>{{ o.outcome }}</b>{% if o.state %} <span class="muted">— {{ o.state }}</span>{% endif %}{% if o.note %}<br><span class="muted">{{ o.note }}</span>{% endif %}</td>
+    <td>{% if o.revisions_down %}↓{{ o.revisions_down }} {% endif %}{% if o.revisions_up %}↑{{ o.revisions_up }}{% endif %}{% if not o.revisions_down and not o.revisions_up %}<span class="muted">—</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% if g.pending %}
+<p class="note">Periods not ended yet (latest guide and M02 freshness state):
+{% for o in g.pending %}{{ o.period }} {{ o.metric }} {{ o.guide_text }} ({{ o.state }}){% if not loop.last %} · {% endif %}{% endfor %}</p>
+{% endif %}
+{% if g.removals %}
+<table class="data">
+  <tr><th>Expected period</th><th>Metric</th><th>Guided a year earlier</th><th>Release checked</th><th>Outcome</th><th>Reason</th></tr>
+  {% for o in g.removals %}
+  <tr><td>{{ o.period }}</td><td>{{ o.metric }}</td><td>{{ o.guide_text }}</td><td>{{ o.release_filed }}</td>
+    <td><b>{{ o.outcome }}</b>{% if o.state %} <span class="muted">— {{ o.state }}</span>{% endif %}</td>
+    <td>{% if o.reason %}“{{ o.reason[2] }}” <span class="muted">({{ o.reason[0] }})</span>{% else %}<span class="muted">—</span>{% endif %}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+<p class="note">Miss = actual below the low end of the latest range (or floor) given before the period ended (revenue, margins, EPS, income, capex); for cost metrics (operating expenses, total expenses, cost of revenue) actual above the high end (or ceiling); tax rate and other income are shown but not scored (not a performance target, D-M04-84). Actuals on the guide's own basis: GAAP from first-filed facts, capex on M02's guided-vs-actual, scored only when M02's recipe for the company is exact. Point, "approximately", ceiling and direction-only guides are unscored, as are rows with an open implausible or conflict review; owner corrections win; a call guide keeps grade B (D-M04-10, D-M04-79). "Removed" = guided at the same fiscal position a year earlier, absent now with release and stored call silent and no reason stated; only revenue, gross margin, EPS, operating income, net income, capex and FCF count, other metrics read "dropped (information)" and stay out of the signal (D-M04-85). Guidance is a forecast, not a commitment.</p>
+
 <h2>Marker legend</h2>
 <table class="data">
   {% for mark, meaning in m04.legend %}<tr><td><b>{{ mark }}</b></td><td>{{ meaning }}</td></tr>{% endfor %}
