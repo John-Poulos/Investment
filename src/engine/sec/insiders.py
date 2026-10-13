@@ -7,9 +7,13 @@ Insider Transactions Data Sets are a faster backfill path, deferred until checke
 - The XML is the primary document without its rendering prefix
   ("xslF345X05/form4.xml" → "form4.xml"); if that file is missing, the filing
   index is searched for the Form 4 XML.
-- Every non-derivative and derivative transaction becomes a row; holdings
-  without a transaction are not rows. Joint filings keep every reporting owner
-  (form4_doc.owners); rows carry the first owner for querying.
+- Every non-derivative and derivative transaction becomes a row. Since form4-2
+  (D-SEC-27, D-M07-4) holding lines without a transaction are stored apart in
+  `form4_holding`, so a stake can be summed over every line of the form. Joint
+  filings keep every reporting owner (form4_doc.owners); rows carry the first owner.
+- A parser-version bump re-parses every stored Form 4: `reparse_cached` reads the
+  raw XML from the HTTP cache (0 requests) and counts misses; `sync_insiders`
+  re-parses through the client (cache first, then SEC).
 - 10b5-1 is judged per row. The 2023+ checkbox (aff10b5One) is per form: the
   filer ticks it if any transaction was under a plan and footnotes which ones.
   Row = 1 when a footnote on the row says it was under a 10b5-1 plan; 0 when a
@@ -29,13 +33,13 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from engine.sec.client import SecClient, iso
+from engine.sec.client import Cache, SecClient, cache_key, iso
 from engine.sec.documents import fetch_filing_index, filing_folder
 from engine.sec.identity import normalize_cik
 from engine.sec.results import Empty, Failed, NotFound, Ok, Probe, Result
 from engine.sec.submissions import Filing, stored_filings
 
-PARSER_VERSION = "form4-1"
+PARSER_VERSION = "form4-2"  # form4-2: holding lines (D-SEC-27)
 FORM4_FORMS = ("4", "4/A")
 DOC_TTL_S = 3650 * 86400  # filings are immutable
 _10B51 = re.compile(r"10b5-?1", re.IGNORECASE)
@@ -96,6 +100,19 @@ class Transaction:
 
 
 @dataclass(frozen=True)
+class Holding:
+    """A holding line without a transaction (form4-2)."""
+
+    line: int
+    table_kind: str  # non_derivative | derivative
+    title: str | None
+    shares: float | None
+    direct_indirect: str | None
+    nature: str | None
+    footnotes: dict[str, str]
+
+
+@dataclass(frozen=True)
 class Form4:
     doc_type: str
     period_of_report: str | None
@@ -106,6 +123,7 @@ class Form4:
     owners: tuple[Owner, ...]
     transactions: tuple[Transaction, ...]
     footnotes: dict[str, str] = field(default_factory=dict)
+    holdings: tuple[Holding, ...] = ()
 
 
 # --- Parsing -----------------------------------------------------------------
@@ -224,6 +242,24 @@ def parse_form4(xml: bytes | str) -> Form4:
                 )
             )
 
+    holdings = []
+    for kind, path in (
+        ("non_derivative", "nonDerivativeTable/nonDerivativeHolding"),
+        ("derivative", "derivativeTable/derivativeHolding"),
+    ):
+        for h in root.findall(path):
+            holdings.append(
+                Holding(
+                    line=len(holdings) + 1,
+                    table_kind=kind,
+                    title=_text(h, "securityTitle"),
+                    shares=_num(_text(h, "postTransactionAmounts/sharesOwnedFollowingTransaction")),
+                    direct_indirect=_text(h, "ownershipNature/directOrIndirectOwnership"),
+                    nature=_text(h, "ownershipNature/natureOfOwnership"),
+                    footnotes={i: footnotes[i] for i in _footnote_ids(h) if i in footnotes},
+                )
+            )
+
     return Form4(
         doc_type=doc_type,
         period_of_report=_text(root, "periodOfReport"),
@@ -234,6 +270,7 @@ def parse_form4(xml: bytes | str) -> Form4:
         owners=tuple(owners),
         transactions=tuple(txns),
         footnotes=footnotes,
+        holdings=tuple(holdings),
     )
 
 
@@ -340,6 +377,24 @@ def store_form4(
             for t in form.transactions
         ],
     )
+    engine.execute("DELETE FROM form4_holding WHERE accession = ?", (filing.accession,))
+    engine.executemany(
+        "INSERT INTO form4_holding (accession, line, table_kind, title, shares, direct_indirect, "
+        "nature, footnotes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            (
+                filing.accession,
+                h.line,
+                h.table_kind,
+                h.title,
+                h.shares,
+                h.direct_indirect,
+                h.nature,
+                json.dumps(h.footnotes) if h.footnotes else None,
+            )  # fmt: skip
+            for h in form.holdings
+        ],
+    )
     engine.execute(
         "INSERT INTO form4_doc (accession, issuer_cik, issuer_name, issuer_ticker, doc_type, "
         "period_of_report, filed, filename, aff_10b5_1, owners, transactions, parser_version, "
@@ -369,6 +424,19 @@ def store_form4(
     return len(form.transactions)
 
 
+def _store(
+    engine: sqlite3.Connection, filing: Filing, filename: str, form: Form4, now: datetime
+) -> int:
+    engine.execute("BEGIN")
+    try:
+        n = store_form4(engine, filing, filename, form, now)
+        engine.execute("COMMIT")
+    except Exception:
+        engine.execute("ROLLBACK")
+        raise
+    return n
+
+
 def ingest_form4(
     client: SecClient, engine: sqlite3.Connection, filing: Filing, now: datetime
 ) -> Result[int]:
@@ -380,14 +448,166 @@ def ingest_form4(
         form = parse_form4(raw)
     except ValueError as exc:
         return Failed(str(exc), url=fetched.source_ref)
-    engine.execute("BEGIN")
-    try:
-        n = store_form4(engine, filing, filename, form, now)
-        engine.execute("COMMIT")
-    except Exception:
-        engine.execute("ROLLBACK")
-        raise
+    n = _store(engine, filing, filename, form, now)
     return Ok(n, source_ref=fetched.source_ref, fetched_at=iso(now))
+
+
+# --- Re-parse from the HTTP cache (form4-2, D-SEC-27) -------------------------------------
+
+
+def cached_xml(cache: Cache, cik: str, accession: str, names: Iterable[str | None],
+               now: datetime) -> tuple[str, bytes] | None:  # fmt: skip
+    """(filename, raw XML) of a Form 4 from the HTTP cache, trying each candidate name."""
+    folder = filing_folder(cik, accession)
+    for name in dict.fromkeys(n for n in names if n):
+        hit = cache.get(cache_key(f"{folder}/{name}", None), now)
+        if hit is not None and hit.outcome == "ok" and hit.body:
+            return name, hit.body
+    return None
+
+
+@dataclass
+class Reparse:
+    issuer_cik: str
+    stale: int = 0  # stored at an older parser version
+    reparsed: int = 0  # from the cache, 0 requests
+    fetched: int = 0  # cache miss, fetched through the client
+    misses: list[str] = field(default_factory=list)  # cache misses not fetched (accessions)
+    failed: list[str] = field(default_factory=list)  # "accession: reason"
+    holdings: int = 0
+
+
+def reparse_cached(
+    engine: sqlite3.Connection,
+    cache: Cache,
+    issuer_cik: str,
+    now: datetime,
+    *,
+    client: SecClient | None = None,
+) -> Reparse:
+    """Re-parse every stored Form 4 of the issuer whose parser version is older than
+    PARSER_VERSION from the cached XML (0 requests). A cache miss is counted; with a
+    `client` it is fetched (1 request, or the filing index when the name is unknown)."""
+    norm = normalize_cik(issuer_cik) or issuer_cik
+    out = Reparse(norm)
+    docs = engine.execute(
+        "SELECT d.accession, d.filename, d.filed, f.primary_doc, f.form FROM form4_doc d "
+        "LEFT JOIN filing f ON f.accession = d.accession WHERE d.issuer_cik = ? AND "
+        "d.parser_version != ? ORDER BY d.filed DESC, d.accession DESC",
+        (norm, PARSER_VERSION),
+    ).fetchall()
+    out.stale = len(docs)
+    for d in docs:
+        filing = _doc_filing(norm, d)
+        names = (d["filename"], raw_xml_name(d["primary_doc"]))
+        hit = cached_xml(cache, norm, d["accession"], names, now)
+        if hit is None:
+            if client is None:
+                out.misses.append(d["accession"])
+                continue
+            res = ingest_form4(client, engine, filing, now)
+            if isinstance(res, Ok):
+                out.fetched += 1
+            else:
+                reason = res.reason if isinstance(res, Failed) else str(res)
+                out.failed.append(f"{d['accession']}: {reason}")
+                if isinstance(res, Failed) and res.throttled:
+                    break
+            continue
+        name, raw = hit
+        try:
+            form = parse_form4(raw)
+        except ValueError as exc:
+            out.failed.append(f"{d['accession']}: {exc}")
+            continue
+        _store(engine, filing, name, form, now)
+        out.reparsed += 1
+    out.holdings = engine.execute(
+        "SELECT count(*) FROM form4_holding h JOIN form4_doc d ON d.accession = h.accession "
+        "WHERE d.issuer_cik = ?",
+        (norm,),
+    ).fetchone()[0]
+    return out
+
+
+def _doc_filing(cik: str, d: sqlite3.Row) -> Filing:
+    return Filing(
+        accession=d["accession"], cik=cik, form=d["form"] or "4", filed=d["filed"] or "",
+        accepted_at=None, report_date=None, items=(), primary_doc=d["primary_doc"],
+        primary_doc_desc=None, is_xbrl=False, is_inline_xbrl=False, size=None,
+    )  # fmt: skip
+
+
+@dataclass(frozen=True)
+class HistoryPlan:
+    """Form 4s listed for the issuer in the window that are not parsed at PARSER_VERSION."""
+
+    issuer_cik: str
+    listed: int
+    pending: int
+    cached: int  # re-parsed from the cache, 0 requests
+    to_fetch: int  # cache misses
+    requests: int  # exact, if every primary XML exists: 1 each; 2 when the name is unknown
+
+
+def history_plan(
+    engine: sqlite3.Connection, cache: Cache, issuer_cik: str, since: str, now: datetime
+) -> HistoryPlan:
+    """What `sync_insiders(..., since=since)` would fetch (the dry run; 0 requests)."""
+    norm = normalize_cik(issuer_cik) or issuer_cik
+    filings = stored_filings(engine, norm, forms=FORM4_FORMS, since=since)
+    done = {
+        r[0]
+        for r in engine.execute(
+            "SELECT accession FROM form4_doc WHERE parser_version = ?", (PARSER_VERSION,)
+        )
+    }
+    names = {
+        r[0]: r[1]
+        for r in engine.execute(
+            "SELECT accession, filename FROM form4_doc WHERE issuer_cik = ?", (norm,)
+        )
+    }
+    pending = [f for f in filings if f.accession not in done]
+    cached = requests = 0
+    for f in pending:
+        cand = (names.get(f.accession), raw_xml_name(f.primary_doc))
+        if cached_xml(cache, norm, f.accession, cand, now) is not None:
+            cached += 1
+        else:
+            requests += 1 if raw_xml_name(f.primary_doc) else 2
+    return HistoryPlan(norm, len(filings), len(pending), cached, len(pending) - cached, requests)
+
+
+def coverage_start(engine: sqlite3.Connection, issuer_cik: str) -> str | None:
+    """First filing date from which every listed Form 4 of the issuer is stored: the
+    earliest `since` of a complete sync (`refresh_state` form4_since:<cik>), else the
+    earliest stored Form 4's filing date (a later, so conservative, start)."""
+    norm = normalize_cik(issuer_cik) or issuer_cik
+    row = engine.execute(
+        "SELECT detail FROM refresh_state WHERE name = ?", (f"form4_since:{norm}",)
+    ).fetchone()
+    if row and row[0]:
+        return row[0]
+    row = engine.execute(
+        "SELECT min(filed) FROM form4_doc WHERE issuer_cik = ?", (norm,)
+    ).fetchone()
+    return row[0] if row and row[0] else None
+
+
+def record_coverage(engine: sqlite3.Connection, issuer_cik: str, since: str, now: datetime) -> None:
+    """After a complete `sync_insiders(since=...)`: keep the earliest covered start."""
+    norm = normalize_cik(issuer_cik) or issuer_cik
+    name = f"form4_since:{norm}"
+    row = engine.execute("SELECT detail FROM refresh_state WHERE name = ?", (name,)).fetchone()
+    if row and row[0] and row[0] <= since:
+        return
+    engine.execute(
+        "INSERT INTO refresh_state (name, source_ref, fetched_at, detail) VALUES (?, 'form 4 "
+        "sync', ?, ?) ON CONFLICT (name) DO UPDATE SET fetched_at = excluded.fetched_at, "
+        "detail = excluded.detail",
+        (name, iso(now), since),
+    )
 
 
 @dataclass(frozen=True)

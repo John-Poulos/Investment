@@ -77,7 +77,7 @@ def test_load_config_reads_owner_watchlist():
     config = load_config(ROOT / "config" / "watchlist.toml")
     assert config.tickers[0] == "AAPL" and len(config.tickers) == 16
     assert {"SPCX", "ETV", "INFQ", "GOOG"} <= set(config.tickers)
-    assert config.form4_years == 3 and "8-K" in config.document_forms
+    assert config.form4_years == 4 and "8-K" in config.document_forms  # D-M07-1
 
 
 def routes(day_index=None, today_index=None):

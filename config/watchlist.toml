@@ -25,7 +25,7 @@ tickers = [
 
 [backfill]
 # First time a company is seen: how far back to parse Form 4s, and which documents to store.
-form4_years = 3
+form4_years = 4        # D-M07-1 / D-SEC-27: M07's CMP class needs 3 prior calendar years
 earnings_8k = 4        # most recent earnings 8-Ks (+ EX-99.1) to store
 latest_annual = true   # latest 10-K
 latest_quarterly = true

@@ -11,7 +11,17 @@
     </table>
     {% else %}<p class="empty">No company record stored yet.</p>{% endif %}
     <h2 style="margin-top:16px">Signals</h2>
+    {% if m07_overview %}
+    <table class="data">
+      <tr><th>Insiders (M07)</th><td>
+        {% if m07_overview.buy %}latest buy {{ m07_overview.buy.as_of }}: {{ m07_overview.buy.usd }} ({{ m07_overview.buy.text }}){% else %}no open-market buy stored{% endif %}
+        · net flow MY{% if m07_overview.net %} {{ m07_overview.net.as_of }}: {% if m07_overview.net.text %}{{ m07_overview.net.text }} {{ m07_overview.net.usd }}{% else %}<span class="muted">{{ m07_overview.net.missing.split(';')[0] }}</span>{% endif %}{% else %}: not computed yet{% endif %}
+        · <a href="/c/{{ ticker }}?tab=insiders">Insiders tab</a>
+      </td></tr>
+    </table>
+    {% else %}
     <p class="empty">No module emits signals yet (D13). They appear here as modules are built.</p>
+    {% endif %}
   </section>
   <section>
     <h2>Latest filings</h2>
