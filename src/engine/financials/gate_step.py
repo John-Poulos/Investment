@@ -462,6 +462,10 @@ def propose_items(
             cik=cik,
             filed=filed,
         )
+    # Part 4b-lite's text alerts share the kind; their own pass withdraws them
+    from engine.financials.gate_text_step import text_alert_keys
+
+    live["m04_gate_fail"] |= text_alert_keys(engine, cik)
     for kind, keys in live.items():
         cg.withdrawn += queue.withdraw_stale(
             engine, kind, cik, keys, now, "condition no longer holds (Part 4a recompute)"

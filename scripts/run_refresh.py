@@ -191,6 +191,20 @@ def financials_units_local_step(engine, corpus, report) -> str:
     return "\n" + "\n".join(lines) + "\n"
 
 
+def financials_gate_text_local_step(engine, corpus, report) -> str:
+    """M04 Part 4b-lite local pass (0 SEC requests), right before the Part 4a gate pass so
+    the gate reads fresh text classes: going-concern and covenant sentences of newly stored
+    periodic text, `gc_language` / `covenant_status`, text alerts and reviews (D-M04-34,
+    -71). Never fails the run."""
+    from engine.financials.gate_text_step import run_local_part
+
+    try:
+        lines = run_local_part(engine, corpus, companies_of(report), datetime.now(UTC))
+    except Exception as e:  # must not break the run report
+        lines = [f"M04 gate text — local pass: error — {type(e).__name__}: {e}"]
+    return "\n" + "\n".join(lines) + "\n"
+
+
 def financials_gate_local_step(engine, report) -> str:
     """M04 Part 4a local pass (0 SEC requests), after the other M04 local work so filing
     status, filing events and the latest closes are current: the survival gate, distress
@@ -479,6 +493,7 @@ def _run(args, engine, folder):
     prices = skipped if args.skip_prices else prices_step(engine, report)
     prices += financials_local_step(engine, corpus, report)
     prices += financials_units_local_step(engine, corpus, report)
+    prices += financials_gate_text_local_step(engine, corpus, report)
     prices += financials_gate_local_step(engine, report)
     prices += financials_quality_local_step(engine, corpus, report)
     text = format_report(report) + calls + prices

@@ -138,3 +138,24 @@ Hand-built from Round 2 (docs/m04_review/R2_brief.md, M04_DESIGN_PACK "Scores on
 | lmt_us-gaap_ContractWithCustomerPerformanceObligationSatisfiedInPreviousPeriod_20261013.json | Lockheed catch-up revenue 2.2 / 2.0 / 2.2 / 2.0 / 1.6 / 1.2B for 2019–2024 (pack, S-new-1) | accessions and filed dates |
 | ge_10k_fy2016_estimate_excerpt.txt | GE 2016 estimate change $2.2B (÷ pretax income from continuing operations 9,030 = 24.4%) | **sentence wording illustrative** (the live check found no such sentence in the real FY2016 10-K); the 9,030 and 7,036 pretax rows are entered in the test |
 | ge_10k_fy2017_estimate_excerpt.txt | Real GE FY2017 10-K (0000040545-18-000014) sentences as the re-run log of 2026-10-13 showed them (first 200 characters): "Revisions may affect … such adjustments increased earnings by $2.1 billion, $2.2 billion and $1.4 billion …" (2017, 2016, 2015), "Contract assets increased $3,699 million in 2017, … a change in estimated profitability of $2,131 million within our long-term product service agreements within Power …" and the cash-flow variance "Cash used for contract assets of $3.9 billion in 2016 compared with $1.9 billion in 2015, primarily due to cumulative catch up adjustments …" (kept rejected) | the endings after the logged 200 characters are reconstructed ("for the years ended December 31, 2017, 2016 and 2015, respectively."; "… within Power."; "… the contracts.") |
+
+## Part 4b
+
+Plain-text excerpts in `gate_text/` (stored as `.txt` documents in the tests). The M04 design
+pack and PROBE_RESULTS S10/S12 give each document's class, accession and the matched words,
+not the full sentences (Claude cannot fetch them), so the wording is **reconstructed** in the
+filings' style unless marked otherwise.
+
+| File | Case and source | Reconstructed |
+|---|---|---|
+| fisker_10k_fy2023_excerpt.txt | Fisker FY2023 10-K (0001720990-24-000045): risk-factor summary "There is substantial doubt …", PwC's going-concern paragraph citing the missed March 2024 interest payment, the forbearance agreement to 2024-05-01 (pack "Going-concern and covenant classes", S-new-r4-5) | all wording |
+| invitae_10q_q3_2023_excerpt.txt | Invitae Q3 2023 10-Q (2023-11-08), Note 1: management's "substantial doubt exists" conclusion (pack; PROBE_RESULTS S10) | all wording except the matched words |
+| invitae_10q_q2_2023_excerpt.txt | Invitae Q2 2023 10-Q (2023-08-08): the ASC 205-40 evaluation and 12-month resources sentence (PROBE_RESULTS S10) | all wording |
+| proterra_10k_fy2022_excerpt.txt | Proterra FY2022 10-K (0001628280-23-008519): covenant default under the senior credit facility, waivers only on the convertible notes, borrowings classified as current (pack) | all wording |
+| microvast_10k_fy2025_excerpt.txt | Microvast FY2025 10-K (0001628280-26-018264): plans "probable to alleviate", the auditor's critical audit matter without a going-concern paragraph (pack) | all wording except the matched words |
+| riot_10k_fy2025_excerpt.txt | Riot Platforms FY2025 10-K (0001104659-26-022322): "could raise substantial doubt about our ability to continue as a going concern" (pack: exact phrase) | the sentence before the exact phrase |
+| uti_10q_q3_fy2025_excerpt.txt | UTI Q3 FY2025 10-Q (0001261654-25-000019): quick ratio 0.62 vs 0.65, waiver obtained, other covenants met (pack) | all wording; the waiver date is illustrative |
+| albemarle_ex10_1_q3_2024_excerpt.txt | Albemarle Second Amendment, EX-10.1 to the Q3 2024 10-Q (0000915913-24-000158): Covenant Relief Period to the Q2 2026 certificate, 5.75× at 2025-06-30, buybacks barred except Permitted Common Dividend Payments (PROBE_RESULTS S10) | all wording except the defined terms |
+| boeing_10k_fy2023_excerpt.txt | Boeing FY2023 10-K: "At December 31, 2023, we were in compliance with the covenants for our debt and credit facilities." (PROBE_RESULTS S10, offset 149363, **verbatim**) | the risk-factor, credit-line and going-concern-basis sentences |
+| infq_10k_fy2025_excerpt.txt | Infleqtion FY2025 10-K (0001193125-26-134544, period 2025-12-31, filed 2026-03-31): "substantial doubt … was alleviated due to the closing of the Business Combination" (PROBE_RESULTS S12) | all wording except the quoted words |
+| synthetic_cases_excerpt.txt | IFRS "material uncertainty" (IAS 1.25 wording), a negation, a Nasdaq deficiency letter, a hypothetical delisting, "no event of default", an acceleration | **synthetic** (no filing) |

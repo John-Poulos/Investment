@@ -89,6 +89,18 @@
 </table>
 <p class="note">Survival items flush first (priority 1); gate fails and gate inputs are outside the weekly cap of 5, the runway and score-gap reviews count in it (D-M04-71).</p>
 
+<h3 class="sub">M04 survival gate text (Part 4b)</h3>
+<table class="data">
+  <tr><th>Kind</th><th>Actions and their effect, with worked examples</th></tr>
+  <tr><td>Fail-class text (<code>m04_gate_fail</code>, alert, uncapped)</td><td>A sentence in the current report that fails the gate: the auditor's going-concern paragraph, management's "substantial doubt exists" (also a present-tense risk factor), an unwaived covenant breach or event of default, forbearance, debt classified as current because of a breach, acceleration, delisting (D-M04-34). <b>Noted</b> keeps it; <b>Inputs wrong</b> (note) says the code misread the sentence, and it stops acting on the gate.<br>
+  Examples: Invitae's Q3 2023 10-Q, "management concluded that substantial doubt exists about the Company's ability to continue as a going concern" → <b>Noted</b> (98 days later it filed for Chapter 11). Fisker's FY2023 10-K: the auditor's paragraph and a forbearance agreement to 2024-05-01 → <b>Noted</b>. A risk factor "an event of default could accelerate our debt" never reaches you: it is hypothetical.</td></tr>
+  <tr><td>Going-concern wording to read (<code>m04_gc_text</code>, priority 1)</td><td>Doubt raised but alleviated by management's plans, a critical audit matter about the going-concern assessment without a going-concern paragraph, IFRS "material uncertainty", or hypothetical wording ("could raise substantial doubt") while the runway is below 8 quarters. The first three warn the gate while their report is current; hypothetical wording never changes the gate. <b>Noted</b> keeps the class; <b>Treat as fail</b> when the plans depend on financing not yet obtained; <b>Misread</b> (note) when the sentence is not what the code says.<br>
+  Examples: Microvast FY2025 10-K, plans "are probable to alleviate the substantial doubt" → <b>Noted</b> (warn stays while the report is current); if the plan is an unclosed raise → <b>Treat as fail</b>. Riot FY2025 risk factor "could raise substantial doubt about our ability to continue as a going concern" with the runway at 5 quarters → <b>Noted</b>. Infleqtion's FY2025 10-K "was alleviated due to the closing of the Business Combination" covers the shell year (period 2025-12-31 before the 2026-02-13 close): excluded, never queued.</td></tr>
+  <tr><td>Covenant waived or reset, or a listing notice (<code>m04_covenant</code>, priority 1)</td><td>A breach the lender waived, amended or relaxed financial covenants (a "covenant relief period"), or a listing-standard deficiency with a cure period: the gate warns while the report is current. Same actions as above.<br>
+  Examples: Universal Technical Institute Q3 FY2025, quick ratio 0.62 against 0.65 required, "obtained a waiver from the lender for this covenant violation" → <b>Noted</b> (a trip wire at a healthy firm). Albemarle's Second Amendment (EX-10.1, Q3 2024 10-Q): a Covenant Relief Period to the Q2 2026 certificate, buybacks barred → <b>Noted</b>; read it with the runway and the maturity wall. Boeing FY2023 "we were in compliance with the covenants for our debt and credit facilities" opens nothing.</td></tr>
+</table>
+<p class="note">Only the company's current report (latest periodic filing with stored text, plus later 6-Ks) acts on the gate; older sentences are history. The first scan of each company is a baseline: shown on the Gate text block, queued only when filed in the last 12 months or a current fail (D-M04-71).</p>
+
 <h3 class="sub">M04 unit KPI category break (m04_unit_kpi)</h3>
 <table class="data">
   <tr><th>Example</th><th>Choice</th><th>Why</th></tr>

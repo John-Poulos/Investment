@@ -1,0 +1,23 @@
+Summary of Risk Factors
+
+There is substantial doubt about our ability to continue as a going concern.
+
+We have incurred significant losses since inception and we may not be able to achieve profitability.
+
+Item 8. Financial Statements and Supplementary Data
+
+REPORT OF INDEPENDENT REGISTERED PUBLIC ACCOUNTING FIRM
+
+To the Board of Directors and Stockholders of Fisker Inc.
+
+Opinion on the Financial Statements
+
+We have audited the accompanying consolidated balance sheets of Fisker Inc. and its subsidiaries (the "Company") as of December 31, 2023 and 2022, and the related consolidated statements of operations, comprehensive loss, stockholders' equity and cash flows for each of the three years in the period ended December 31, 2023. In our opinion, the consolidated financial statements present fairly, in all material respects, the financial position of the Company as of December 31, 2023 and 2022.
+
+Substantial Doubt About the Company's Ability to Continue as a Going Concern
+
+The accompanying consolidated financial statements have been prepared assuming that the Company will continue as a going concern. As discussed in Note 1 to the consolidated financial statements, the Company has suffered recurring losses from operations, has negative cash flows from operations and did not make the interest payment due March 15, 2024 on its convertible senior notes, that raise substantial doubt about its ability to continue as a going concern. Management's plans in regard to these matters are also described in Note 1. The consolidated financial statements do not include any adjustments that might result from the outcome of this uncertainty.
+
+Note 9. Debt
+
+On April 22, 2024, the Company entered into a forbearance agreement with the holder of its 2025 Notes, under which the holder agreed to forbear from exercising its rights and remedies under the indenture until May 1, 2024.

@@ -25,7 +25,9 @@ and Ohlson O are out of the gate (`distress.py`).
   end the larger of that and the year-1 maturity tag.
 - **Legal facts:** open 8-K 1.03 / 2.04 / 3.01 states from Part 3 (D-M04-37); an overdue
   filing → incomplete plus an exit warning (D-M04-61); an open 4.02 marks the inputs
-  "under non-reliance" and warns (D-M04-21).
+  "under non-reliance" and warns (D-M04-21); going-concern and covenant text classes of
+  the current report (Part 4b-lite, `gate_text.py`): a fail class is a trigger, a warn
+  class a warning (D-M04-34, -96).
 - **States** (`value_text`): pass, warn (a pass for M01), fail, incomplete, not_applicable
   (D-M04-31, -35; S4.1). `method` names the trigger or the missing inputs.
 - **Scope by tag** (D-M04-8, -13, -35): full gate (untagged, `issuance_funded`);
@@ -237,6 +239,9 @@ class Gate:
     total_assets: float | None = None
     runway_no_growth: str = ""  # information (D-M04-6)
     raised: str = ""  # share of liquidity raised in the last 4 quarters (S4.13, for Part 5)
+    text_summary: str = ""  # Part 4b-lite: the current report's text classes (D-M04-34)
+    text_report: str = ""  # the current report read for text
+    text_note: str = ""
     sources: list[Source] = field(default_factory=list)
     signal_as_of: str = ""
 
@@ -948,6 +953,19 @@ def _wall(engine, g: Gate, as_of: str) -> None:
 
 
 def _legal(engine, g: Gate, as_of: str, calendar: bool) -> None:
+    from engine.financials import gate_text  # Part 4b-lite (D-M04-34, -96)
+
+    tg = gate_text.gate_lines(engine, g.cik, as_of)
+    for text, src in tg.fails:
+        g.triggers.append(text)
+        g.sources.append(src)
+    for text, src in tg.warns:
+        g.warnings.append(text)
+        g.sources.append(src)
+    g.text_summary = tg.summary()
+    rep = tg.current.report if tg.current else None
+    g.text_report = f"{rep['form']} {rep['accession']} filed {rep['filed']}" if rep else ""
+    g.text_note = tg.current.note if tg.current else ""
     for r in engine.execute(
         "SELECT * FROM m04_event WHERE cik = ? AND state IN ('fail', 'warn') AND filed <= ? "
         "ORDER BY filed DESC",

@@ -11,7 +11,9 @@
 </table>
 {% if g.triggers or g.missing or g.warnings %}<p class="note">{% if g.triggers %}<b>Trigger:</b> {{ g.triggers | join('; ') }}. {% endif %}{% if g.missing %}<b>Missing:</b> {{ g.missing | join('; ') }}. {% endif %}{% if g.warnings %}<b>Warn:</b> {{ g.warnings | join('; ') }}.{% endif %}</p>{% endif %}
 {% if g.notes %}<ul class="note">{% for n in g.notes %}<li>{{ n }}</li>{% endfor %}</ul>{% endif %}
-<p class="note">M01 reading: rule-3 adds open on pass or warn; fail, incomplete and not applicable block them (D-M04-31, -35); while <code>m04_runway</code> is open, adds stay allowed and rule-7 strength is blocked (D-M04-38). A fail or an overdue filing is an exit warning (S6.14, D-M04-61). Text tests (going concern, covenants) and the undrawn-credit finder arrive in Part 4b; until then the runway is cash-only unless you confirm a credit line below.{% if gv.items %} Open items: {% for i, k in gv.items %}<a href="/review/{{ i }}">{{ i }}</a> <span class="muted">({{ k }})</span>{{ ', ' if not loop.last }}{% endfor %}.{% endif %}</p>
+<p class="note">M01 reading: rule-3 adds open on pass or warn; fail, incomplete and not applicable block them (D-M04-31, -35); while <code>m04_runway</code> is open, adds stay allowed and rule-7 strength is blocked (D-M04-38). A fail or an overdue filing is an exit warning (S6.14, D-M04-61). Going-concern and covenant text is read from stored filings (Gate text, below); the undrawn-credit finder is left for the tuning phase, so the runway is cash-only unless you confirm a credit line below.{% if gv.items %} Open items: {% for i, k in gv.items %}<a href="/review/{{ i }}">{{ i }}</a> <span class="muted">({{ k }})</span>{{ ', ' if not loop.last }}{% endfor %}.{% endif %}</p>
+
+{% include "tabs/_m04_gate_text.html" %}
 
 {% if g.scope in ('full', 'liquidity_only') %}
 <h3 class="sub">Credit lines <span class="muted">(undrawn committed credit, D-M04-32, -86)</span></h3>

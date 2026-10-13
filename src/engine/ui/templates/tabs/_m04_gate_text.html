@@ -1,0 +1,18 @@
+{# M04 Part 4b-lite (owner's mock-up 2026-10-13, D-UI-30): going-concern and covenant text inside the Survival gate panel. Rows: stored text only, verified quotes (D21); the current report's rows first. #}
+<h3 class="sub" id="gate-text">Gate text — {{ ticker }} <span class="muted">(stored 10-K / 10-Q / 20-F / 6-K text; verified quotes; D-M04-34)</span></h3>
+{% if gv.text_rows %}
+<table class="data">
+  <tr><th>Filed · form · period</th><th>Class</th><th>Effect on the gate</th><th>Deciding sentence <span class="muted">(hover: passage, document)</span></th></tr>
+  {% for r in gv.text_rows %}
+  <tr><td>{{ r.filed }} · {{ r.form }} · {{ r.period }}</td><td>{{ r.label }}</td>
+    <td>{% if r.strong %}<b{% if r.effect.startswith('fail') %} style="color:var(--bad, #b00)"{% else %} style="color:var(--warn, #a60)"{% endif %}>{{ r.effect }}</b>{% else %}{{ r.effect }}{% endif %}{% if r.item_id %} · <a href="/review/{{ r.item_id }}">item {{ r.item_id }}</a>{% endif %}</td>
+    <td class="muted" title="{{ r.title }}">“{{ r.quote[:400] }}{% if r.quote | length > 400 %}…{% endif %}”</td></tr>
+  {% endfor %}
+</table>
+{% if gv.text_more %}<p class="muted">{{ gv.text_more }} older row(s) not shown (the gate-text log lists them).</p>{% endif %}
+{% else %}<p class="empty">No going-concern or covenant sentence in the stored periodic text{% if g.text_report %} (current report {{ g.text_report }}){% endif %}.</p>{% endif %}
+<table class="data" style="margin-top:8px">
+  <tr><th>Class</th><th>Rule</th><th>Example (fixture)</th></tr>
+  {% for what, rule, example in gv.text_classes %}<tr><td>{{ what }}</td><td>{{ rule }}</td><td class="muted">{{ example }}</td></tr>{% endfor %}
+</table>
+<p class="note">Only the current report acts on the gate: the latest periodic filing with stored text, plus the 6-Ks filed after it; older rows are history. A company's first scan is a baseline (shown, not queued) except reports filed in the last 12 months and a current fail (D-M04-71). Text leads Chapter 11 by only 62–144 days in the fixture cases, so the runway carries the lead time. Left for the tuning phase: the 25-year EDGAR full-text history (S4.7) and the undrawn-credit finder.</p>
