@@ -150,6 +150,14 @@
   <p>{{ (p.action or '') | replace('_', ' ') }}{% if p.to %} {{ p['from'] or '?' }} → {{ p.to }}{% endif %}{% if p.agency %} · {{ p.agency }}{% endif %} · {{ p.filed }}</p>
   <div class="quote">“{{ p.quote }}”</div>
   <p class="muted">Information (S3.7, DS17); <b>Noted</b> changes no data.</p>
+  {% elif it.kind == 'm04_unit_kpi' %}
+  {% set p = it.payload %}
+  <table class="data">
+    <tr><th>Metric</th><td>{{ p.metric | replace('_', ' ') }}</td></tr>
+    <tr><th>Lines before</th><td>{{ (p.before or []) | join(', ') or 'none' }}</td></tr>
+    <tr><th>Lines in the release filed {{ p.filed }}</th><td>{{ (p.after or []) | join(', ') or 'none' }} <span class="muted">({{ p.accession }})</span></td></tr>
+  </table>
+  <p class="muted">The earlier and later series stay split either way (D-M04-42). “Break” = the categories changed scope (e.g. a new model line), so a per-line trend across the release is not compared; “Same scope, renamed” = only the label changed. See the Unit KPIs table on the <a href="/c/{{ it.ticker or p.ticker }}?tab=financials">Financials tab</a>.</p>
   {% elif it.kind.startswith('m02_') %}
   {% if it.payload.earlier %}<div class="warnbox">Shown before and {{ it.payload.earlier.resolution }}ed{% if it.payload.earlier.note %} — your note: “{{ it.payload.earlier.note }}”{% endif %}. Back because it changed materially (distinct filers doubled or money-flow evidence appeared).</div>{% endif %}
   <table class="data">
@@ -190,7 +198,14 @@
   <p><a class="btn" href="/review/{{ it.item_id }}/pickup">I downloaded it — find the newest PDF in Downloads</a></p>
   {% endif %}
   {% endif %}
-  {% if it.kind in ('m04_stage', 'm04_peer') %}
+  {% if it.kind == 'm04_unit_kpi' %}
+  <h3 class="sub">Resolve</h3>
+  <div class="actions">
+  {% for a, text in (('break_confirmed', 'Break — categories changed'), ('same_scope', 'Same scope, renamed')) %}
+  <form method="post" action="/review/{{ it.item_id }}/{{ a }}"><input name="note" size="40" placeholder="Note (optional)"><button class="btn" type="submit">{{ text }}</button></form>
+  {% endfor %}
+  </div>
+  {% elif it.kind in ('m04_stage', 'm04_peer') %}
   <h3 class="sub">Resolve</h3>
   <p><a class="btn" href="/m04/setup{{ '#stages' if it.kind == 'm04_stage' else '#peer-' ~ it.item_id }}">Open on the M04 setup page</a></p>
   {% else %}

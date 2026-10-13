@@ -217,6 +217,8 @@ Buybacks, tax withholding, equity issued and debt raised or repaid come from M02
 
 Negative gross margin alone is not a flag (S5.6). Contribution margins are company-stated only, labelled non-GAAP (S5.8).
 
+**Built (Part 7a; data only, no signals — the rows above read it in 7b).** `fact_dim` from filing instances (customers, segments, products or services, classes of stock; recasts and segment-set changes listed, never merged; a renamed segment member whose overlapping values agree within 1% is continued; customers count customer shares of revenue from the year's own annual report (consolidated fact first, else one segment-tagged share, labelled; receivables, supplier and aggregate members left out, with reasons in the log)) and `unit_metric` (Tesla DS2 table by model line with prior quarter and year ago; production/delivery and billable-unit sentences with a stated period; regulatory credits as their own `credit` rows; company-stated non-GAAP gross profit with its release's own prior-year column) (D-M04-42). A year = stated, else the sum of 4 stated quarters, labelled; an approximate stated year ("over 1.8 million") yields to an exact sum. A new or renamed model line opens `m04_unit_kpi` (group 6). RIVN enters by UI promotion (D-M04-81); tracked names get no instance reads (D-M04-80). Choices: M04_BUILD_LOG "Notes per part" → Part 7a.
+
 ### Customers and RPO (D-M04-1 customer row)
 | Item | Rule | Output | D13 |
 |---|---|---|---|

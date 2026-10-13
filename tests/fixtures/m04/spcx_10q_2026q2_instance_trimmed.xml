@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Hand-built, trimmed: SPCX Q2 2026 10-Q extracted instance, cover counts by class; counts and date match the (illustrative) R1 fixture spcx_10q_2026q2_R1.htm. -->
+<xbrli:xbrl xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:us-gaap="http://fasb.org/us-gaap/2025" xmlns:dei="http://xbrl.sec.gov/dei/2025">
+ <xbrli:context id="c-A"><xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">0001181412</xbrli:identifier><xbrli:segment><xbrldi:explicitMember dimension="us-gaap:StatementClassOfStockAxis">us-gaap:CommonClassAMember</xbrldi:explicitMember></xbrli:segment></xbrli:entity><xbrli:period><xbrli:instant>2026-08-10</xbrli:instant></xbrli:period></xbrli:context>
+ <xbrli:context id="c-B"><xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">0001181412</xbrli:identifier><xbrli:segment><xbrldi:explicitMember dimension="us-gaap:StatementClassOfStockAxis">us-gaap:CommonClassBMember</xbrldi:explicitMember></xbrli:segment></xbrli:entity><xbrli:period><xbrli:instant>2026-08-10</xbrli:instant></xbrli:period></xbrli:context>
+ <xbrli:unit id="shares"><xbrli:measure>xbrli:shares</xbrli:measure></xbrli:unit>
+ <dei:EntityCommonStockSharesOutstanding contextRef="c-A" unitRef="shares" decimals="INF">3612000000</dei:EntityCommonStockSharesOutstanding>
+ <dei:EntityCommonStockSharesOutstanding contextRef="c-B" unitRef="shares" decimals="INF">2388000000</dei:EntityCommonStockSharesOutstanding>
+</xbrli:xbrl>

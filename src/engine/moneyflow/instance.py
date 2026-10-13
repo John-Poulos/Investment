@@ -9,7 +9,8 @@ beside an inline-XBRL primary document as `<primary stem>_htm.xml`. Only facts i
 company namespace, on contexts without dimensions, are stored — in the same `fact`
 table, taxonomy = the namespace prefix (e.g. `amzn`), so every series and recipe reads
 them like any other tag. One request per filing; filings are immutable, so a stored
-instance is never fetched again.
+instance is never fetched again. Since M04 Part 7a the same read also stores the kept
+dimensional facts in `fact_dim` (`engine.sec.instance_dim`, D-M04-42).
 """
 
 from __future__ import annotations
@@ -202,58 +203,27 @@ def store_instance(
     if url is None:
         return Empty((Probe("XBRL instance", filing["primary_doc"], "primary document not HTML"),))
     res = client.get_bytes(url, ttl_s=0)  # stored as facts; the large file is not cached
-    if isinstance(res, NotFound):
-        detail = {"not_found": True}
-        rows: list[tuple] = []
-    elif not isinstance(res, Ok):
-        return res
-    else:
+    if isinstance(res, Ok):
+        # M04 Part 7a: the same read also keeps the dimensional facts (fact_dim), so the
+        # instance is never fetched twice (D-M04-42, SB.16).
+        from engine.sec import instance_dim
+
         try:
-            facts = parse_instance(res.data)
+            parsed = instance_dim.parse(res.data)
         except ET.ParseError as exc:
             return Failed(f"XBRL instance unreadable: {exc}", url=url)
-        rows = [
-            (
-                cik,
-                f.prefix,
-                f.tag,
-                f.unit,
-                f.start,
-                f.end,
-                f.value,
-                filing["accession"],
-                filing["form"],
-                filing["filed"],
-                None,
-                None,
-                None,
-            )
-            for f in facts
-        ]
-        detail = {"facts": len(rows)}
-    engine.execute("BEGIN")
-    try:
-        before = engine.total_changes
-        engine.executemany(
-            "INSERT INTO fact (cik, taxonomy, tag, unit, period_start, period_end, value, "
-            "accession, form, filed, fy, fp, frame) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT DO NOTHING",
-            rows,
-        )
-        new = engine.total_changes - before
-        engine.execute(
-            "INSERT INTO refresh_state (name, source_ref, fetched_at, detail) VALUES (?, ?, ?, ?) "
-            "ON CONFLICT (name) DO UPDATE SET source_ref = excluded.source_ref, "
-            "fetched_at = excluded.fetched_at, detail = excluded.detail",
-            (_state(filing["accession"]), url, iso(now), json.dumps(detail)),
-        )
-        engine.execute("COMMIT")
-    except Exception:
-        engine.execute("ROLLBACK")
-        raise
-    if isinstance(res, NotFound):
-        return Empty((Probe("XBRL instance", url, "HTTP 404: no extracted instance"),))
-    return Ok(new, source_ref=url, fetched_at=iso(now))
+        new, _ = instance_dim.store_parsed(engine, cik, filing, parsed, url, now,
+                                           detail={"outcome": "ok"})  # fmt: skip
+        return Ok(new, source_ref=url, fetched_at=iso(now))
+    if not isinstance(res, NotFound):
+        return res
+    engine.execute(
+        "INSERT INTO refresh_state (name, source_ref, fetched_at, detail) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT (name) DO UPDATE SET source_ref = excluded.source_ref, "
+        "fetched_at = excluded.fetched_at, detail = excluded.detail",
+        (_state(filing["accession"]), url, iso(now), json.dumps({"not_found": True})),
+    )
+    return Empty((Probe("XBRL instance", url, "HTTP 404: no extracted instance"),))
 
 
 def sync_instances(

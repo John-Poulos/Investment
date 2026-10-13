@@ -1,0 +1,70 @@
+{# M04 Part 7a sections (owner's mock-up, D-UI-27): customers, segments, unit KPIs, share classes. #}
+{% if m04_units %}{% set uv = m04_units %}
+<h2>Major customers (≥ 10% of revenue) <span class="muted">(M04, from filing instances)</span></h2>
+{% if uv.customers %}
+<table class="data">
+  <tr><th>Fiscal year</th><th class="num">Customers ≥ 10%</th><th class="num">Revenue at stake</th><th>Customers</th><th>Source</th></tr>
+  {% for c in uv.customers %}
+  <tr><td>{{ c.label }} <span class="muted">({{ c.end }})</span></td>
+    <td class="num">{{ c.count }}</td>
+    <td class="num">{{ '%.0f' | format(c.at_stake * 100) }}%{% if c.at_stake_usd %} <span class="muted">≈ ${{ '{:,.1f}'.format(c.at_stake_usd / 1e9) }}B</span>{% endif %}</td>
+    <td>{% for name, p in c.customers %}{{ name }} {{ '%.0f' | format(p * 100) }}%{{ ' · ' if not loop.last }}{% endfor %}</td>
+    <td class="muted" title="{{ c.basis }}">{{ c.accession }}</td></tr>
+  {% endfor %}
+</table>
+<p class="note">Customers are anonymous in filings (“Customer A”); matching them across years is inference. A shorter list is not a loss: a customer may have fallen below the 10% line while still buying. Revenue at stake = the sum of the stated percentages (in $ on the year's revenue). Shown, never voted; Part 7b adds the customer row with the owner-confirmed stickiness class (D-M04-43, -50).</p>
+{% else %}<p class="empty">missing: no ≥ 10% customer facts in the stored instances ({{ uv.instances_read }} filing instance(s) read for this company{% if not uv.instances_read %}; run scripts/run_financials.py units{% endif %}).</p>{% endif %}
+
+<h2>{{ uv.segments.title if uv.segments else 'Segments' }} <span class="muted">(M04, $M, from filing instances)</span></h2>
+{% if uv.segments %}{% set sg = uv.segments %}
+<div style="overflow-x:auto">
+<table class="data">
+  <tr><th>Segment · line</th>{% for l in sg.labels %}<th class="num">{{ l }}</th>{% endfor %}</tr>
+  {% for label, cs in sg.rows %}
+  <tr><td>{{ label }}</td>{% for text, tip in cs %}<td class="num"><span title="{{ tip }}"{% if text == '—' %} class="muted"{% endif %}>{{ text }}</span></td>{% endfor %}</tr>
+  {% endfor %}
+</table>
+</div>
+{% for n in sg.notes %}<p class="note">{{ n }}</p>{% endfor %}
+<p class="note">From the latest annual filing's instance ({{ sg.accession }}); every value keeps its axis and member, so a segment figure is never read as the company total. “recast” = another filing reports a different value for the same segment and period (hover for both); a changed set of segments is a break, not merged (D-M04-42).</p>
+{% else %}<p class="empty">missing: no segment facts in the stored instances.</p>{% endif %}
+
+<h2>Unit KPIs <span class="muted">(M04; releases, shareholder letters and 10-K sentences)</span></h2>
+{% if uv.kpis %}
+<table class="data">
+  <tr><th>Company · metric</th><th>Earlier</th><th>Later</th><th class="num">Change</th><th>Source</th></tr>
+  {% for k in uv.kpis %}<tr><td>{{ k.company }} · {{ k.metric }}</td><td>{{ k.earlier }}</td><td>{{ k.later }}</td><td class="num">{{ k.change }}</td><td class="muted" title="{{ k.title }}">{{ k.source }}</td></tr>{% endfor %}
+</table>
+{% else %}<p class="empty">missing: no unit KPI stated in this company's stored releases or reports.</p>{% endif %}
+{% if uv.credits %}
+<h3 class="sub">Credits (kept separate, never netted into a KPI)</h3>
+<table class="data">
+  <tr><th>Company · metric</th><th>Earlier</th><th>Later</th><th class="num">Change</th><th>Source</th></tr>
+  {% for k in uv.credits %}<tr><td>{{ k.company }} · {{ k.metric }}</td><td>{{ k.earlier }}</td><td>{{ k.later }}</td><td class="num">{{ k.change }}</td><td class="muted" title="{{ k.title }}">{{ k.source }}</td></tr>{% endfor %}
+</table>
+{% endif %}
+{% if uv.breaks %}
+<p class="note">Category breaks (review kind m04_unit_kpi; series not merged): {% for b in uv.breaks %}{{ b.metric }} in {{ b.filed }} — {{ b.text() }}{{ ' · ' if not loop.last }}{% endfor %}.</p>
+{% endif %}
+{% if uv.reference %}
+<h3 class="sub">Reference episodes (not covered companies; Part 8b names)</h3>
+<table class="data">
+  <tr><th>Company · metric</th><th>Earlier</th><th>Later</th><th class="num">Change</th><th>Source</th></tr>
+  {% for k in uv.reference %}<tr><td>{{ k.company }} · {{ k.metric }}</td><td>{{ k.earlier }}</td><td>{{ k.later }}</td><td class="num">{{ k.change }}</td><td class="muted" title="{{ k.title }}">{{ k.source }}</td></tr>{% endfor %}
+</table>
+{% endif %}
+<p class="note">Stated figures only, each with its release or report (hover the source for the row or sentence); a year from four stated quarters is labelled “sum of 4 quarters”. Credits stay in their own rows (S5.5). Contribution margins are shown only where a company states them, labelled non-GAAP (S5.8). A new model line or renamed category opens an m04_unit_kpi review (D-M04-42). {{ uv.rivn }}</p>
+
+<h2>Share classes <span class="muted">(M04, instance vs R1 cover page)</span></h2>
+{% if uv.classes %}
+<table class="data">
+  <tr><th>Filing</th><th>Classes in the instance</th><th class="num">Instance total</th><th class="num">R1 total (Part 1a)</th><th>Check</th></tr>
+  {% for c in uv.classes %}<tr><td>{{ c.form }} {{ c.filed }} <span class="muted">{{ c.accession }}</span></td>
+    <td>{% for name, n in c.instance %}{{ name }} {{ '{:,.0f}'.format(n) }}{{ ' · ' if not loop.last }}{% endfor %}</td>
+    <td class="num">{{ '{:,.0f}'.format(c.instance_total) }}</td>
+    <td class="num">{% if c.r1_total is none %}<span class="muted">—</span>{% else %}{{ '{:,.0f}'.format(c.r1_total) }}{% endif %}</td>
+    <td>{% if c.agree == 'agree' %}<b>agree</b>{% else %}{{ c.agree }}{% endif %}</td></tr>{% endfor %}
+</table>
+{% else %}<p class="empty">no per-class cover counts in the stored instances (single-class filer, or no instance read yet).</p>{% endif %}
+<p class="note">Cover counts by class of stock read from the filing instance are cross-checked with Part 1a's R1 cover counts for the same filing (D-M04-2); the share series above keep using R1. Dimensional rows stored for this company: {{ uv.dim_rows }} from {{ uv.instances_read }} filing instance(s).</p>
+{% endif %}

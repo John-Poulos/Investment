@@ -166,6 +166,31 @@ def financials_local_step(engine, corpus, report) -> str:
     return "\n" + "\n".join(lines) + "\n"
 
 
+def financials_units_sec_step(client, engine, corpus, report) -> str:
+    """M04 Part 7a SEC part, right after the other M04 SEC work (D-M04-42, -70): the
+    instance of each new 10-K/10-Q (extension and dimensional facts, one read) and the
+    EX-99.2 of each new earnings 8-K, core and promoted names only. Never fails the run."""
+    from engine.financials.units_step import run_sec_part
+
+    try:
+        lines = run_sec_part(client, engine, corpus, companies_of(report), datetime.now(UTC))
+    except Exception as e:  # must not break the run report
+        lines = [f"M04 units — SEC part: error — {type(e).__name__}: {e}"]
+    return "\n" + "\n".join(lines) + "\n"
+
+
+def financials_units_local_step(engine, corpus, report) -> str:
+    """M04 Part 7a local pass (0 SEC requests): unit KPIs from newly stored documents and
+    `m04_unit_kpi` items for category breaks. Never fails the run."""
+    from engine.financials.units_step import run_local_part
+
+    try:
+        lines = run_local_part(engine, corpus, companies_of(report), datetime.now(UTC))
+    except Exception as e:  # must not break the run report
+        lines = [f"M04 units — local pass: error — {type(e).__name__}: {e}"]
+    return "\n" + "\n".join(lines) + "\n"
+
+
 def seasonal_step(engine, corpus, report, background: bool):
     """D-M02-51: a due seasonal pass is mined here, locally (no SEC), and a background run
     then asks Yes/No after releasing the lock. Manual runs and a pass declined today get
@@ -404,12 +429,14 @@ def _run(args, engine, folder):
     calls += news_step(engine, corpus, report)
     calls += official_step(engine, report)
     calls += financials_sec_step(client, engine, report, corpus)
+    calls += financials_units_sec_step(client, engine, corpus, report)
     background = args.scheduled or args.if_missed
     season_text, prep = seasonal_step(engine, corpus, report, background)
     calls += season_text
     skipped = "\nPrices (Tiingo): skipped (--skip-prices)\n"
     prices = skipped if args.skip_prices else prices_step(engine, report)
     prices += financials_local_step(engine, corpus, report)
+    prices += financials_units_local_step(engine, corpus, report)
     text = format_report(report) + calls + prices
     logs = ROOT / "logs"
     logs.mkdir(exist_ok=True)

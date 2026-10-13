@@ -64,6 +64,7 @@ KIND_LABELS = {
     "m04_event": "M04: filing event (8-K item or late filing)",
     "m04_restate": "M04: restatement step not explained",
     "m04_rating": "M04: credit-rating action",
+    "m04_unit_kpi": "M04: unit KPI category break",  # Part 7a
 }
 ACTIONS = {
     "m04_stage": ("confirm",),  # target = the stage chosen (default: the computed stage)
@@ -71,6 +72,7 @@ ACTIONS = {
     "m04_event": ("resolve", "noted"),  # resolve clears a fail/warn (D-M04-37)
     "m04_restate": ("explained", "error"),  # the owner's reading of the residual
     "m04_rating": ("noted",),
+    "m04_unit_kpi": ("break_confirmed", "same_scope"),  # Part 7a; series never merged
 }
 
 
@@ -292,4 +294,11 @@ def apply(
             raise QueueError("This item names no company.")
         kept, struck, added = peers.confirm(engine, cik, keep or (), by, now)
         return f"confirm: {kept} peer(s) kept, {struck} struck, {added} added by the owner"
+    if kind == "m04_unit_kpi" and action in ACTIONS["m04_unit_kpi"]:
+        # Part 7a: the owner's reading is stored on the item (units.owner_breaks reads it);
+        # the series stay split either way (D-M04-42), Part 7b's unit flags read the answer.
+        what = payload.get("metric", "KPI")
+        if action == "break_confirmed":
+            return f"break_confirmed: {what} categories changed; earlier and later not compared"
+        return f"same_scope: {what} renamed only; the owner reads the lines as one scope"
     raise QueueError(f"'{action}' is not an action for {kind}.")

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Hand-built, trimmed: Alphabet Q2 2026 10-Q extracted instance, cover counts by class at 2026-07-15. Total 12,230,000,000 as Part 1a live check 1 read from R1; the split by class is illustrative (see README). -->
+<xbrli:xbrl xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:us-gaap="http://fasb.org/us-gaap/2025" xmlns:dei="http://xbrl.sec.gov/dei/2025" xmlns:goog="http://www.abc.xyz/20260630">
+ <xbrli:context id="c-A"><xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">0001652044</xbrli:identifier><xbrli:segment><xbrldi:explicitMember dimension="us-gaap:StatementClassOfStockAxis">us-gaap:CommonClassAMember</xbrldi:explicitMember></xbrli:segment></xbrli:entity><xbrli:period><xbrli:instant>2026-07-15</xbrli:instant></xbrli:period></xbrli:context>
+ <xbrli:context id="c-B"><xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">0001652044</xbrli:identifier><xbrli:segment><xbrldi:explicitMember dimension="us-gaap:StatementClassOfStockAxis">us-gaap:CommonClassBMember</xbrldi:explicitMember></xbrli:segment></xbrli:entity><xbrli:period><xbrli:instant>2026-07-15</xbrli:instant></xbrli:period></xbrli:context>
+ <xbrli:context id="c-C"><xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">0001652044</xbrli:identifier><xbrli:segment><xbrldi:explicitMember dimension="us-gaap:StatementClassOfStockAxis">goog:CapitalStockClassCMember</xbrldi:explicitMember></xbrli:segment></xbrli:entity><xbrli:period><xbrli:instant>2026-07-15</xbrli:instant></xbrli:period></xbrli:context>
+ <xbrli:unit id="shares"><xbrli:measure>xbrli:shares</xbrli:measure></xbrli:unit>
+ <dei:EntityCommonStockSharesOutstanding contextRef="c-A" unitRef="shares" decimals="INF">5800000000</dei:EntityCommonStockSharesOutstanding>
+ <dei:EntityCommonStockSharesOutstanding contextRef="c-B" unitRef="shares" decimals="INF">850000000</dei:EntityCommonStockSharesOutstanding>
+ <dei:EntityCommonStockSharesOutstanding contextRef="c-C" unitRef="shares" decimals="INF">5580000000</dei:EntityCommonStockSharesOutstanding>
+</xbrli:xbrl>

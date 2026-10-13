@@ -25,6 +25,7 @@ from fastapi.templating import Jinja2Templates
 
 from engine import review
 from engine.calls import ir_inbox
+from engine.financials import units_view as m04_units_view
 from engine.financials import views as m04_views
 from engine.financing import links as fin_links
 from engine.financing import views as fin_views
@@ -240,6 +241,7 @@ def create_app(settings: UiSettings) -> FastAPI:
             from engine.financials.flags_view import flags_view  # M04 Part 3
 
             ctx["m04_flags"] = flags_view(engine, corpus, cik, datetime.now(UTC).date())
+            ctx["m04_units"] = m04_units_view.company_view(engine, cik, ticker)  # Part 7a
         elif tab == "insiders":
             ctx["txns"] = services.insider_txns(engine, cik)
         elif tab == "events":
