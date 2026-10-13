@@ -1,0 +1,15 @@
+<table class="data">
+  <tr><th>Company</th><th>CvD</th><th class="num">Conf.</th><th>Coverage</th><th>Gate</th><th>M01 (rule 3)</th><th>Exit warning</th><th>Pass</th></tr>
+  {% for r in v.everyone %}
+  <tr>
+    <td><a href="/c/{{ r.ticker }}?tab=m04">{{ r.ticker }}</a></td>
+    <td>{% if r.state %}<b>{{ r.state }}</b>{% if r.raw and r.raw != r.state %} <span class="muted">(computed {{ r.raw }})</span>{% endif %}{% if r.stale %} · stale{% endif %}{% if r.overdue %} · overdue{% endif %}{% elif r.why %}<span class="muted">{{ r.why }}</span>{% else %}<span class="muted">not run yet</span>{% endif %}</td>
+    <td class="num">{{ '%.2f' | format(r.confidence) if r.confidence is not none else '—' }}</td>
+    <td>{{ r.coverage or '—' }}</td>
+    <td>{{ r.gate or '—' }}</td>
+    <td>{{ r.m01 or '—' }}</td>
+    <td>{{ r.exit or '—' }}</td>
+    <td class="muted">{{ (r.at or '')[:10] }}</td>
+  </tr>
+  {% endfor %}
+</table>

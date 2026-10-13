@@ -232,6 +232,21 @@ def financials_quality_local_step(engine, corpus, report) -> str:
     return "\n" + "\n".join(lines) + "\n"
 
 
+def financials_cvd_local_step(engine, report) -> str:
+    """M04 Part 8a local pass (0 SEC requests), after the gate and quality local passes so
+    filing status, the gate and the latest facts are current: the CvD grid, its state and
+    the M01 reading for every covered company; `m04_cvd` items (group 2, capped; D-M04-56,
+    -58, -61). Never fails the run."""
+    from engine.financials.cvd_step import run_local_part
+
+    try:
+        companies = companies_of(report) if report is not None else {}
+        lines = run_local_part(engine, companies, datetime.now(UTC))
+    except Exception as e:  # must not break the run report
+        lines = [f"M04 CvD — local pass (Part 8a): error — {type(e).__name__}: {e}"]
+    return "\n" + "\n".join(lines) + "\n"
+
+
 def seasonal_step(engine, corpus, report, background: bool):
     """D-M02-51: a due seasonal pass is mined here, locally (no SEC), and a background run
     then asks Yes/No after releasing the lock. Manual runs and a pass declined today get
@@ -496,6 +511,7 @@ def _run(args, engine, folder):
     prices += financials_gate_text_local_step(engine, corpus, report)
     prices += financials_gate_local_step(engine, report)
     prices += financials_quality_local_step(engine, corpus, report)
+    prices += financials_cvd_local_step(engine, report)
     text = format_report(report) + calls + prices
     logs = ROOT / "logs"
     logs.mkdir(exist_ok=True)

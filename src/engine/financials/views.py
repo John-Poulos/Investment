@@ -99,7 +99,8 @@ STILL_TO_COME = (
     ("Survival gate: 25-year EDGAR text history and undrawn-credit finder (MVP: deferred)", "4b"),
     ("Dilution and financing pressure", "5"),
     ("Margin collapse (R12), unit economics, customers", "7b"),
-    ("Cycle vs decline, health vote, overreaction gauge", "8a"),
+    # Part 8a built the CvD grid and health vote on the M04 tab; deferred by the owner (D31):
+    ("Normalized earnings power, overreaction gauge, Red Flag 1 row", "8a (deferred, MVP)"),
 )
 
 

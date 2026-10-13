@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}M04 CvD — Investment engine{% endblock %}
+{% block topleft %}<a href="/">← Engine</a><span class="name">M04 — Cycle vs Decline</span>{% endblock %}
+{% block body %}
+<main class="detail" style="max-width: 1200px">
+  <h2>Watchlist — CvD <span class="muted">(one line per company from the last local pass; open a company for its grid)</span></h2>
+  {% if v.everyone %}{% include "tabs/_m04_cvd_summary.html" %}{% else %}<p class="empty">No company is covered yet.</p>{% endif %}
+  <p class="note">The CvD state, its confidence and coverage, the survival gate and how M01 reads them (D-M04-58). Open <code>m04_cvd</code> items: {% for i in items %}<a href="/review/{{ i }}">{{ i }}</a>{{ ', ' if not loop.last }}{% else %}none{% endfor %}. Recomputed on every logon refresh (0 SEC requests) and by <code>run_financials.py cvd --no-sec</code>.</p>
+</main>
+{% endblock %}

@@ -159,3 +159,16 @@ filings' style unless marked otherwise.
 | boeing_10k_fy2023_excerpt.txt | Boeing FY2023 10-K: "At December 31, 2023, we were in compliance with the covenants for our debt and credit facilities." (PROBE_RESULTS S10, offset 149363, **verbatim**) | the risk-factor, credit-line and going-concern-basis sentences |
 | infq_10k_fy2025_excerpt.txt | Infleqtion FY2025 10-K (0001193125-26-134544, period 2025-12-31, filed 2026-03-31): "substantial doubt … was alleviated due to the closing of the Business Combination" (PROBE_RESULTS S12) | all wording except the quoted words |
 | synthetic_cases_excerpt.txt | IFRS "material uncertainty" (IAS 1.25 wording), a negation, a Nasdaq deficiency letter, a hypothetical delisting, "no event of default", an acceleration | **synthetic** (no filing) |
+## Part 8a
+
+`cvd_cases_20261013.json`: one compact file per case set (layout in its "about" key; the test's
+`load()` turns it into companyfacts rows, one accession per company and filed date). $M,
+shares in millions.
+
+| Company | Figures and their source | Placeholders |
+|---|---|---|
+| MU | FY2008–FY2023 revenue (pack worked example D and L1); gross margin by year (FY2009 −9.2%, FY2010 32.0%, FY2022 45.2%, FY2023 −9.1% from the pack; the others near Micron's reported margins); FY2020–23 cost of goods sold and quarters FY2020–Q1 FY2024 (revenue sums equal the pack's TTMs: 27,156, 23,063, 18,173, 15,540, 16,181); Q2 FY23 inventory 8,359 / 8,129 and write-down 1,430 (probe L9: 153.1 / 235.0 days); capex FY2020–23 and R&D (R6 brief: 1.30×, 3,114 vs 2,793); F-quality inputs FY2014–16 and FY2021–23 (pack worked example C: NI −5,833, CFO 1,559, assets 66,283 / 58,849, leverage 10.9% → 20.0%, current ratio 2.89 → 4.46, basic shares 1,112 → 1,093); 10-K filed 36 days after year end (2022-10-07, 2023-10-06), 10-Qs 21 days (Q1 FY23 2022-12-22) | **operating income, pretax income, tax, equity, long-term debt and cash for the ROIC history are illustrative** (OI = revenue × (gross margin − 12%)); quarterly cost, capex and OCF splits, inventory at other quarter ends, FY2016 current assets / liabilities, ST investments 4,000 at FY2023 |
+| WDC | quarters 2021-10-01 … 2023-09-29: revenue (TTM to 2023-09-29 vs 2022-09-30 = −35.2%, pack worked example B); Q1 FY24 10-Q filed 2023-11-07 | **cost, capex (−48% TTM, pack) and inventory values illustrative** |
+| INTC | 2008–2024 revenue and gross margin (pack worked example A; Intel 10-Ks); capex 2020–24, R&D 2020–24 (R6 brief: 47.5% vs 27.1%, 16,046 vs 15,425); F-quality inputs 2021–24 (Intel 10-Ks: NI, CFO, assets, long-term debt, current assets / liabilities, basic shares 4,108 → 4,190 → 4,280); Q3–Q4 2022 and 2023 revenue | **quarterly cost and inventory, Q3–Q4 2023 OCF and capex, year-end 2023 cash 7,079 and ST investments 17,955 near the reported figures**; 2021 CFO |
+| AMD, TXN, NVDA | revenue (pack worked example A); gross margins 2022–23 and NVDA FY2023 64.9 → 56.9% (GM −8.0 pp), operating income 10,041 → 4,224 | AMD/TXN 2021 gross profit, NVDA FY2021 and FY2024 operating income, capex values near the reported figures |
+| QCOM | calendar-year 12-month revenue 36,036 / 42,958 / 36,292 (the pack's TTMs to December) entered as fiscal years with year end 1231 | **gross profit (57.0% / 55.5%) and capex (−39%) illustrative; Qualcomm's real fiscal year ends in September** |

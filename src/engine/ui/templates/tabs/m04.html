@@ -1,0 +1,87 @@
+{% if msg %}<div class="okbox">{{ msg }}</div>{% endif %}
+{% if detail %}<div class="warnbox">{{ detail }}</div>{% endif %}
+{% set v = m04_cvd %}{% set c = v.c %}
+<h2 id="cvd">Cycle vs Decline — {{ ticker }} <span class="muted">(M04 Part 8a; D-M04-1, -52…68, -100…105; computed now from stored facts)</span></h2>
+{% if c.excluded or c.missing %}
+<p class="empty">missing: {{ c.excluded or c.missing }}</p>
+{% else %}
+<table class="data">
+  <tr><th>CvD state</th><td><b>{{ c.state }}</b>{% if c.state != c.raw_state %} <span class="muted">(your answer; computed {{ c.raw_state }}, item {{ c.answer.item_id }})</span>{% endif %} · confidence {{ v.conf }} · coverage {{ c.coverage_text() }}
+    {% for i, why in v.items %}<br><a href="/review/{{ i }}">m04_cvd item {{ i }}</a> (priority 2): your answer becomes the state (D-M04-56){% endfor %}
+    <br><span class="muted">{{ c.ref_kind }} to {{ c.ref_end }} · latest filing {{ c.latest_filed }}</span></td></tr>
+  <tr><th>Activation</th><td>{% if c.active %}active: {{ c.triggers | join('; ') }}{% else %}not active (NO_SLOWDOWN): {{ c.tests | join('; ') }}{% endif %}<br><span class="muted">TTM revenue down, gross margin −3 pp†, operating income −25%†, or the latest quarter −10%† (D-M04-55, -67); off after 2 clear quarters (S6.9)</span></td></tr>
+  <tr><th>Survival gate</th><td>{% if c.gate %}<b>{{ c.gate.state }}</b> · {{ c.gate.scope_name }} · <a href="/c/{{ ticker }}?tab=financials#gate">gate panel</a>{% if c.gate.state == 'fail' %} — the gate overrides the grid (D-M04-31){% endif %}{% else %}—{% endif %}</td></tr>
+  <tr><th>M01 reading</th><td>rule 3 tranches: <b>{{ c.m01.rule3 }}</b><br>rule 7 strength beyond 2σ: <b>{{ c.m01.rule7 }}</b><br>rule 4 exit warning: {{ c.m01.rule4 | join('; ') or 'none' }}{% if c.m01.notes %}<br><span class="muted">red flags (listed, never blocking; D-M04-21, -60): {{ c.m01.notes | join('; ') }}</span>{% endif %}</td></tr>
+  <tr><th>Stage / filing</th><td>{{ v.stage_text }} · filing status {{ c.status or 'not evaluated' }}{% if c.status in ('stale', 'overdue') %} ({{ c.status_text }}){% endif %}{% if c.non_reliance %}<br><b>{{ c.non_reliance }}</b>{% endif %}</td></tr>
+</table>
+<p class="note">How M01 reads it (D-M04-58 = D-M01-5): only CYCLICAL_TROUGH with a gate pass adds rule-7 strength; NO_SLOWDOWN allows tranches; AMBIGUOUS and STUMBLE wait for your answer on the <code>m04_cvd</code> item; CYCLE_PLUS_DAMAGE, STRUCTURAL_DECLINE and an overdue filing block tranches; damage, decline, overdue and a gate fail raise exit warnings (warnings only, D16). Stale: the first tranche may use the carried state, later tranches wait for the filing (D-M04-61).</p>
+
+<h2>Grid <span class="muted">(missing rows leave the denominator; ≥ 2 present rows and 2/3† of present weight decide a question, D-M04-56)</span></h2>
+<div style="overflow-x:auto">
+<table class="data">
+  <tr><th>Question</th><th>Row</th><th>Value</th><th>Reading</th><th>Why / source</th></tr>
+  {% for q, rows in (('Q1', v.q1), ('Q2', v.q2)) %}
+  {% set qq = c.q1 if q == 'Q1' else c.q2 %}
+  {% for r in rows %}
+  <tr{% if not r.counted %} class="muted"{% endif %}>
+    {% if loop.first %}<td rowspan="{{ rows | length }}"><b>{{ questions[q] }}</b><br><span class="muted">{{ qq.text() }}</span></td>{% endif %}
+    <td>{{ r.label }}</td>
+    <td>{% if r.present %}{{ r.value }}{% elif r.value %}<span class="muted">{{ r.value }}</span>{% endif %}</td>
+    <td>{% if r.present %}<b>{{ readings[r.reading] }}</b>{% else %}{{ readings[r.reading] }}{% endif %}</td>
+    <td>{% if r.reading == 'missing' %}missing: {% endif %}{{ r.why }}{% if not r.counted %} <span class="muted">(not counted in coverage)</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+  {% endfor %}
+</table>
+</div>
+<p class="note">Rows from deferred parts read “missing: deferred (MVP)” and leave the denominator (D31): the customer row and the R12 vote (Part 7b); the moat row is not applicable until M06. Not built in the MVP: normalized earnings power and the overreaction gauge (informs, never overrides, D-M04-62) and the Red Flag 1 row (<code>burn_no_share_gain</code>); their signals are written as missing rows. Industry pricing waits for an industry series (DS13).</p>
+
+<h2>Health scores <span class="muted">(F-quality votes; Piotroski F and Mohanram G shown, not voted — D-M04-53, -59, -65)</span></h2>
+<table class="data">
+  <tr><th>Score</th><th>Year</th><th>Value</th><th>Points</th></tr>
+  {% for name, s in (('F-quality (0–5, the health vote)', c.f_quality), ('Piotroski F (0–9), shown, not voted', c.f_score), ('Mohanram G (0–8), shown, not voted', c.g_score)) %}
+  {% if s %}
+  <tr><td>{{ name }}</td><td>{{ s.label }}</td>
+    <td>{% if s.missing %}<span class="muted">missing: {{ s.missing }}</span>{% else %}<b>{{ s.known }}</b>{% if s.band %} → {{ s.band }}{% endif %}{% if s.kind == 'g_score' %} of {{ s.n }}{% endif %}{% endif %}</td>
+    <td class="muted">{{ s.text() }}</td></tr>
+  {% endif %}
+  {% endfor %}
+</table>
+<p class="note">Equity point while Part 5 is deferred: kept unless basic weighted-average shares rose more than 10%† in the year (D-M04-101); an unconfirmed stage leaves it missing (D-M04-65), and the vote is decided only when the missing point cannot change the band.</p>
+{% endif %}
+
+<h2 id="share">Market share <span class="muted">(owner entries, D-M04-68; DS16)</span></h2>
+{% if v.shares %}
+<table class="data">
+  <tr><th>Market</th><th>Period</th><th class="num">Share</th><th class="num">Market size</th><th>Source</th><th>Grade</th><th>Status</th><th></th></tr>
+  {% for s in v.shares %}
+  <tr{% if s['status'] != 'active' %} class="muted"{% endif %}><td>{{ s['market'] }}</td><td>{{ s['period_end'] }}</td><td class="num">{{ '%.1f' | format(s['share_pct']) }}%</td>
+    <td class="num">{{ s['market_size'] | num if s['market_size'] else '—' }}</td>
+    <td>{% if s['source_url'] %}<a href="{{ s['source_url'] }}" target="_blank" rel="noopener">{{ s['source'] }}</a>{% else %}{{ s['source'] }}{% endif %}{% if s['note'] %}<br><span class="muted">{{ s['note'] }}</span>{% endif %}</td>
+    <td>{{ s['grade'] }}</td><td>{{ s['status'] }}{% if s['withdrawn_at'] %} {{ s['withdrawn_at'][:10] }}{% endif %}<br><span class="muted">{{ s['entered_by'] }} {{ s['entered_at'][:10] }}</span></td>
+    <td>{% if viewer.is_owner and s['status'] == 'active' %}<form method="post" action="/m04/share/{{ ticker }}/{{ s['share_id'] }}/withdraw"><button class="btn" type="submit">Withdraw</button></form>{% endif %}</td></tr>
+  {% endfor %}
+</table>
+{% else %}<p class="empty">missing: no share data (the Q2 share row stays missing until two entries about 4 quarters apart exist).</p>{% endif %}
+{% if viewer.is_owner %}
+<form method="post" action="/m04/share/{{ ticker }}" class="entry">
+  <h3 class="sub">Add market share</h3>
+  <label>Period end <input name="period_end" placeholder="2025-12-31" size="11" required></label>
+  <label>Share % <input name="share_pct" placeholder="23.5" size="6" required></label>
+  <label>Market <input name="market" placeholder="DRAM revenue" size="22" required></label>
+  <label>Market size (USD, optional) <input name="market_size" placeholder="98e9" size="10"></label>
+  <label class="wide">Source <input name="source" placeholder="TrendForce, DRAM revenue ranking Q4 2025" size="44" required></label>
+  <label>Source URL <input name="source_url" size="30"></label>
+  <label>Kind <select name="kind"><option value="third_party">third-party share (grade B)</option><option value="industry_total">share of an industry total stated in a filing (grade A; name the filing in Source)</option></select></label>
+  <label class="wide">Note <input name="note" size="40" placeholder="optional"></label>
+  <button class="btn" type="submit">Add market share</button>
+  <p class="muted">“Weakening” = down ≥ 1 pp† against an entry about 4 quarters earlier in the same market, in a flat or growing market; without market sizes the market is read as flat (D-M04-105). Entries are withdrawn, never deleted; the CvD rows recompute at once.</p>
+</form>
+{% endif %}
+
+<p class="note">On the Financials tab: {% for label, anchor in links %}<a href="/c/{{ ticker }}?tab=financials{{ anchor }}">{{ label }}</a>{{ ' · ' if not loop.last }}{% endfor %}.</p>
+
+{% if v.everyone %}
+<h2>Watchlist — CvD <span class="muted">(from the last local pass; <a href="/m04">all companies</a>)</span></h2>
+{% include "tabs/_m04_cvd_summary.html" %}
+{% endif %}

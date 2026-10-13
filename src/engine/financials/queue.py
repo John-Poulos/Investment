@@ -74,6 +74,7 @@ KIND_LABELS = {
     "m04_gc_text": "M04: going-concern wording to read (alleviated, audit matter, IFRS, "
     "hypothetical)",  # Part 4b
     "m04_covenant": "M04: covenant waived or reset, or a listing notice",  # Part 4b
+    "m04_cvd": "M04: CvD state to choose (AMBIGUOUS, STUMBLE or CYCLE_PLUS_DAMAGE)",  # Part 8a
 }
 ACTIONS = {
     "m04_stage": ("confirm",),  # target = the stage chosen (default: the computed stage)
@@ -92,6 +93,8 @@ ACTIONS = {
     # Part 4b (D-M04-34, -98): stored on the gate_text rows; the gate reads them
     "m04_gc_text": ("noted", "treat_as_fail", "misread"),
     "m04_covenant": ("noted", "treat_as_fail", "misread"),
+    # Part 8a (D-M04-56): target = the state chosen; a note is required
+    "m04_cvd": ("set_state",),
 }
 
 
@@ -351,6 +354,10 @@ def apply(
         from engine.financials import gate_text  # Part 4b (D-M04-98)
 
         return gate_text.apply_action(engine, item_id, kind, action, payload, cik, now, note)
+    if kind == "m04_cvd" and action == "set_state":
+        from engine.financials import cvd_step
+
+        return cvd_step.answer(engine, item_id, payload, cik, target, note, by, now)
     if kind in ("m04_gate_fail", "m04_runway", "m04_score_gap", "m04_gate_input"):
         from engine.financials import gate_view
 

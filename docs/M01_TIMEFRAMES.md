@@ -13,7 +13,7 @@ A holding = core lots under one primary profile + optional overlays (M12 options
 |---|---|---|---|
 | Daily prices (weekly derived) | Free market data; source TBD at M02 | A | Daily |
 | 10-Q, 10-K, 8-K, Form 4 | SEC EDGAR | A | On filing |
-| CvD state, survival gate (`survival_gate`, `runway_q`; built M04 Part 4a) | M04 | Per input (weakest deciding input; B when an owner-entered credit line counts) | On filing and on each refresh (due dates, D-M04-61) |
+| CvD state, survival gate (`survival_gate`, `runway_q`; built M04 Part 4a; `cvd_state`, `cvd_confidence`, coverage; built M04 Part 8a) | M04 | Per input (weakest deciding input; B when an owner-entered credit line counts) | On filing and on each refresh (due dates, D-M04-61) |
 | Tax lots (date, qty, cost) | User entry or broker export | A | On trade |
 | Available funds, conviction (1–5) | User settings | — | On change |
 | CPI, M2 | FRED | A | Monthly |
@@ -52,6 +52,12 @@ A holding = core lots under one primary profile + optional overlays (M12 options
 7. Band depth is reported as σ below the 20-week mean with no cap. Beyond 2σ grades as a stronger signal only when CvD = CYCLICAL_TROUGH and the survival gate passes (gauge shown, not required, D-M04-62; read per D-M01-5); in any other state the depth is shown as a warning with no added strength (D27).
 
 **Reading M04's gate (built M04 Part 4a, D-M04-31, -35, -38, -61).** The `survival_gate` signal's `value_text` is one of pass, warn, fail, incomplete, not_applicable; `method` names the trigger or the missing inputs. Rules 1, 3 and 7 read pass and warn as a pass; fail, incomplete and not_applicable as not-pass (incomplete = a required input missing, an overdue filing, a foreign filer's inputs older than 16 months, or inputs withheld as inconsistent; not applicable = `fund`, `financial`, untagged FF12 group 11). Rule 4's exit warning fires on fail and on an overdue filing (the gate `method` lists "exit warning: …"). A capex-funded name below 6 quarters reads warn with an open `m04_runway` review: rule-3 adds allowed, rule-7 strength blocked while it is open (the `runway_q` method says "capex-funded review open" and, once answered, the owner's choice). `distress_score`, `fcf_burn`, the debt rows and `negative_equity` are warnings or information and never gate inputs (D-M04-31, -21, -60).
+
+**Reading M04's CvD state (built M04 Part 8a, D-M04-56, -58, -61, -103).** `cvd_state` (`value_text`) is the effective state: the computed one, or the owner's answer on an `m04_cvd` item, which replaces it while the computed state stays the same (the method says "owner answer …"). Its `method` ends with M04's own reading ("M01: rule 3 tranches: … · rule 7 strength: … · rule 4 exit warning: …"), which rules 3, 4 and 7 apply as built:
+- **Rule 3 (tranches):** allowed on CYCLICAL_TROUGH and NO_SLOWDOWN with a gate pass or warn, and on STUMBLE once the owner has answered it; blocked on AMBIGUOUS and an unanswered STUMBLE ("until you answer the m04_cvd item"), on CYCLE_PLUS_DAMAGE and STRUCTURAL_DECLINE, on an overdue filing, and on a gate fail, incomplete or not applicable (the gate overrides the grid). Stale (a period ended unfiled): the first tranche may use the carried state, later tranches wait for the filing.
+- **Rule 7 (strength beyond 2σ):** only CYCLICAL_TROUGH with a gate pass or warn and no open capex-funded runway review (D-M04-38); never needs the overreaction gauge (D-M04-62; the gauge is deferred in the MVP).
+- **Rule 4 (exit warning):** CYCLE_PLUS_DAMAGE, STRUCTURAL_DECLINE (computed or answered), a gate fail, an overdue filing and a core `guidance_removed` in the last 12 months; red-flag warnings (`distress_score` distress, open non-reliance, restatement 4.02 / escalated, `special_items`, `eq_cash`, `negative_equity`) are listed and never block.
+- `cvd_confidence` (lower of the two winning shares) and `cvd_coverage_q1` / `_q2` are shown beside the state; NO_SLOWDOWN writes them as missing ("not active").
 
 ## Failure modes
 | Input or indicator | How it can mislead | Guard |
