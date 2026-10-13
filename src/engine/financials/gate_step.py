@@ -11,7 +11,8 @@ after prices, so filing status, Part 3's events and the latest closes are curren
   daily; price-dependent values are updated in place with the close date in `method`);
 - review items for core and promoted names only (tracked: rows, no items, D-M04-80):
   `m04_gate_fail` when the gate turns fail or incomplete (alert, uncapped, priority 1;
-  a first run that finds a fail or incomplete queues it too), `m04_runway` when a
+  a first run that finds a fail or incomplete queues it too; not when Part 4b's text is the
+  only trigger, whose text alert is then the one alert, D-M04-97), `m04_runway` when a
   capex-funded runway turns below 6 quarters (D-M04-38), `m04_score_gap` when the score
   turns distress while the gate passes (S4.8), `m04_gate_input` per missing or untagged
   non-financing input (operational, uncapped). A turn is remembered in `refresh_state`
@@ -406,7 +407,10 @@ def propose_items(
     live: dict[str, set[str]] = {
         k: set() for k in ("m04_gate_fail", "m04_runway", "m04_score_gap", "m04_gate_input")
     }
-    if key_fail:
+    # Text the only trigger: the text alert is the one alert (owner 2026-10-13, D-M04-97);
+    # with other triggers too, this alert names the text among them
+    text_only = g.state == "fail" and bool(g.triggers) and set(g.triggers) <= set(g.text_triggers)
+    if key_fail and not text_only:
         key = f"{cik}:{key_fail}:{g.state}"
         live["m04_gate_fail"].add(key)
         why = "; ".join(g.triggers) if g.state == "fail" else "; ".join(g.missing)

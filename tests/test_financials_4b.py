@@ -72,7 +72,13 @@ def classes(text: str, exhibit: bool = False) -> list[str]:
         ),
         ("invitae_10q_q3_2023_excerpt.txt", ["management_exists"], False),
         ("invitae_10q_q2_2023_excerpt.txt", ["boilerplate"], False),
-        ("proterra_10k_fy2022_excerpt.txt", ["breach_unwaived", "reclass_covenant"], False),
+        # the waiver on the convertible notes is a waived default of its own (warn); the senior
+        # facility's default is not waived (fail)
+        (
+            "proterra_10k_fy2022_excerpt.txt",
+            ["breach_unwaived", "breach_waived", "reclass_covenant"],
+            False,
+        ),
         ("microvast_10k_fy2025_excerpt.txt", ["auditor_cam", "alleviated", "alleviated"], False),
         ("riot_10k_fy2025_excerpt.txt", ["hypothetical"], False),
         ("uti_10q_q3_fy2025_excerpt.txt", ["breach_waived", "breach_waived", "compliant"], False),
@@ -82,7 +88,7 @@ def classes(text: str, exhibit: bool = False) -> list[str]:
         (
             "synthetic_cases_excerpt.txt",
             [
-                "ifrs_material_uncertainty",
+                "ifrs_mu_exists",  # owner 2026-10-13: "a material uncertainty exists" fails
                 "negated",
                 "listing_deficiency",
                 "no_default",
@@ -99,8 +105,8 @@ def test_fixture_sentences_get_their_class(fixture, want, exhibit):
 def test_effects_by_class_follow_d_m04_34():
     fail = {k for k, v in gate_text.CLASSES.items() if v[1] == "fail"}
     warn = {k for k, v in gate_text.CLASSES.items() if v[1] == "warn"}
-    assert fail == {"auditor_gc", "management_exists", "breach_unwaived", "forbearance",
-                    "reclass_covenant", "acceleration", "delisting"}  # fmt: skip
+    assert fail == {"auditor_gc", "management_exists", "ifrs_mu_exists", "breach_unwaived",
+                    "forbearance", "reclass_covenant", "acceleration", "delisting"}  # fmt: skip
     assert warn == {"alleviated", "auditor_cam", "ifrs_material_uncertainty", "breach_waived",
                     "reset", "listing_deficiency"}  # fmt: skip
     assert gate_text.CLASSES["hypothetical"][1] == "hypothetical"
@@ -127,9 +133,10 @@ def test_negations_hypotheticals_headings_and_exhibit_terms():
     # a credit agreement defines "Event of Default" and forbearance: only the reset terms count
     ex = (
         "“Event of Default” has the meaning set forth in Section 8.01. The Lenders may agree to a forbearance. "
-        "The parties amend the financial covenants in Section 7.11 as follows."
+        "The parties amend the financial covenants in Section 7.11 to conform them to the Revolving Credit Agreement. "
+        "The financial covenant in Section 7.11 is amended to increase the maximum Consolidated Leverage Ratio to 5.75 to 1.00."
     )
-    assert classes(ex, exhibit=True) == ["reset"]
+    assert classes(ex, exhibit=True) == ["reset"]  # a conforming amendment is no relief
     # "not in compliance" outside a debt context (NVIDIA's 68 EFTS hits) is no covenant class
     assert (
         classes("Products that are not in compliance with export regulations may be seized.") == []
@@ -144,6 +151,93 @@ def test_waiver_in_the_next_sentence_counts_only_when_it_refers_back():
     assert classes(t)[0] == "breach_unwaived"
     t2 = t.replace("of their cross-default provisions", "for such breach")
     assert classes(t2)[0] == "breach_waived"
+
+
+# --- Live check 1 (2026-10-13): the watchlist's real sentences ------------------------------------
+# Quotes from logs/financials_gate-text_20261013-132606.txt; endings the log cut ("…") are
+# completed in the filing's style and marked "(end reconstructed)".
+
+GOOG_INDEMNITY = "We have agreed to defend and/or indemnify certain parties against losses arising from a breach of representations or covenants, or out of intellectual property infringement or other claims made against certain parties."
+GOOG_HARMLESS = "We have agreed to defend and/or hold certain parties harmless against losses arising from a breach of representations or covenants, or out of intellectual property infringement or other claims made against certain parties."
+META_HARMLESS = "We have agreed to hold certain parties harmless against losses arising from a breach of representations or covenants, or out of intellectual property infringement or other claims made by third parties."
+GFS_LEGAL = "On September 14, 2021, the Court granted our motion to dismiss IBM’s claims of fraud, unjust enrichment and breach of the implied covenant of good faith and fair dealing."
+SPCX_NOTES = "The SpaceX Notes contain customary events of default and affirmative and negative covenants, including restrictions on additional liens in excess of 7.5% of the Company’s consolidated total assets and fundamental changes (which is limited to a merger where the Company is not the surviving entity)."  # (end reconstructed)
+SPCX_FACILITY = "The SpaceX Credit Facility is subject to certain customary representations, warranties, covenants, and events of default, including a maximum financial covenant requiring the Company to maintain a Consolidated Leverage Ratio (as defined in the SpaceX Credit Facility) of no greater than 3.75 to 1.00."  # (end reconstructed)
+SPCX_COMPLIANT = "The Company was in compliance with the covenants as of June 30, 2026."
+SPCX_TECH_DEFAULT = "The Company was in compliance with the covenants as of June 30, 2026; however, the Company had a technical default when the Company acquired xAI on February 2, 2026 due to the amount of debt assumed as part of the acquisition at the subsidiary level."
+SPCX_WAIVER = "On March 2, 2026, the Company obtained a waiver from the syndicate of banks and amended the SpaceX Credit Facility allowing for the debt refinance completed on March 2, 2026, resulting in the Company being in compliance with all covenants."
+GFS_RISK_1 = "Although our lenders agreed to waive the defaults, there is no guarantee that we will always be able to obtain default waivers if such a breach were to occur again, and any inability to obtain such default waivers in the future following any such breach could materially and adversely affect our results of operations."  # (end reconstructed)
+GFS_RISK_2 = "Although our lenders agreed to waive the defaults, there is no guarantee that we will always be able to receive default waivers, and if we are unable to acquire waivers from our lenders, our lenders could terminate commitments to lend and accelerate amounts outstanding to be due and payable immediately."  # (end reconstructed)
+MRVL_CONFORM = "The amendment modifies the existing agreement to, among other things, adopt Secured Overnight Financing Rate (“SOFR”) interest rates and conform the maximum leverage ratio financial covenant with the amended and restated revolving credit agreement."
+
+
+@pytest.mark.parametrize(
+    "sent", [GOOG_INDEMNITY, GOOG_HARMLESS, META_HARMLESS, GFS_LEGAL, SPCX_NOTES, SPCX_FACILITY]
+)
+def test_live_check_1_indemnities_lawsuits_and_facility_descriptions_are_no_breach(sent):
+    assert classes(sent) == []
+
+
+def test_live_check_1_spcx_technical_default_and_waiver_are_waived_not_compliant():
+    t = " ".join([SPCX_NOTES, SPCX_COMPLIANT, SPCX_TECH_DEFAULT, SPCX_WAIVER, SPCX_FACILITY])
+    hits = gate_text.scan_text(t).hits
+    assert [h.klass for h in hits] == ["compliant", "breach_waived", "breach_waived"]
+    assert "in compliance stated" in hits[1].note and "waiver obtained" in hits[2].note
+
+
+def test_live_check_1_gfs_past_waiver_in_a_risk_factor_is_waived():
+    assert classes(GFS_RISK_1) == ["breach_waived"] and classes(GFS_RISK_2) == ["breach_waived"]
+    # purely hypothetical waiver wording stays out
+    assert (
+        classes(
+            "We may need to obtain waivers from our lenders if we breach the covenants under the credit agreement."
+        )
+        == []
+    )
+
+
+def test_live_check_1_reset_needs_relief_not_a_conforming_amendment():
+    assert classes(MRVL_CONFORM) == []
+    assert classes(MRVL_CONFORM, exhibit=True) == []
+    for relief in (
+        "The amendment increases the maximum leverage ratio covenant to 4.50 to 1.00 for the fiscal quarters through January 2027.",
+        "In March 2026 we amended the credit agreement to suspend the financial covenants through June 30, 2027.",
+        "The lenders agreed to waive the leverage ratio covenant test through the quarter ending December 31, 2026.",
+        "We amended the term loan in order to avoid a breach of the minimum liquidity covenant.",
+    ):
+        assert classes(relief) == ["reset"], relief
+
+
+def test_live_check_1_only_asserted_breaches_fail():
+    for asserted in (
+        "We breached the fixed charge coverage ratio covenant under the Credit Agreement as of March 31, 2026.",
+        "We are in default under the indenture governing our 2028 Notes.",
+        "As of June 30, 2026, we did not comply with the minimum liquidity covenant in our term loan.",
+        "An event of default has occurred and is continuing under the Credit Agreement.",
+        "We had an event of default under the term loan, which the lenders have not waived.",
+    ):
+        assert classes(asserted) == ["breach_unwaived"], asserted
+    for hypo in (
+        "If an event of default has occurred and is continuing under the indenture, the trustee may declare the notes due.",
+        "Any future breach of the covenants in the credit agreement would result in an event of default.",
+    ):
+        assert classes(hypo) == [], hypo
+    assert classes("We have never breached a covenant under our credit facility.") == ["no_default"]
+    # a waiver of something other than a default is no waived breach
+    assert classes("The holders of the notes waived their right to receive interest in kind.") == []
+
+
+def test_ifrs_material_uncertainty_exists_fails_hypothetical_and_requirements_do_not():
+    exists = "These events or conditions indicate that a material uncertainty exists that may cast significant doubt on the Group’s ability to continue as a going concern."
+    assert (
+        classes(exists) == ["ifrs_mu_exists"] and gate_text.CLASSES["ifrs_mu_exists"][1] == "fail"
+    )
+    assert classes(
+        "If the refinancing is not completed, a material uncertainty may arise about the Group’s ability to continue as a going concern."
+    ) == ["hypothetical"]
+    assert classes(
+        "IAS 1 requires management to disclose material uncertainties related to events or conditions that may cast significant doubt upon the entity’s ability to continue as a going concern."
+    ) == ["boilerplate"]
 
 
 # --- Storing, the current report and the gate (D-M04-96) -----------------------------------------
@@ -250,7 +344,7 @@ def test_six_ks_after_the_annual_report_are_current(dbs):
     gate_text.scan_company(engine, corpus, "0001709048", "GFS", NOW, mf=MF)
     tg = gate_text.gate_lines(engine, "0001709048", TODAY)
     assert tg.current.accessions == {"0001709048-26-000005", "0001709048-26-000040"}
-    assert any("IFRS" in w for w, _ in tg.warns) and any("accelerated" in f for f, _ in tg.fails)
+    assert any("IFRS" in f for f, _ in tg.fails) and any("accelerated" in f for f, _ in tg.fails)
 
 
 # --- The pass: signals, items, baselines (D-M04-71, D-M04-97) -----------------------------------
@@ -261,7 +355,8 @@ def test_first_scan_baseline_queues_only_a_current_fail_and_writes_both_signals(
     invitae_reports(engine, corpus)  # filed 2023: older than 12 months
     tp = gate_text_step.text_pass(engine, corpus, {"NVTA": NVTA}, NOW, mf=MF)
     ct = tp.companies["NVTA"]
-    assert ct.queued == {f"m04_gate_fail:{NVTA}:text:0001501134-23-000079": "queued"}
+    assert list(ct.queued.values()) == ["queued"]
+    assert list(ct.queued)[0].startswith(f"m04_gate_fail:{NVTA}:text:")
     p = engine.execute("SELECT priority, baseline, capped FROM m04_proposal").fetchone()
     assert tuple(p) == (1, 1, 0)  # baseline exception: a current fail, priority 1, uncapped
     assert tp.alerts and "fail-class text" in tp.alerts[0]
@@ -303,6 +398,15 @@ def test_part_4a_pass_keeps_the_text_alert_and_the_gate_fails_on_the_text(dbs):
         "p.prop_key LIKE 'm04_gate_fail:%:text:%' AND q.resolved_at IS NULL"
     ).fetchone()[0]
     assert open_text == 1 and gp.companies["NVTA"].withdrawn == 0
+    # text the only trigger: the text alert is the one alert (owner 2026-10-13, D-M04-97)
+    assert set(g.triggers) <= set(g.text_triggers)
+    assert "m04_gate_fail" not in gp.companies["NVTA"].queued
+    assert (
+        engine.execute("SELECT count(*) FROM review_queue WHERE kind = 'm04_gate_fail'").fetchone()[
+            0
+        ]
+        == 1
+    )
 
 
 def test_fisker_fail_classes_open_one_alert_per_report(dbs):
@@ -320,7 +424,7 @@ def test_fisker_fail_classes_open_one_alert_per_report(dbs):
     )
     tp = gate_text_step.text_pass(engine, corpus, {"FSR": FSR}, NOW, mf=MF)
     ct = tp.companies["FSR"]
-    assert list(ct.queued) == [f"m04_gate_fail:{FSR}:text:0001720990-24-000045"]
+    assert len(ct.queued) == 1 and list(ct.queued)[0].startswith(f"m04_gate_fail:{FSR}:text:")
     payload = engine.execute("SELECT payload FROM review_queue").fetchone()[0]
     assert (
         '"auditor_gc"' in payload
@@ -365,13 +469,9 @@ def test_microvast_alleviated_warns_and_opens_a_gc_text_review(dbs):
     )
     tp = gate_text_step.text_pass(engine, corpus, {"MVST": MVST}, NOW, mf=MF)
     ct = tp.companies["MVST"]
-    assert (
-        ct.queued
-        == {
-            f"m04_gc_text:{MVST}:0001628280-26-018264:alleviated": "queued",  # filed in the last 12 months
-            f"m04_gc_text:{MVST}:0001628280-26-018264:auditor_cam": "queued",
-        }
-    )
+    # filed in the last 12 months; keys hash the sentences (one item per sentence text)
+    assert sorted(k.split(":")[2] for k in ct.queued) == ["alleviated", "auditor_cam"]
+    assert set(ct.queued.values()) == {"queued"}
     g = gate.evaluate(engine, MVST, "MVST", TODAY, models=MF)
     assert not any(t.startswith("going-concern") for t in g.triggers)
     assert any("substantial doubt alleviated" in w for w in g.warnings)
@@ -402,7 +502,8 @@ def test_hypothetical_with_a_short_runway_queues_and_is_withdrawn_when_it_recove
     tp = gate_text_step.text_pass(engine, corpus, {"RIVN": RIVN}, NOW, mf=MF)
     ct = tp.companies["RIVN"]
     assert ct.review_hypo and ct.runway_why.startswith("runway 5.")
-    assert ct.queued == {f"m04_gc_text:{RIVN}:0001874178-26-000050:hypothetical": "queued"}
+    assert len(ct.queued) == 1 and list(ct.queued.values()) == ["queued"]
+    assert list(ct.queued)[0].startswith(f"m04_gc_text:{RIVN}:hypothetical:")
     assert ct.signals["gc_language"] == "hypothetical"
     # a confirmed 20,000M line lifts the runway above 8 quarters: the review is withdrawn
     gate_view.add_credit_line(
@@ -461,12 +562,12 @@ def test_uti_waiver_and_albemarle_reset_open_covenant_reviews_boeing_compliant_n
     )
     now = datetime(2025, 9, 1, tzinfo=UTC)  # UTI's 10-Q and Albemarle's 10-Q within 12 months
     tp = gate_text_step.text_pass(engine, corpus, {"UTI": UTI, "ALB": ALB, "BA": BA}, now, mf=MF)
-    assert tp.companies["UTI"].queued == {
-        f"m04_covenant:{UTI}:0001261654-25-000019:breach_waived": "queued"
-    }
-    assert tp.companies["ALB"].queued == {
-        f"m04_covenant:{ALB}:0000915913-24-000158:reset": "queued"
-    }
+    assert [(k.split(":")[2], v) for k, v in tp.companies["UTI"].queued.items()] == [
+        ("breach_waived", "queued")
+    ]
+    assert [(k.split(":")[2], v) for k, v in tp.companies["ALB"].queued.items()] == [
+        ("reset", "queued")
+    ]
     assert (
         tp.companies["BA"].queued == {}
         and tp.companies["BA"].signals["covenant_status"] == "compliant"
@@ -547,11 +648,118 @@ def test_history_rows_never_act_on_the_gate(dbs):
         "2024-03-31",
         "boeing_10k_fy2023_excerpt.txt",
     )
-    gate_text.scan_company(engine, corpus, NVTA, "NVTA", NOW, mf=MF)
+    gate_text_step.text_pass(engine, corpus, {"NVTA": NVTA}, NOW, mf=MF)
     tg = gate_text.gate_lines(engine, NVTA, TODAY)
     assert not tg.fails and tg.current.accessions == {"0001501134-24-000020"}
     rows, more, _ = gate_text.view_rows(engine, NVTA, TODAY, False)
     assert rows[0].effect == "no trigger" and any(r.effect == "history (fail class)" for r in rows)
+    # history rows open no item, not even a baseline record (live check 1, D-M04-96)
+    assert engine.execute("SELECT count(*) FROM m04_proposal").fetchone()[0] == 0
+    assert engine.execute("SELECT count(*) FROM review_queue").fetchone()[0] == 0
+
+
+GOOG, GFS = "0001652044", "0001709048"
+
+
+def text_doc(engine, corpus, cik, acc, form, filed, period, text):
+    filing(engine, cik, acc, form, filed, period)
+    doc(corpus, cik, acc, text, form, "main.txt")
+
+
+def test_live_check_1_reclassified_findings_are_withdrawn_and_the_gate_recovers(dbs, monkeypatch):
+    """The real DB after live check 1: rows of classifier gate-text-1 with an open alert are
+    re-scanned at gate-text-2; the alert is withdrawn (kept as history) and the gate no
+    longer fails on the text."""
+    engine, corpus = dbs
+    entity(engine, GOOG, "Alphabet Inc.", "7370", ticker="GOOG")
+    text_doc(
+        engine,
+        corpus,
+        GOOG,
+        "0001652044-26-000018",
+        "10-K",
+        "2026-02-05",
+        "2025-12-31",
+        GOOG_INDEMNITY,
+    )
+    text_doc(
+        engine,
+        corpus,
+        GOOG,
+        "0001652044-26-000071",
+        "10-Q",
+        "2026-07-23",
+        "2026-06-30",
+        GOOG_INDEMNITY,
+    )
+    old = gate_text.classify_cov
+    monkeypatch.setattr(gate_text, "SCAN_VERSION", "gate-text-1")
+    monkeypatch.setattr(
+        gate_text, "classify_cov",
+        lambda s, n, e: ("breach_unwaived", "") if "indemnify" in s else old(s, n, e),
+    )  # fmt: skip
+    ct = gate_text_step.text_pass(engine, corpus, {"GOOG": GOOG}, NOW, mf=MF).companies["GOOG"]
+    # only the current report opens the alert; the 10-K is history (finding 5)
+    assert len(ct.queued) == 1 and list(ct.queued.values()) == ["queued"]
+    gp = gate_step.gate_pass(engine, {"GOOG": GOOG}, NOW, mf=MF)
+    assert gp.companies["GOOG"].gate.state == "fail"
+    alerts = engine.execute("SELECT count(*) FROM review_queue WHERE kind = 'm04_gate_fail'")
+    assert alerts.fetchone()[0] == 1  # text the only trigger: no Part 4a alert besides
+    monkeypatch.undo()
+    ct = gate_text_step.text_pass(engine, corpus, {"GOOG": GOOG}, NOW, mf=MF).companies["GOOG"]
+    assert (
+        ct.scan.docs_read == 2 and ct.withdrawn == 1 and ct.signals["covenant_status"] == "silent"
+    )
+    assert engine.execute("SELECT count(*) FROM gate_text").fetchone()[0] == 0
+    q = engine.execute(
+        "SELECT resolution, resolved_by FROM review_queue WHERE kind = 'm04_gate_fail'"
+    ).fetchall()
+    assert [tuple(r) for r in q] == [("withdrawn", "engine")]
+    g = gate.evaluate(engine, GOOG, "GOOG", TODAY, models=MF)
+    assert not g.text_triggers and not any("text" in t for t in g.triggers)
+
+
+def test_a_repeated_sentence_is_one_finding_and_carries_the_owners_answer(dbs):
+    from engine import review
+
+    engine, corpus = dbs
+    entity(engine, GFS, "GLOBALFOUNDRIES", "3674", ticker="GFS")
+    text_doc(
+        engine, corpus, GFS, "0001709048-25-000010", "20-F", "2025-02-28", "2024-12-31", GFS_RISK_1
+    )
+    text_doc(
+        engine, corpus, GFS, "0001709048-26-000022", "20-F", "2026-02-27", "2025-12-31", GFS_RISK_1
+    )
+    ct = gate_text_step.text_pass(engine, corpus, {"GFS": GFS}, NOW, mf=MF).companies["GFS"]
+    assert [(k.split(":")[:3], v) for k, v in ct.queued.items()] == [
+        (["m04_covenant", GFS, "breach_waived"], "queued")
+    ]
+    g = gate.evaluate(engine, GFS, "GFS", TODAY, models=MF)
+    assert any("waived or cured" in w for w in g.warnings)
+    # next year's 20-F repeats the sentence: the same finding, no second item
+    later = datetime(2027, 3, 1, 12, 0, tzinfo=UTC)
+    text_doc(
+        engine, corpus, GFS, "0001709048-27-000020", "20-F", "2027-02-26", "2026-12-31", GFS_RISK_1
+    )
+    ct = gate_text_step.text_pass(engine, corpus, {"GFS": GFS}, later, mf=MF).companies["GFS"]
+    assert list(ct.queued.values()) == ["suppressed"] and ct.withdrawn == 0
+    assert engine.execute("SELECT count(*) FROM review_queue").fetchone()[0] == 1
+    # the owner reads it as a misread: every report's copy carries it, and so does the next
+    item = engine.execute("SELECT item_id FROM review_queue").fetchone()[0]
+    review.m04_action(engine, item, "misread", "a risk factor about past waivers", "owner", later)
+    assert {r[0] for r in engine.execute("SELECT owner_outcome FROM gate_text")} == {"misread"}
+    text_doc(
+        engine, corpus, GFS, "0001709048-28-000020", "20-F", "2028-02-25", "2027-12-31", GFS_RISK_1
+    )
+    then = datetime(2028, 3, 1, 12, 0, tzinfo=UTC)
+    ct = gate_text_step.text_pass(engine, corpus, {"GFS": GFS}, then, mf=MF).companies["GFS"]
+    r = engine.execute(
+        "SELECT owner_outcome, note FROM gate_text WHERE accession = '0001709048-28-000020'"
+    ).fetchone()
+    assert r["owner_outcome"] == "misread" and "answer carried" in r["note"]
+    assert (
+        ct.queued == {} and engine.execute("SELECT count(*) FROM review_queue").fetchone()[0] == 1
+    )
 
 
 def test_tracked_names_get_rows_and_signals_but_no_items(dbs):
@@ -602,10 +810,9 @@ def test_owner_misread_removes_the_effect_and_treat_as_fail_makes_a_trigger(dbs)
         "microvast_10k_fy2025_excerpt.txt",
     )
     gate_text_step.text_pass(engine, corpus, {"MVST": MVST}, NOW, mf=MF)
-    items = dict(engine.execute(
-        "SELECT p.prop_key, p.item_id FROM m04_proposal p WHERE kind = 'm04_gc_text'").fetchall())  # fmt: skip
-    cam = items[f"m04_gc_text:{MVST}:0001628280-26-018264:auditor_cam"]
-    allev = items[f"m04_gc_text:{MVST}:0001628280-26-018264:alleviated"]
+    items = {k.split(":")[2]: v for k, v in engine.execute(
+        "SELECT p.prop_key, p.item_id FROM m04_proposal p WHERE kind = 'm04_gc_text'").fetchall()}  # fmt: skip
+    cam, allev = items["auditor_cam"], items["alleviated"]
     with pytest.raises(review.ReviewError):
         review.m04_action(engine, cam, "misread", "", "owner", NOW)  # a note is required
     review.m04_action(engine, cam, "misread", "the CAM restates the note", "owner", NOW)

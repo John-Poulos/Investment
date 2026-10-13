@@ -11,14 +11,19 @@ Classes (D-M04-34; sentence classifier, tense and modality decide, not the secti
 
 - **fail** — `auditor_gc` (the auditor's going-concern paragraph), `management_exists`
   ("substantial doubt exists", "there is substantial doubt", "these conditions raise
-  substantial doubt", also in risk factors in the present tense), `breach_unwaived`,
-  `forbearance`, `reclass_covenant` (debt classified as current for a breach or default),
-  `acceleration` ("immediately due and payable"), `delisting`;
+  substantial doubt", also in risk factors in the present tense), `ifrs_mu_exists` (IFRS "a
+  material uncertainty exists"), `breach_unwaived` (an asserted present or past breach or
+  default under the company's own debt agreements; indemnities, lawsuits and facility
+  descriptions are none), `forbearance`, `reclass_covenant` (debt classified as current for
+  a breach or default), `acceleration` ("immediately due and payable"), `delisting`;
 - **warn + review** — `alleviated` (also a "raise" conclusion with an alleviation sentence
   within 1,500 characters), `auditor_cam` (a critical audit matter without a going-concern
-  paragraph), `ifrs_material_uncertainty`, `breach_waived` (a waiver in the sentence, or in
-  the next one referring back: "this violation", "such default"), `reset` (covenant relief
-  period, amended financial covenants), `listing_deficiency` (cure-period notice);
+  paragraph), `ifrs_material_uncertainty` (not stated as existing), `breach_waived` (a
+  waiver or cure in the sentence, "in compliance" stated beside an actual default, a waiver
+  obtained, or a waiver in the next sentence referring back: "this violation", "such
+  default"), `reset` (covenant relief: relief period, a raised limit, suspended covenants,
+  an amendment to avoid a breach — not a conforming amendment), `listing_deficiency`
+  (cure-period notice);
 - **hypothetical** ("could raise substantial doubt") — `m04_gc_text` review only while the
   runway is below 8 quarters (or unknown), else information;
 - **no trigger** — `boilerplate` (the ASC 205-40 evaluation, going-concern basis),
@@ -51,7 +56,7 @@ from engine.sec.client import iso
 from engine.sec.identity import entity_links, normalize_cik
 from engine.signals import Source
 
-SCAN_VERSION = "gate-text-1"
+SCAN_VERSION = "gate-text-2"  # live check 1: asserted breaches, waivers, relief, IFRS exists
 STATE_KEY = "m04_gate_text:{cik}"
 FOREIGN_CURRENT = frozenset({"6-K", "6-K/A"})
 SCAN_FORMS = PERIODIC_FORMS | FOREIGN_CURRENT
@@ -65,7 +70,9 @@ CLASSES: dict[str, tuple[str, str, str]] = {
     "management_exists": ("going_concern", "fail", 'management: "substantial doubt exists"'),
     "alleviated": ("going_concern", "warn", "substantial doubt alleviated"),
     "auditor_cam": ("going_concern", "warn", "auditor critical audit matter only"),
-    "ifrs_material_uncertainty": ("going_concern", "warn", 'IFRS "material uncertainty"'),
+    "ifrs_mu_exists": ("going_concern", "fail", 'IFRS: "a material uncertainty exists"'),
+    "ifrs_material_uncertainty": ("going_concern", "warn",
+                                  'IFRS "material uncertainty" (not stated as existing)'),
     "hypothetical": ("going_concern", "hypothetical",
                      'hypothetical ("could raise substantial doubt")'),
     "boilerplate": ("going_concern", "none", "ASC 205-40 evaluation or going-concern basis"),
@@ -75,7 +82,7 @@ CLASSES: dict[str, tuple[str, str, str]] = {
     "reclass_covenant": ("covenant", "fail", "debt classified as current (breach or default)"),
     "acceleration": ("covenant", "fail", "debt accelerated (immediately due and payable)"),
     "delisting": ("covenant", "fail", "delisting or trading suspension"),
-    "breach_waived": ("covenant", "warn", "covenant breach waived"),
+    "breach_waived": ("covenant", "warn", "covenant breach or default waived or cured"),
     "reset": ("covenant", "warn", "covenants reset (relief period, amended covenants)"),
     "listing_deficiency": ("covenant", "warn", "listing-standard deficiency (cure period)"),
     "compliant": ("covenant", "none", '"in compliance" with covenants'),
@@ -94,6 +101,18 @@ TRIGGER = re.compile(
 )
 SD = re.compile(r"substantial doubt", re.I)
 MU = re.compile(r"material uncertaint(?:y|ies)|significant doubt", re.I)
+# IFRS: a material uncertainty stated as existing (IAS 1.25; ISA 570 "Material Uncertainty
+# Related to Going Concern") → fail like US "substantial doubt exists" (owner, D-M04-95 amended)
+MU_EXISTS = re.compile(
+    r"material uncertaint(?:y|ies)\s+(?:\w+\s+){0,2}(?:exists?|existed|remains?)\b|there (?:is|"
+    r"are|was|were|remains?) (?:a |an )?(?:\w+\s+)?material uncertaint|\b(?:indicat|conclud|"
+    r"determin|identifi)\w*\b[^.;]{0,60}material uncertaint|existence of (?:a )?material "
+    r"uncertaint",
+    re.I,
+)
+MU_REQUIRED = re.compile(
+    r"\brequire[sd]?\b[^.;]{0,80}\bdisclos|\bdisclose\b[^.;]{0,40}material uncertaint", re.I
+)
 GC = re.compile(r"going concern", re.I)
 HYPO = re.compile(
     r"\b(?:could|may|might|would|if|unless|in the event|no assurance|cannot assure|"
@@ -174,33 +193,82 @@ COV_CTX = re.compile(
     re.I,
 )
 FORBEAR = re.compile(r"forbearance|agreed to forbear|forbear from", re.I)
-RESET_TERM = re.compile(r"covenant relief|relief period", re.I)
+RESET_TERM = re.compile(r"covenant relief|relief period|covenant holiday", re.I)
+# `reset` = covenant relief (live check 1, D-M04-95): a raised or relaxed limit, suspended
+# covenants, a waiver of a covenant test through a date, an amendment made to avoid or cure
+# a breach, buybacks or dividends barred as the price of relief. A routine amendment that
+# "conforms" a covenant to another agreement (Marvell) is no relief.
 RESET = re.compile(
-    r"amend\w*[^.;]{0,100}financial covenants?|financial covenants?[^.;]{0,100}amend\w*|"
-    r"(?:increase|raise)[sd]? the (?:maximum|permitted)[^.;]{0,40}(?:leverage|debt)[^.;]{0,20}"
-    r"ratio|(?:reset|relax|suspend)\w*[^.;]{0,40}covenants?",
+    r"(?:increase|raise)[sd]?\b[^.;]{0,20}\bthe (?:maximum|permitted)[^.;]{0,40}(?:leverage|debt)"
+    r"[^.;]{0,20}ratio|(?:decrease|reduce|lower)[sd]?\b[^.;]{0,20}\bthe minimum[^.;]{0,60}"
+    r"(?:coverage|liquidity|interest|ratio)|\b(?:suspend|relax|reset)\w*[^.;]{0,60}covenants?|"
+    r"\bwaive\w*[^.;]{0,80}covenants?[^.;]{0,80}\b(?:through|until)\b|"
+    r"\bamend\w*[^.;]{0,160}\b(?:to (?:avoid|cure|prevent)|in order to (?:avoid|cure|remain in "
+    r"compliance|maintain compliance))\b|(?:repurchases?|buybacks?|dividends?)[^.;]{0,100}"
+    r"(?:prohibited|barred|not permitted|may not)[^.;]{0,100}(?:relief|covenant)",
     re.I,
 )
 WAIVER = re.compile(r"\bwaive[rd]?s?\b|\bwaiving\b", re.I)
+# An actual waiver obtained or granted (past tense): "obtained a waiver", "our lenders agreed
+# to waive the defaults", "waived the event of default" (live check 1: SPCX, GFS)
+WAIVED = re.compile(
+    r"\b(?:obtained|received|secured|was granted|were granted|been granted|entered into)\s+"
+    r"(?:a |an )?(?:\w+\s+){0,3}waivers?\b|\b(?:lenders?|banks?|holders?|noteholders?|"
+    r"syndicate|agent|creditors?)\b[^.;]{0,60}\b(?:agreed to waive|waived|granted (?:\w+ ){0,3}"
+    r"waivers?)\b[^.;]{0,40}(?:defaults?|breach|violations?|events? of default|non-?compliance|"
+    r"covenants?)|\bwaived (?:the |such |this |these |any )?(?:\w+\s+){0,3}(?:defaults?|"
+    r"breach(?:es)?|violations?|events? of default|non-?compliance)\b",
+    re.I,
+)
+NOT_WAIVED = re.compile(r"\b(?:not|no|never|without)\s+(?:\w+\s+){0,2}(?:been\s+)?waive", re.I)
+CURED = re.compile(r"\bcured\b|\bregained compliance\b|\bremedied\b", re.I)
 REFER = re.compile(
     r"\b(?:such|this|these|that|the foregoing|the)\s+(?:covenant\s+)?(?:breach(?:es)?|"
     r"defaults?|non-?compliance|violations?|events? of default|failure)\b",
     re.I,
 )
+_DEBT = r"(?:covenant|credit agreement|credit facilit|loan agreement|indenture|facility|term loan)"
+# The fail class needs an ASSERTED breach or default by the company under its own debt
+# agreements, present or past (live check 1, D-M04-95): "we were not in compliance with",
+# "did not comply with … covenant", "an event of default has occurred / is continuing",
+# "we breached the … covenant", "we are in default under", "had a technical default".
+# "A breach of representations or covenants", "contains customary events of default" and
+# "breach of the implied covenant of good faith" are no assertion.
 BREACH = re.compile(
-    r"not in compliance with[^.;]{0,160}(?:covenant|credit agreement|credit facilit|loan "
-    r"agreement|indenture|facility)|(?:breach(?:ed)?|violat\w*|default(?:ed)?)\b[^.;]{0,80}"
-    r"(?:covenant|credit agreement|credit facilit|indenture|loan agreement)|covenant "
-    r"(?:default|breach|violation)s?|(?:did|does|do) not (?:meet|satisfy|comply with)"
-    r"[^.;]{0,100}(?:covenant|ratio)|failed to (?:meet|satisfy|comply with)[^.;]{0,100}covenant|"
-    r"events? of default\b[^.;]{0,60}(?:has|have|had) occurred|events? of default\b[^.;]{0,40}"
-    r"(?:is|are) continuing|\bin default (?:under|of|on)\b",
+    r"not in compliance with[^.;]{0,160}" + _DEBT + r"|(?:did|does|do) not (?:meet|satisfy|"
+    r"comply with)[^.;]{0,100}(?:covenant|ratio)|failed to (?:meet|satisfy|comply with)"
+    r"[^.;]{0,100}(?:covenant|ratio)|\b(?:breached|violated)\b[^.;]{0,80}(?:covenant|credit "
+    r"agreement|credit facilit|indenture|loan agreement)|\bdefaulted (?:on|under)\b|"
+    r"\bin (?:default|breach|violation) (?:under|of|on|with)\b[^.;]{0,80}"
+    + _DEBT
+    + r"|\bin default under\b|events? of default\b[^.;]{0,60}(?:has|have|had) (?:occurred|"
+    r"been declared)|events? of default\b[^.;]{0,40}(?:is|are) continuing|\b(?:had|has|have|"
+    r"incurred|experienced|triggered) (?:a |an )?(?:technical )?(?:covenant )?(?:default|breach|"
+    r"violation|event of default)\b|\bcovenant (?:default|breach|violation)s? (?:occurred|"
+    r"has occurred|existed|exists)",
+    re.I,
+)
+# Not the company's own breach: indemnities, litigation, facility descriptions
+NOT_ASSERTED = re.compile(
+    r"indemnif|harmless|representations? (?:and|or) (?:warranties|covenants)|implied covenant|"
+    r"good faith and fair dealing|\balleg\w*|\bclaim(?:s|ed|ing)?\b|motion to dismiss|"
+    r"\bcomplaint\b|lawsuit|plaintiff|\bsued\b|\bcourt\b|\bcustomary\b|\bcontains?\b[^.;]{0,60}"
+    r"events? of default|\bsubject to\b[^.;]{0,60}events? of default",
+    re.I,
+)
+COV_HYPO = re.compile(r"\bany\b|\bfuture\b|\bupon\b|\bwere to\b|\bin case\b", re.I)
+# Breach wording of any kind, for counting hypothetical covenant sentences (not stored)
+LOOSE_BREACH = re.compile(
+    r"(?:breach\w*|violat\w*|default\w*|fail\w* to comply)\b[^.;]{0,80}(?:covenant|credit "
+    r"agreement|credit facilit|indenture|loan agreement)|events? of default",
     re.I,
 )
 NEG_COV = re.compile(
     r"\bno (?:event of default|events of default|default|breach|covenant (?:breach|violation)|"
     r"violation)s?\b|\bnot in default\b|\b(?:has|have|had) not occurred\b|\bwithout (?:default|"
-    r"breach)|\bthere (?:were|was|are|is) no\b",
+    r"breach)|\bthere (?:were|was|are|is) no\b|\b(?:has|have|had|did|do|does) not (?:\w+ ){0,2}"
+    r"(?:had|have|experienced?|incur(?:red)?|trigger(?:ed)?|breach(?:ed)?|default(?:ed)?|"
+    r"violated?)\b|\bnever\b",
     re.I,
 )
 RECLASS = re.compile(
@@ -226,6 +294,8 @@ LISTING = re.compile(
 )
 COMPLIANT = re.compile(r"\bin compliance with\b", re.I)
 NOT_COMPLIANT = re.compile(r"\bnot in compliance\b", re.I)
+# "in compliance" stated positively ("was in compliance …; however, … had a technical default")
+NOW_COMPLIANT = re.compile(r"(?<!not )(?<!\bno longer )\bin compliance\b", re.I)
 SPAC_TEXT = re.compile(r"blank check company|initial business combination|trust account", re.I)
 
 
@@ -235,6 +305,17 @@ def _before(sent: str, m: re.Match, n: int = 140) -> str:
 
 def _hypo_before(sent: str, m: re.Match, n: int = 140) -> bool:
     return bool(HYPO.search(_before(sent, m, n)))
+
+
+def _waiver(sent: str) -> bool:
+    """A waiver word that is not negated ("which the lenders have not waived")."""
+    return bool(WAIVER.search(sent)) and not NOT_WAIVED.search(sent)
+
+
+def _cov_hypo(sent: str, m: re.Match, n: int = 140) -> bool:
+    """An asserted breach or waiver read as hypothetical: a modal, "any", "future", "upon" or
+    "were to" before it ("if an event of default has occurred", "any future breach")."""
+    return _hypo_before(sent, m, n) or bool(COV_HYPO.search(_before(sent, m, n)))
 
 
 def _hypo_around(sent: str, m: re.Match, n: int = 140, after: int = 80) -> bool:
@@ -260,6 +341,10 @@ def classify_gc(sent: str, before: str, around: str) -> tuple[str | None, str]:
             return "negated", ""
         if _hypo_before(sent, mu, 80):
             return "hypothetical", ""
+        if MU_EXISTS.search(sent):  # owner 2026-10-13: = US "substantial doubt exists"
+            return "ifrs_mu_exists", ""
+        if EVAL.search(sent) or MU_REQUIRED.search(sent):
+            return "boilerplate", "IAS 1.25 disclosure requirement"
         return "ifrs_material_uncertainty", ""
     near_before = before[-1500:]
     if _auditor_context(before, AUDITOR, 6000):
@@ -337,16 +422,31 @@ def classify_cov(sent: str, nxt: str, exhibit: bool) -> tuple[str | None, str]:
             return None, "hypothetical"
         return "acceleration", ""
     b = BREACH.search(sent)
+    if b and NOT_ASSERTED.search(sent):
+        b = None  # an indemnity, a lawsuit or a facility description: not a breach
     if b:
-        if _hypo_around(sent, b):
+        if _cov_hypo(sent, b):
             return None, "hypothetical"
         if NEG_COV.search(sent):
             return "no_default", ""
-        if WAIVER.search(sent):
+        if _waiver(sent) or CURED.search(sent):
             return "breach_waived", ""
-        if WAIVER.search(nxt) and REFER.search(nxt):
+        if NOW_COMPLIANT.search(sent):  # an actual default, compliance stated: cured
+            return "breach_waived", "in compliance stated in the same sentence (cured)"
+        if (_waiver(nxt) or CURED.search(nxt)) and REFER.search(nxt):
             return "breach_waived", f"waiver in the next sentence: “{clean(nxt)[:240]}”"
         return "breach_unwaived", ""
+    w = WAIVED.search(sent)
+    if (
+        w
+        and not NOT_WAIVED.search(sent)
+        and not NOT_ASSERTED.search(sent)
+        and not _cov_hypo(sent, w)
+    ):
+        return "breach_waived", "waiver obtained (a past default or breach waived)"
+    lb = LOOSE_BREACH.search(sent)
+    if lb and _hypo_around(sent, lb):
+        return None, "hypothetical"  # "any breach … could result in an event of default"
     if COMPLIANT.search(sent) and not NOT_COMPLIANT.search(sent):
         c = COMPLIANT.search(sent)
         return (None, "hypothetical") if _hypo_before(sent, c) else ("compliant", "")
@@ -607,17 +707,20 @@ def scan_company(
                     if not verified(d.text, h):
                         continue  # never store an unverified quote (D21)
                     effect = "excluded" if why else h.effect
-                    note = "; ".join(x for x in (why, h.note) if x)
+                    answer = _carried_answer(engine, norm, h)
+                    note = "; ".join(x for x in (why, h.note, answer[2] if answer else "") if x)
                     cur = engine.execute(
                         "INSERT INTO gate_text (accession, filename, start_offset, end_offset, "
                         "cik, form, doc_type, filed, period_end, family, class, effect, quote, "
-                        "passage_id, doc_id, exhibit, note, baseline, first_seen_at, "
-                        "computed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-                        "?, ?, ?) ON CONFLICT (accession, filename, start_offset) DO NOTHING",
+                        "passage_id, doc_id, exhibit, note, baseline, owner_outcome, owner_at, "
+                        "first_seen_at, computed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+                        "?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                        "ON CONFLICT (accession, filename, start_offset) DO NOTHING",
                         (d.accession, d.filename, h.start, h.end, norm, f.form, d.doc_type,
                          f.filed, f.period_end, h.family, h.klass, effect, h.quote,
                          _passage(spans, h.start), d.doc_id, int(exhibit), note,
-                         int(cs.first), ts, ts),
+                         int(cs.first), answer[0] if answer else None,
+                         answer[1] if answer else None, ts, ts),
                     )  # fmt: skip
                     cs.rows_new += cur.rowcount
                 docs_state[key] = [SCAN_VERSION, sha]
@@ -637,12 +740,26 @@ def scan_company(
     return cs
 
 
+def _carried_answer(engine: sqlite3.Connection, cik: str, h: Hit) -> tuple[str, str, str] | None:
+    """The owner's answer on the same sentence (company, class, quote) in another report:
+    a repeated sentence is the same finding (live check 1) → (outcome, at, note) or None."""
+    r = engine.execute(
+        "SELECT owner_outcome, owner_at, accession FROM gate_text WHERE cik = ? AND class = ? "
+        "AND quote = ? AND owner_outcome IS NOT NULL ORDER BY owner_at DESC LIMIT 1",
+        (cik, h.klass, h.quote),
+    ).fetchone()
+    if r is None:
+        return None
+    return r[0], r[1], f"owner's answer carried from the same sentence in {r[2]}"
+
+
 def _replace_rows(engine: sqlite3.Connection, accession: str, filename: str) -> int:
-    """Before a re-scan: drop the document's rows that nobody answered or reviewed; the
-    others are kept (and keep their offsets). Returns the number kept."""
+    """Before a re-scan: drop the document's rows the owner has not answered (a row with an
+    open or withdrawn review item is reclassified too; its item is withdrawn when the
+    finding no longer holds); answered rows are kept with their offsets. Returns the number
+    kept."""
     engine.execute(
-        "DELETE FROM gate_text WHERE accession = ? AND filename = ? AND owner_outcome IS NULL "
-        "AND item_id IS NULL",
+        "DELETE FROM gate_text WHERE accession = ? AND filename = ? AND owner_outcome IS NULL",
         (accession, filename),
     )
     return engine.execute(
@@ -867,8 +984,9 @@ def apply_action(
     """The owner's reading of a text finding (inside `review.m04_action`'s transaction):
     `noted` keeps the class; `treat_as_fail` makes it a fail trigger while its report is
     current; `misread` removes its effect (the class is wrong). Stored on every row of the
-    item's report and class. A gate-fail text alert takes `noted` and `inputs_wrong`
-    (= misread)."""
+    item's report and classes, and on the same sentences in the company's other reports (a
+    repeated sentence is the same finding; later reports carry the answer at scan time). A
+    gate-fail text alert takes `noted` and `inputs_wrong` (= misread)."""
     from engine.financials.queue import QueueError
 
     acc, klass = payload.get("accession"), payload.get("class")
@@ -879,17 +997,22 @@ def apply_action(
         raise QueueError(f"'{action}' is not an action for {kind}.")
     if outcome == "misread" and not note.strip():
         raise QueueError("Say what the code misread (note).")
-    cur = engine.execute(
-        "UPDATE gate_text SET owner_outcome = ?, owner_at = ? WHERE accession = ? AND class = ? "
-        "AND cik = ?",
-        (outcome, iso(now), acc, klass, normalize_cik(cik or "") or cik or ""),
-    )
-    if not cur.rowcount:
+    norm = normalize_cik(cik or "") or cik or ""
+    total = 0
+    for k in sorted(set(payload.get("classes") or []) | {klass}):
         cur = engine.execute(
+            "UPDATE gate_text SET owner_outcome = ?, owner_at = ? WHERE cik = ? AND class = ? "
+            "AND quote IN (SELECT quote FROM gate_text WHERE cik = ? AND class = ? AND "
+            "accession = ?)",
+            (outcome, iso(now), norm, k, norm, k, acc),
+        )
+        total += cur.rowcount
+    if not total:
+        total = engine.execute(
             "UPDATE gate_text SET owner_outcome = ?, owner_at = ? WHERE item_id = ?",
             (outcome, iso(now), item_id),
-        )
-    if not cur.rowcount:
+        ).rowcount
+    if not total:
         raise QueueError("The sentence behind this item is no longer stored.")
     return {
         "noted": "noted (class kept; acts on the gate while its report is current)",

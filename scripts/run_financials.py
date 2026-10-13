@@ -2121,7 +2121,7 @@ def gate_text_company_lines(engine, ct) -> list[str]:
         f"{ct.ticker}: documents scanned {s.docs_read} new, {s.docs_skipped} already scanned"
         f"{' (first scan: baseline)' if s.first else ''}; {s.sentences} trigger sentence(s); "
         f"covenant hypotheticals counted, not stored: {s.hypothetical_cov}; rows added "
-        f"{s.rows_new}" + (f"; kept (answered or reviewed) {s.rows_kept}" if s.rows_kept else "")
+        f"{s.rows_new}" + (f"; kept (answered) {s.rows_kept}" if s.rows_kept else "")
     ]
     rep = cur.report if cur else None
     out.append(
@@ -2250,6 +2250,9 @@ def gate_text_run(engine, corpus, comps: dict[str, str], now, log, mf=None):
     for _, c in sorted(gp.companies.items()):
         if c.gate is not None and (c.gate.text_summary or "").startswith(("fail", "warn")):
             log(f"  {c.ticker}: {c.gate.state} — text {c.gate.text_summary}")
+    gw = sum(c.withdrawn for c in gp.companies.values())
+    if gw:
+        log(f"  Part 4a items withdrawn on the recompute (condition no longer holds): {gw}")
     log("")
     log(*gate_text_summary(engine, corpus, tp, before, after, now))
     return tp, gp

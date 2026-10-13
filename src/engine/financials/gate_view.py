@@ -377,15 +377,17 @@ def company_view(
 # The class-rule table under the Gate text block (D-M04-34; owner's mock-up 2026-10-13)
 CLASS_RULES = (
     (
-        "Auditor going-concern paragraph; management “substantial doubt exists”; unwaived "
-        "covenant breach; forbearance; covenant-driven debt reclassification; acceleration; "
+        "Auditor going-concern paragraph; management “substantial doubt exists”; IFRS “a "
+        "material uncertainty exists”; a breach or default the company states under its own "
+        "debt, not waived; forbearance; covenant-driven debt reclassification; acceleration; "
         "delisting",
         "fail + alert (m04_gate_fail)",
         "Fisker FY2023; Invitae Q3 2023; Proterra FY2022",
     ),
     (
-        "Doubt alleviated; audit-matter only; IFRS “material uncertainty”; waived or reset "
-        "covenant; listing deficiency",
+        "Doubt alleviated; audit-matter only; IFRS “material uncertainty” not stated as "
+        "existing; a past breach or default waived or cured; covenant relief; listing "
+        "deficiency",
         "warn + m04_gc_text / m04_covenant review",
         "Microvast “alleviate”; UTI waiver; Albemarle relief period",
     ),

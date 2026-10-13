@@ -8,18 +8,21 @@ pass, so the gate reads fresh text classes):
 - signals `gc_language` and `covenant_status` (the current report's most severe class and
   its quote; "none" / "silent" when the report has no such sentence; missing when no
   periodic text is stored);
-- review items for core and promoted names (tracked: rows only, D-M04-80):
-  a fail class opens `m04_gate_fail` (alert, uncapped; one per report, key
-  `<cik>:text:<accession>`), a warn class opens `m04_gc_text` or `m04_covenant`
-  (priority 1, capped; one per report and class), hypothetical wording opens `m04_gc_text`
-  only while the runway is below 8 quarters. The first scan of a company is a baseline:
-  recorded, not queued, except reports filed in the last 12 months and a current fail
-  (D-M04-71); later, a finding in an old report that is not current is history (recorded,
-  not queued). A finding that no longer holds is withdrawn (Part 3 pattern).
+- review items for core and promoted names (tracked: rows only, D-M04-80), from the
+  **current report only** (history rows are shown, never queued; live check 1): a fail
+  class opens `m04_gate_fail` (alert, uncapped; one per report), a warn class opens
+  `m04_gc_text` or `m04_covenant` (priority 1, capped; one per report and class),
+  hypothetical wording opens `m04_gc_text` only while the runway is below 8 quarters. Keys
+  hash the sentences (`<cik>:text|<class>|hypothetical:<sentence key>`), so a later report
+  repeating the same sentences is the same finding, and an owner's answer is carried to
+  the same sentence in later reports. The first scan of a company is a baseline: recorded,
+  not queued, except reports filed in the last 12 months and a current fail (D-M04-71). A
+  finding that no longer holds is withdrawn (Part 3 pattern); answered items are kept.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import time
@@ -61,8 +64,15 @@ class TextPass:
     alerts: list[str] = field(default_factory=list)
 
 
+def sentence_key(rows: list[sqlite3.Row] | list[dict]) -> str:
+    """12 hex characters over the group's distinct quotes, sorted: the same sentences in a
+    later report give the same key (one item per company and sentence text)."""
+    text = "\n".join(sorted({r["quote"] for r in rows}))
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+
+
 def text_alert_keys(engine: sqlite3.Connection, cik: str) -> set[str]:
-    """Open text alerts' keys (`<cik>:text:<accession>`): Part 4a's withdrawal leaves them."""
+    """Text alerts' keys (`<cik>:text:<sentence key>`): Part 4a's withdrawal leaves them."""
     prefix = "m04_gate_fail:"
     return {
         r[0][len(prefix) :]
@@ -182,30 +192,27 @@ def propose_items(
     cik, who = ct.cik, ct.ticker or ct.cik
     cur = ct.tg.current.accessions if ct.tg and ct.tg.current else set()
     first = bool(ct.scan and ct.scan.first)
-    groups: dict[tuple[str, str], list[sqlite3.Row]] = {}
+    # Only the current report opens items (live check 1, D-M04-96/-97): history rows are
+    # shown, never queued. Answered rows (and sentences carrying an answer) open nothing.
+    by_report: dict[tuple[str, str, str], list[sqlite3.Row]] = {}
     for r in gate_text.rows_for(engine, cik):
-        eff = gate_text.effective(r)
-        if r["owner_outcome"] is not None:
-            eff = "answered"
-        if eff == "fail":
-            kind, key = "m04_gate_fail", f"{cik}:text:{r['accession']}"
-        elif eff == "warn":
-            kind, key = (
-                gate_text.KIND_OF_FAMILY[r["family"]],
-                f"{cik}:{r['accession']}:{r['class']}",
-            )
-        elif eff == "hypothetical" and r["accession"] in cur and ct.review_hypo:
-            kind, key = "m04_gc_text", f"{cik}:{r['accession']}:hypothetical"
-        elif eff == "answered":
-            kind = "m04_gate_fail" if r["effect"] == "fail" else (
-                gate_text.KIND_OF_FAMILY[r["family"]])  # fmt: skip
-            key = (f"{cik}:text:{r['accession']}" if kind == "m04_gate_fail"
-                   else f"{cik}:{r['accession']}:{r['class']}")  # fmt: skip
-            groups.setdefault((kind, key), [])  # kept live, never re-proposed
+        if r["accession"] not in cur or r["owner_outcome"] is not None:
             continue
+        eff = gate_text.effective(r)
+        if eff == "fail":
+            g = ("m04_gate_fail", r["accession"], "text")
+        elif eff == "warn":
+            g = (gate_text.KIND_OF_FAMILY[r["family"]], r["accession"], r["class"])
+        elif eff == "hypothetical" and ct.review_hypo:
+            g = ("m04_gc_text", r["accession"], "hypothetical")
         else:
             continue
-        groups.setdefault((kind, key), []).append(r)
+        by_report.setdefault(g, []).append(r)
+    # One item per company and sentence text, not per filing: the key hashes the quotes,
+    # so a later report repeating the same sentences is the same finding (live check 1)
+    groups: dict[tuple[str, str], list[sqlite3.Row]] = {}
+    for (kind, _, part), rows in by_report.items():
+        groups.setdefault((kind, f"{cik}:{part}:{sentence_key(rows)}"), []).extend(rows)
     live: dict[str, set[str]] = {
         "m04_gate_fail": set(),
         "m04_gc_text": set(),
@@ -213,13 +220,10 @@ def propose_items(
     }
     for (kind, key), rows in groups.items():
         live[kind].add(key)
-        if not rows:
-            continue
         if not queue_items:
             ct.held.append(f"{kind} ({rows[0]['class']})")
             continue
         r = rows[0]
-        is_cur = r["accession"] in cur
         classes = sorted({x["class"] for x in rows})
         where = f"{r['form']} filed {r['filed']} (period {r['period_end'] or '—'})"
         if kind == "m04_gate_fail":
@@ -227,7 +231,7 @@ def propose_items(
                 f"{who}: fail-class text — {', '.join(gate_text.label(c) for c in classes)} in "
                 f"{where}; the gate fails on it while the report is current (D-M04-34)"
             )
-        elif r["class"] == "hypothetical" or key.endswith(":hypothetical"):
+        elif r["class"] == "hypothetical":
             reason = (
                 f"{who}: hypothetical going-concern wording in {where} with {ct.runway_why} "
                 f"(reviewed below {gate_text.HYPO_RUNWAY_Q:g} quarters, D-M04-34)"
@@ -242,12 +246,12 @@ def propose_items(
             kind,
             key,
             reason,
-            _payload(ct, r, is_cur, classes),
+            _payload(ct, r, True, classes),
             now,
             cik=cik,
-            baseline=first or not (is_cur or queue.is_recent(r["filed"], now)),
+            baseline=first,  # the first scan: recorded unless recent or a current fail
             filed=r["filed"],
-            current_fail=kind == "m04_gate_fail" and is_cur,
+            current_fail=kind == "m04_gate_fail",
         )
         ct.queued[f"{kind}:{key}"] = status
         item = engine.execute(

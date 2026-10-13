@@ -242,6 +242,7 @@ class Gate:
     text_summary: str = ""  # Part 4b-lite: the current report's text classes (D-M04-34)
     text_report: str = ""  # the current report read for text
     text_note: str = ""
+    text_triggers: list[str] = field(default_factory=list)  # the triggers that are text
     sources: list[Source] = field(default_factory=list)
     signal_as_of: str = ""
 
@@ -958,6 +959,7 @@ def _legal(engine, g: Gate, as_of: str, calendar: bool) -> None:
     tg = gate_text.gate_lines(engine, g.cik, as_of)
     for text, src in tg.fails:
         g.triggers.append(text)
+        g.text_triggers.append(text)
         g.sources.append(src)
     for text, src in tg.warns:
         g.warnings.append(text)
