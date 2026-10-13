@@ -54,12 +54,18 @@ REASONS = {
     "short_history": "short history (fewer than 3 fiscal years)",
     "no_stage": "no stage holds 2 of 3",
     "shake_out": "held stage is shake-out",
+    "intro_falling": "introduction with falling revenue (CAGR < 0%)",
     "growth_falling": "growth with falling revenue (CAGR < 0%)",
     "mature_fast": "mature with CAGR > 20%",
+    "decline_fast": "decline with CAGR > 20%",
     "tag_first": "model tag routes first",
     "changed": "computed stage differs from the confirmed stage",
 }
-AMBIGUOUS = frozenset({"short_history", "no_stage", "shake_out", "growth_falling", "mature_fast"})
+# The CAGR-conflict code names the computed stage (live check 1: MSTR read "growth" while
+# computed introduction).
+CAGR_CONFLICT = {"introduction": "intro_falling", "growth": "growth_falling",
+                 "mature": "mature_fast", "decline": "decline_fast"}  # fmt: skip
+AMBIGUOUS = frozenset({"short_history", "no_stage", "shake_out", *CAGR_CONFLICT.values()})
 
 
 def sign(v: float) -> str:
@@ -214,9 +220,9 @@ def compute(engine: sqlite3.Connection, cik: str, as_of: str) -> StageResult:
     if period_end:
         cagr, cagr_note = _cagr3(engine, norm, period_end, as_of)
     if computed in ("introduction", "growth") and cagr is not None and cagr < CAGR_LOW:
-        reasons.append("growth_falling")
+        reasons.append(CAGR_CONFLICT[computed])
     if computed in ("mature", "decline") and cagr is not None and cagr > CAGR_HIGH:
-        reasons.append("mature_fast")
+        reasons.append(CAGR_CONFLICT[computed])
 
     held_total = _held([y.stage_total for y in years])
     total_note = ""

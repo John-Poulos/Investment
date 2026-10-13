@@ -25,10 +25,11 @@ recomputes for every covered company the capex split, core trend rows, ROIC and 
 guidance record (0 requests) and prints what the owner looks for.
 
 `profile` (Part 1c): loads config/company_models.toml (unknown tags rejected); reads EDGAR's
-browse-by-SIC lists for every SIC of the core and promoted companies (10-K, 20-F and 40-F
-browses, at most 10 pages per SIC, at most 90 pages; SIC 3674's full list goes to the log:
-the S1 re-probe) and 3 calendar-year revenue frames; ranks each company's peer shortlist
-by revenue closeness among active filers (stored form indexes, 0 requests); opens the
+browse-by-SIC lists for every SIC of the core and promoted companies (one browse per SIC,
+at most 10 pages per SIC, at most 90 pages; pages re-used for 7 days; SIC 3674's full list
+goes to the log: the S1 re-probe), 3 revenue frames for the ranking year and 2 for the
+year before (suspect guard); ranks each company's peer shortlist by revenue closeness among
+active filers (stored form indexes, 0 requests), suspect revenue last; opens the
 setup batch (one `m04_stage` and one `m04_peer` item per company, outside the weekly cap);
 writes `lifecycle_stage`; prints what the owner looks for. `--no-sec` re-ranks from stored
 lists and frames.
@@ -636,6 +637,7 @@ S1_SIC = "3674"  # the S1 re-probe: full list to the log (SB.17)
 def profile_summary(engine, mf, sp, pp, now) -> list[str]:
     """What the owner looks for (M04_BUILD_LOG Part 1c live check)."""
     from engine.financials import peers, stage
+    from engine.sec.browse import BROWSE_FORM
 
     lines = ["=== Summary (what the owner looks for) ==="]
     if mf.error:
@@ -671,22 +673,27 @@ def profile_summary(engine, mf, sp, pp, now) -> list[str]:
                                              (sic,))]  # fmt: skip
         act = peers.active_filers(engine, ciks, now.date())
         foreign = sum(1 for f, _ in act.values() if f.split("/")[0] in ("20-F", "40-F"))
-        browse = engine.execute("SELECT browsed, pages, listed, capped FROM sic_browse WHERE "
-                                "sic = ? ORDER BY browsed", (sic,)).fetchall()  # fmt: skip
-        how = ", ".join(f"{b['browsed']} browse {b['listed']} in {b['pages']} page(s)"
-                        + (" PARTIAL (cap)" if b["capped"] else "") for b in browse)  # fmt: skip
+        b = engine.execute("SELECT pages, capped FROM sic_browse WHERE sic = ? AND browsed = ?",
+                           (sic, BROWSE_FORM)).fetchone()  # fmt: skip
+        how = (f"browse {b['pages']} page(s)" + (" PARTIAL (cap)" if b["capped"] else "")
+               if b else "not browsed")  # fmt: skip
         lines.append(
-            f"  SIC {sic}: listed {len(ciks)} ({how or 'not browsed'}); active "
+            f"  SIC {sic}: listed {len(ciks)} ({how}); active "
             f"{len(act)} ({len(act) - foreign} on 10-K, {foreign} on 20-F/40-F)"
         )
         for ticker, s in rows:
             names = "; ".join(
                 f"{c.rank}. {c.name}"
                 + (f" {c.revenue / 1e9:,.1f}B" if c.revenue else " (revenue missing)")
+                + (f" (revenue suspect: {c.suspect})" if c.suspect else "")
                 for c in s.candidates
             )
             tv = f"{s.target_revenue / 1e9:,.1f}B" if s.target_revenue else "missing"
             lines.append(f"    {ticker} (revenue {tv}): {len(s.candidates)} — {names or s.note}")
+        suspects = sorted({(n, w) for _, s in rows for n, w in s.suspects})
+        if suspects:
+            lines.append("    revenue suspect (ranked after the valued names): "
+                         + "; ".join(f"{n} ({w})" for n, w in suspects))  # fmt: skip
     nopeer = {t: (s.note or "no active candidate") for t, s in pp.shortlists.items()
               if not s.candidates}  # fmt: skip
     lines.append(f"Companies with no usable SIC peers: {len(nopeer)}")
@@ -710,28 +717,24 @@ def profile_run(engine, comps: dict[str, str], mf, now, log, client=None, clog=N
     targets = profile.peer_targets(engine, comps, mf)
     sics = sorted({sic for _, sic, _ in targets.values() if sic})
     if client is not None:
-        log(f"Browse-by-SIC for {len(sics)} SIC(s): {', '.join(sics)} (at most "
-            f"{browse.PAGE_CAP} pages each; 10-K, 20-F, 40-F browses):")  # fmt: skip
+        log(f"Browse-by-SIC for {len(sics)} SIC(s): {', '.join(sics)} (one browse per SIC, "
+            f"at most {browse.PAGE_CAP} pages each):")  # fmt: skip
         t0 = time.monotonic()
         for sic in sics:
             b = browse.browse_sic(client, sic)
             engine.execute("BEGIN")
             browse.store(engine, b, now)
             engine.execute("COMMIT")
-            parts = ", ".join(
-                f"{f.form} {f.listed} in {f.pages} page(s)"
-                + (" PARTIAL (cap)" if f.capped else "")
-                + (f" FAILED: {f.error}" if f.error else "")
-                for f in b.forms
-            )
-            log(f"  SIC {sic}: {len(b.companies)} companies ({parts})")
+            log(f"  SIC {sic}: {len(b.companies)} companies in {b.pages} page(s)"
+                + (" PARTIAL (cap)" if b.capped else "")
+                + (f" FAILED: {b.error}" if b.error else ""))  # fmt: skip
             if b.throttled:
                 log("  SEC throttle: the rest waits for the next run")
                 break
         year = peers.frame_year(now.date())
         if clog is not None:
             clog.seconds["browse-by-SIC"] += time.monotonic() - t0
-        log(f"Revenue frames CY{year} (ranking):")
+        log(f"Revenue frames CY{year} (ranking) and CY{year - 1} (suspect guard):")
         t1 = time.monotonic()
         log(*peers.fetch_revenue_frames(client, engine, year, now))
         if clog is not None:

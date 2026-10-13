@@ -1,7 +1,8 @@
 """Ranked SIC peer shortlist (D-M04-4, S6.2; M04 Part 1c).
 
 - **Listed:** the companies EDGAR's browse-by-SIC lists under the target's 4-digit SIC
-  (`sec/browse.py`, 10-K, 20-F and 40-F browses, capped per SIC).
+  (`sec/browse.py`, one browse per SIC, capped at 10 pages; the form parameter does not
+  filter the list, live check 1).
 - **Active:** a 10-K, 20-F or 40-F (amendments and 10-KT included) filed in the last 12
   months, read from the stored quarterly form indexes (0 requests). A 10-K-only filter
   would drop foreign filers such as GlobalFoundries (PROBE_RESULTS S1). Quarters of the
@@ -10,6 +11,11 @@
   revenue from 3 XBRL frames (us-gaap RevenueFromContractWithCustomerExcludingAssessedTax,
   us-gaap Revenues, ifrs-full Revenue; USD). Active names without a frame value follow,
   marked "revenue missing". The shortlist is the top `SHORTLIST`† per target.
+- **Revenue suspect** (live check 1: TIGO ENERGY at 103.5B, a scaling error in its filing):
+  CY ÷ CY−1 frame value (the 2 us-gaap tags) above 10× or below 0.1×, or the CY frame value
+  more than 10× off the company's own stored fiscal-year revenue nearest the frame period
+  (when facts exist). Suspect names keep their value, are ranked after the valued ones
+  (before "revenue missing") and are marked, never dropped.
 - **Owner:** one `m04_peer` item per target from the shortlist only (setup batch, outside
   the weekly cap, D-M04-71): strike names, add product-market peers outside the SIC
   (WDC and QCOM for MU), store non-SEC peers by name ("missing: not an SEC filer": SK
@@ -38,6 +44,9 @@ REVENUE_FRAMES = (
     ("us-gaap", "Revenues"),
     ("ifrs-full", "Revenue"),
 )
+PRIOR_FRAMES = REVENUE_FRAMES[:2]  # CY−1 for the suspect guard (ifrs-full CY2025 was a 404)
+SUSPECT_RATIO = 10.0
+SUSPECT = "revenue suspect: "
 NOT_SEC = "missing: not an SEC filer"
 
 
@@ -56,22 +65,60 @@ def frame_year(today: date) -> int:
 def fetch_revenue_frames(
     client: SecClient, engine: sqlite3.Connection, year: int, now: datetime
 ) -> list[str]:
-    """Store the 3 revenue frames for CY<year> (each re-used for 30 days). Lines for the log."""
+    """Store the 3 revenue frames for CY<year> (ranking) and the 2 us-gaap frames for
+    CY<year−1> (suspect guard); each re-used for 30 days. Lines for the log."""
     lines = []
-    for tax, tag in REVENUE_FRAMES:
-        res = fetch_frame(client, engine, tax, tag, "USD", f"CY{year}", now)
-        if isinstance(res, Ok):
-            lines.append(f"  frame {tax}:{tag} USD CY{year}: {res.data:,} companies"
-                         + (" (stored, re-used)" if res.from_cache else ""))  # fmt: skip
-        else:
-            lines.append(f"  frame {tax}:{tag} USD CY{year}: {res}")
+    for y, frames in ((year, REVENUE_FRAMES), (year - 1, PRIOR_FRAMES)):
+        for tax, tag in frames:
+            res = fetch_frame(client, engine, tax, tag, "USD", f"CY{y}", now)
+            if isinstance(res, Ok):
+                lines.append(f"  frame {tax}:{tag} USD CY{y}: {res.data:,} companies"
+                             + (" (stored, re-used)" if res.from_cache else ""))  # fmt: skip
+            else:
+                lines.append(f"  frame {tax}:{tag} USD CY{y}: {res}")
     return lines
 
 
-def frame_revenue(engine: sqlite3.Connection, year: int) -> dict[str, tuple[float, str]]:
-    """cik → (revenue, reference) from the stored frames, first tag in REVENUE_FRAMES wins."""
+def money(v: float) -> str:
+    return f"{v / 1e9:,.1f}B" if abs(v) >= 1e9 else f"{v / 1e6:,.1f}M"
+
+
+def _off(a: float, b: float) -> bool:
+    return a > 0 and b > 0 and not (1 / SUSPECT_RATIO <= a / b <= SUSPECT_RATIO)
+
+
+def revenue_suspect(
+    engine: sqlite3.Connection, cik: str, year: int, value: float, as_of: str,
+    prior: dict[str, tuple[float, str]] | None = None,
+) -> str:  # fmt: skip
+    """Why a CY<year> frame revenue looks wrong ("" when it does not): a > 10× jump or
+    drop against CY<year−1>, or > 10× off the company's own stored fiscal-year revenue."""
+    prior = frame_revenue(engine, year - 1, PRIOR_FRAMES) if prior is None else prior
+    p = prior.get(cik)
+    if p and _off(value, p[0]):
+        return f"CY{year} {money(value)} vs CY{year - 1} {money(p[0])}"
+    from engine.financials.capex import fy_points
+
+    pts = fy_points(engine, cik, "revenue", as_of)
+    if pts:
+        row = engine.execute(
+            "SELECT period_end FROM frame_value WHERE cik = ? AND frame = ? AND unit = 'USD' "
+            "AND period_end IS NOT NULL LIMIT 1",
+            (cik, f"CY{year}"),
+        ).fetchone()
+        end = date.fromisoformat(row[0]) if row else date(year, 12, 31)
+        near = min(pts.values(), key=lambda q: abs((date.fromisoformat(q.end) - end).days))
+        if abs((date.fromisoformat(near.end) - end).days) <= 200 and _off(value, near.value):
+            return f"CY{year} {money(value)} vs stored FY to {near.end} {money(near.value)}"
+    return ""
+
+
+def frame_revenue(
+    engine: sqlite3.Connection, year: int, frames: tuple[tuple[str, str], ...] = REVENUE_FRAMES
+) -> dict[str, tuple[float, str]]:
+    """cik → (revenue, reference) from the stored frames, first tag in `frames` wins."""
     out: dict[str, tuple[float, str]] = {}
-    for tax, tag in REVENUE_FRAMES:
+    for tax, tag in frames:
         for r in engine.execute(
             "SELECT cik, value, accession FROM frame_value WHERE taxonomy = ? AND tag = ? "
             "AND unit = 'USD' AND frame = ?",
@@ -143,6 +190,13 @@ class Candidate:
     def key(self) -> str:
         return self.cik or f"name:{self.name}"
 
+    @property
+    def suspect(self) -> str:
+        """The suspect-revenue reason stored at the head of revenue_ref, or ""."""
+        if not self.revenue_ref.startswith(SUSPECT):
+            return ""
+        return self.revenue_ref[len(SUSPECT) :].split(" · ")[0]
+
 
 @dataclass
 class Shortlist:
@@ -154,6 +208,7 @@ class Shortlist:
     target_revenue_ref: str
     candidates: list[Candidate] = field(default_factory=list)
     note: str = ""
+    suspects: list[tuple[str, str]] = field(default_factory=list)  # (name, why), whole pool
 
 
 def shortlist(
@@ -183,21 +238,30 @@ def shortlist(
         out.note = f"missing: SIC {sic} not browsed yet (run_financials.py profile)"
         return out
     skip = {target} | {normalize_cik(c) or c for c in exclude}
+    prior = frame_revenue(engine, year - 1, PRIOR_FRAMES)
     pool = []
     for cik, (form, filed) in active.items():
         if cik in skip:
             continue
         rv = revenue.get(cik)
-        dist = None
+        dist, why = None, ""
+        if rv:
+            why = revenue_suspect(engine, cik, year, rv[0], today.isoformat(), prior)
         if rv and rv[0] > 0 and out.target_revenue and out.target_revenue > 0:
             dist = abs(math.log(rv[0] / out.target_revenue))
-        pool.append((dist, listed[cik], cik, form, filed, rv))
-    pool.sort(key=lambda t: (t[0] is None, t[0] if t[0] is not None else 0.0, t[1]))
-    for i, (_, name, cik, form, filed, rv) in enumerate(pool[:n], 1):
+        if why:
+            out.suspects.append((listed[cik], why))
+        # valued (by closeness) → revenue suspect (by closeness) → revenue missing (by name)
+        tier = (0 if dist is not None else 2) + (1 if why else 0)
+        pool.append((tier, dist if dist is not None else 0.0, listed[cik], cik, form, filed, rv,
+                     why))  # fmt: skip
+    pool.sort(key=lambda t: t[:3])
+    out.suspects.sort()
+    for i, (_, _, name, cik, form, filed, rv, why) in enumerate(pool[:n], 1):
+        ref = rv[1] if rv else f"missing: no CY{year} revenue frame value"
         out.candidates.append(Candidate(cik, name, sic, i, f"{form} {filed}",
                                         rv[0] if rv else None,
-                                        rv[1] if rv else f"missing: no CY{year} revenue frame "
-                                        "value"))  # fmt: skip
+                                        f"{SUSPECT}{why} · {ref}" if why else ref))  # fmt: skip
     if out.target_revenue is None:
         out.note = "target revenue missing: ranked by name"
     return out

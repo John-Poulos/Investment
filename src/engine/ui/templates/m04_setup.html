@@ -69,7 +69,7 @@
   {% for g in v.groups %}
   <h3 class="sub">{{ g.title }}</h3>
   {% if g.sic %}
-  <p class="muted">Listed {{ g.listed }} · active {{ g.active }} (a 10-K, 20-F or 40-F in the last 12 months){% for b in g.browse %} · {{ b['browsed'] }} browse: {{ b['listed'] }} in {{ b['pages'] }} page(s){% if b['capped'] %} <span class="warn">partial (page cap)</span>{% endif %}{% endfor %}{% if not g.browse %} · not browsed yet{% endif %}</p>
+  <p class="muted">Listed {{ g.listed }} · active {{ g.active }} (a 10-K, 20-F or 40-F in the last 12 months){% for b in g.browse %} · browse-by-SIC: {{ b['listed'] }} in {{ b['pages'] }} page(s){% if b['capped'] %} <span class="warn">partial (page cap)</span>{% endif %}{% endfor %}{% if not g.browse %} · not browsed yet{% endif %}</p>
   {% endif %}
   {% for t in g.targets %}
   <div id="peer-{{ t.item_id or t.cik }}" style="margin:8px 0 16px">
@@ -86,7 +86,7 @@
           <td class="num">{{ c.rank or '' }}</td>
           <td>{% if c.status == 'struck' %}<s>{{ c.name }}</s>{% else %}{{ c.name }}{% endif %}</td>
           <td>{{ c.active or '—' }}</td>
-          <td class="num">{% if c.revenue %}<span title="{{ c.revenue_ref }}">{{ c.revenue | num }}</span>{% else %}<span class="muted" title="{{ c.revenue_ref }}">—</span>{% endif %}</td>
+          <td class="num">{% if c.revenue %}<span title="{{ c.revenue_ref }}">{{ c.revenue | num }}</span>{% else %}<span class="muted" title="{{ c.revenue_ref }}">—</span>{% endif %}{% if c.suspect %}<br><span class="warn">(revenue suspect: {{ c.suspect }})</span>{% endif %}</td>
           <td class="muted">{{ {'sic': 'SIC shortlist', 'owner': 'added by owner', 'owner_name': not_sec}.get(c.source, c.source) }}</td>
         </tr>
         {% else %}<tr><td colspan="6" class="muted">No candidate: add peers below, or confirm an empty set.</td></tr>{% endfor %}
@@ -104,7 +104,7 @@
   </div>
   {% endfor %}
   {% else %}<p class="empty">No peer shortlist yet: run <code>uv run python scripts/run_financials.py profile</code>.</p>{% endfor %}
-  <p class="note">Shortlist = active companies listed under the company's 4-digit SIC on EDGAR's browse-by-SIC, ranked by closeness of calendar-year revenue (XBRL frames), top 10†. Add product-market peers outside the SIC by ticker or CIK (e.g. WDC or QCOM for MU); a company that does not file with the SEC is stored by name and reads "{{ not_sec }}" (SK hynix, Samsung). A model tag overrides SIC: tagged companies get only the peers you add (D-M04-4, -8). Peers must be confirmed before Part 2 fetches their facts.</p>
+  <p class="note">Shortlist = active companies listed under the company's 4-digit SIC on EDGAR's browse-by-SIC, ranked by closeness of calendar-year revenue (XBRL frames), top 10†. A name whose frame revenue moved more than 10× from the prior year, or sits more than 10× from its own stored annual revenue, is marked "revenue suspect" and ranked after the valued names. Add product-market peers outside the SIC by ticker or CIK (e.g. WDC or QCOM for MU); a company that does not file with the SEC is stored by name and reads "{{ not_sec }}" (SK hynix, Samsung). A model tag overrides SIC: tagged companies get only the peers you add (D-M04-4, -8). Peers must be confirmed before Part 2 fetches their facts.</p>
 
   <h2 id="tags">3. Model tags</h2>
   {% if v.tags.error %}<div class="warnbox">The tag file was rejected, so no tag applies: {{ v.tags.error }}</div>{% endif %}

@@ -22,6 +22,7 @@ from typing import Any
 
 from engine.financials import models as models_mod
 from engine.financials import peers, queue, stage
+from engine.sec.browse import BROWSE_FORM
 from engine.sec.identity import normalize_cik
 from engine.themes import tiers
 
@@ -229,6 +230,7 @@ def peer_pass(
                 "listed": s.listed,
                 "active": s.active,
                 "shortlist": [c.name for c in s.candidates],
+                "revenue_suspect": [f"{n} ({w})" for n, w in s.suspects],
                 "note": s.note or why or "",
             }
             out.opened[ticker] = queue.propose(engine, "m04_peer", cik, reason, payload, now,
@@ -340,8 +342,8 @@ def setup_view(
             ciks = [r[0] for r in engine.execute("SELECT DISTINCT cik FROM sic_listing WHERE "
                                                  "sic = ?", (sic,))] if sic else []  # fmt: skip
             active = len(peers.active_filers(engine, ciks, now.date()))
-            browse = engine.execute("SELECT * FROM sic_browse WHERE sic = ? ORDER BY browsed",
-                                    (sic,)).fetchall() if sic else []  # fmt: skip
+            browse = engine.execute("SELECT * FROM sic_browse WHERE sic = ? AND browsed = ?",
+                                    (sic, BROWSE_FORM)).fetchall() if sic else []  # fmt: skip
             title = (f"SIC {sic}" + (f" — {desc[0]}" if desc else "")) if sic else \
                 "No SIC shortlist (model tag or no SIC)"  # fmt: skip
             groups[sic] = PeerGroup(sic, title, listed, active, browse, [])

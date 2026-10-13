@@ -152,7 +152,7 @@ def test_dickinson_patterns():
         ("BA", None, ["no_stage"], 0.103),
         ("MRVL", "mature", [], 0.114),
         ("META", "mature", [], 0.199),
-        ("MSTR", "introduction", ["growth_falling"], -0.015),
+        ("MSTR", "introduction", ["intro_falling"], -0.015),
         ("SPCX", None, ["short_history"], None),
         ("INFQ", None, ["short_history"], None),
     ],
@@ -215,7 +215,8 @@ def test_first_run_opens_15_setup_items_outside_the_cap(dbs):
     assert [tuple(p) for p in props] == [(0, 0)]  # setup: outside the weekly cap
     assert queue.queued_this_week(engine, NOW) == 0
     by = {json.loads(r["payload"])["ticker"]: json.loads(r["payload"]) for r in items}
-    assert by["MSTR"]["why"] == ["first", "growth_falling", "tag_first"]
+    assert by["MSTR"]["why"] == ["first", "intro_falling", "tag_first"]
+    assert stage.REASONS["intro_falling"] == "introduction with falling revenue (CAGR < 0%)"
     assert by["AAPL"]["why"] == ["first"] and by["AAPL"]["computed"] == "mature"
     assert by["BA"]["why"] == ["first", "no_stage"]
     assert by["SPCX"]["why"] == ["first", "short_history"]
@@ -394,17 +395,16 @@ GFS = "0001709048"
 
 
 def sic3674(engine, transport_routes: dict) -> list[tuple[str, str]]:
-    """505 companies on the 10-K browse (6 pages), GFS and one more on the 20-F browse, none on
-    40-F; 82 of the 10-K list filed a 10-K in the last 12 months; GFS filed a 20-F."""
+    """507 companies on the one browse (6 pages): 505 10-K-style names plus GFS and an old
+    foreign filer (the type parameter does not filter the list, live check 1); 82 filed a
+    10-K in the last 12 months; GFS filed a 20-F."""
     listed = [(c, f"SEMI FIXTURE {i:03d} INC") for i, c in
               enumerate((f"{9000000 + i:010d}" for i in range(501)), 1)]  # fmt: skip
     listed += [(c, f"{t} FIXTURE") for t, c in SEMIS.items()]
+    full = sorted(listed + [(GFS, "GLOBALFOUNDRIES Inc."), ("0009999999", "FOREIGN OLD SEMI LTD")],
+                  key=lambda r: r[1])  # fmt: skip
     listed.sort(key=lambda r: r[1])
-    pages = [ok(page(listed[i : i + 100])) for i in range(0, 505, 100)]
-    pages.append(
-        ok(page([(GFS, "GLOBALFOUNDRIES Inc."), ("0009999999", "FOREIGN OLD SEMI LTD")], "20-F"))
-    )
-    pages.append(ok(page([], "40-F")))
+    pages = [ok(page(full[i : i + 100])) for i in range(0, 507, 100)]
     transport_routes[browse.BROWSE_URL] = pages
     active = [c for c, _ in listed if c not in SEMIS.values()][:78] + list(SEMIS.values())
     for i, c in enumerate(active):
@@ -431,15 +431,23 @@ def sic3674(engine, transport_routes: dict) -> list[tuple[str, str]]:
     return listed
 
 
-def frames_routes(routes: dict, values: dict[str, float]) -> None:
-    url = "https://data.sec.gov/api/xbrl/frames/{t}/{g}/USD/CY2025.json"
-    data = [{"cik": int(c), "entityName": c, "val": v, "accn": f"{c}-26-000001", "end": "2025-12-31", "start": "2025-01-01"}
-            for c, v in values.items()]  # fmt: skip
-    routes[url.format(t="us-gaap", g="RevenueFromContractWithCustomerExcludingAssessedTax")] = [
-        ok(json.dumps({"data": data}).encode())
-    ]
-    routes[url.format(t="us-gaap", g="Revenues")] = [ok(b"", 404)]
-    routes[url.format(t="ifrs-full", g="Revenue")] = [ok(json.dumps({"data": []}).encode())]
+def frames_routes(
+    routes: dict, values: dict[str, float], prior: dict[str, float] | None = None
+) -> None:
+    """CY2025: the 3 ranking frames; CY2024: the 2 us-gaap frames of the suspect guard."""
+
+    def rows(vals: dict[str, float], y: int) -> bytes:
+        data = [{"cik": int(c), "entityName": c, "val": v, "accn": f"{c}-{y - 1999}-000001",
+                 "end": f"{y}-12-31", "start": f"{y}-01-01"} for c, v in vals.items()]  # fmt: skip
+        return json.dumps({"data": data}).encode()
+
+    url = "https://data.sec.gov/api/xbrl/frames/{t}/{g}/USD/CY{y}.json"
+    rfc = "RevenueFromContractWithCustomerExcludingAssessedTax"
+    routes[url.format(t="us-gaap", g=rfc, y=2025)] = [ok(rows(values, 2025))]
+    routes[url.format(t="us-gaap", g="Revenues", y=2025)] = [ok(b"", 404)]
+    routes[url.format(t="ifrs-full", g="Revenue", y=2025)] = [ok(rows({}, 2025))]
+    routes[url.format(t="us-gaap", g=rfc, y=2024)] = [ok(rows(prior or {}, 2024))]
+    routes[url.format(t="us-gaap", g="Revenues", y=2024)] = [ok(b"", 404)]
 
 
 def test_sic3674_browse_505_listed_82_active_and_20f_filer_counted(dbs, make_client):
@@ -458,23 +466,30 @@ def test_sic3674_browse_505_listed_82_active_and_20f_filer_counted(dbs, make_cli
     transport = FakeTransport(routes)
     client = make_client(transport)
     b = browse.browse_sic(client, "3674")
-    assert [(f.form, f.pages, f.listed, f.capped) for f in b.forms] == [
-        ("10-K", 6, 505, False), ("20-F", 1, 2, False), ("40-F", 1, 0, False)]  # fmt: skip
-    assert len(transport.calls) == 8 and transport.calls[0][1]["SIC"] == "3674"
+    assert (b.pages, b.listed, len(b.companies), b.capped, b.partial) == (6, 507, 507, False, False)
+    assert len(transport.calls) == 6 and transport.calls[0][1]["SIC"] == "3674"
+    assert {c[1]["type"] for c in transport.calls} == {"10-K"}  # one browse, cached URLs kept
     engine.execute("BEGIN")
+    # a stale row from the earlier per-form browses is replaced by the one browse row
+    engine.execute("INSERT INTO sic_browse (sic, browsed, pages, listed, capped, fetched_at) "
+                   "VALUES ('3674', '20-F', 3, 300, 1, 'n')")  # fmt: skip
     browse.store(engine, b, NOW)
     engine.execute("COMMIT")
     assert (
         engine.execute("SELECT count(*) FROM sic_listing WHERE browsed = '10-K'").fetchone()[0]
-        == 505
+        == 507
     )
+    assert [tuple(r) for r in engine.execute(
+        "SELECT browsed, pages, listed, capped FROM sic_browse WHERE sic = '3674'")] == [
+        ("10-K", 6, 507, 0)]  # fmt: skip
     ciks = [r[0] for r in engine.execute("SELECT cik FROM sic_listing")]
     act = peers.active_filers(engine, ciks, TODAY)
     on_10k = sum(1 for f, _ in act.values() if f.startswith("10-K"))
     assert (on_10k, len(act)) == (82, 83) and act[GFS] == ("20-F", "2026-03-14")
     assert "0009999999" not in act  # listed on the 20-F browse, last 20-F too old
     lines = peers.fetch_revenue_frames(client, engine, 2025, NOW)
-    assert any("RevenueFromContract" in ln and "83 companies" in ln for ln in lines)
+    assert any("RevenueFromContract" in ln and "CY2025: 83 companies" in ln for ln in lines)
+    assert len(transport.calls) == 6 + 5  # 3 CY2025 frames + 2 CY2024 (suspect guard)
     s = peers.shortlist(engine, SEMIS["MU"], "3674", TODAY, year=2025)
     assert (s.listed, s.active) == (507, 83) and len(s.candidates) == peers.SHORTLIST
     assert SEMIS["MU"] not in {c.cik for c in s.candidates}
@@ -486,16 +501,81 @@ def test_sic3674_browse_505_listed_82_active_and_20f_filer_counted(dbs, make_cli
     assert GFS in {c.cik for c in m.candidates}  # a 20-F filer near MRVL's revenue is ranked
 
 
-def test_page_cap_marks_partial(make_client):
-    full = [(f"{8000000 + i:010d}", f"CO {i:04d}") for i in range(100)]
-    transport = FakeTransport({browse.BROWSE_URL: [ok(page(full))]})  # every page full
-    b = browse.browse_sic(make_client(transport), "7372", page_cap=4)
-    assert [(f.form, f.pages, f.capped) for f in b.forms] == [
-        ("10-K", 2, True),
-        ("20-F", 1, True),
-        ("40-F", 1, True),
-    ]
-    assert b.pages == 4 and b.partial
+def test_page_cap_marks_partial_only_when_the_last_page_was_full(make_client):
+    def full(k: int) -> bytes:
+        return page([(f"{8000000 + k * 100 + i:010d}", f"CO {k}-{i:03d}") for i in range(100)])
+
+    transport = FakeTransport({browse.BROWSE_URL: [ok(full(k)) for k in range(4)]})
+    b = browse.browse_sic(make_client(transport), "7372", page_cap=4)  # every page full
+    assert (b.pages, len(b.companies), b.capped, b.partial) == (4, 400, True, True)
+    assert len(transport.calls) == 4
+    # 800 listed and a cap of 10 (SIC 7372, live check 1): page 9 comes back empty → complete
+    pages = [ok(full(k)) for k in range(8)] + [ok(page([]))]
+    transport = FakeTransport({browse.BROWSE_URL: pages})
+    b = browse.browse_sic(make_client(transport), "7373")  # another SIC: no shared cache
+    assert (b.pages, len(b.companies), b.capped, b.partial) == (9, 800, False, False)
+    # a short last page at the cap is the end of the list, not partial
+    pages = [ok(full(k)) for k in range(3)] + [ok(page([("0008999999", "LAST CO")]))]
+    b = browse.browse_sic(make_client(FakeTransport({browse.BROWSE_URL: pages})), "7374",
+                          page_cap=4)  # fmt: skip
+    assert (b.pages, len(b.companies), b.capped) == (4, 301, False)
+
+
+def _suspect_setup(engine, make_client, facts: bool):
+    """TIGO-like: a small 3674 filer whose CY2025 frame reads 103.5B (scaling error)."""
+    routes: dict = {}
+    sic3674(engine, routes)
+    tigo = "0009000003"  # active in the fixture
+    near = {"0009000001": 30e9, "0009000002": 45e9}
+    frames_routes(routes, {SEMIS["MU"]: 37.4e9, tigo: 103.5e9, **near},
+                  prior=None if facts else {tigo: 54e6, "0009000001": 28e9})  # fmt: skip
+    client = make_client(FakeTransport(routes))
+    b = browse.browse_sic(client, "3674")
+    engine.execute("BEGIN")
+    browse.store(engine, b, NOW)
+    engine.execute("COMMIT")
+    peers.fetch_revenue_frames(client, engine, 2025, NOW)
+    return tigo
+
+
+def test_suspect_revenue_ranks_after_valued_names_by_year_ratio(dbs, make_client):
+    engine, _ = dbs
+    tigo = _suspect_setup(engine, make_client, facts=False)
+    s = peers.shortlist(engine, SEMIS["MU"], "3674", TODAY, year=2025)
+    names = {c.cik: c for c in s.candidates}
+    assert [c.cik for c in s.candidates[:2]] == [
+        "0009000002",
+        "0009000001",
+    ]  # valued first (45B nearer 37.4B)
+    t = names[tigo]
+    assert t.rank == 3 and t.revenue == 103.5e9  # kept, value shown, not dropped
+    assert t.suspect == "CY2025 103.5B vs CY2024 54.0M"
+    assert t.revenue_ref.startswith(
+        "revenue suspect: CY2025 103.5B vs CY2024 54.0M · CY2025 us-gaap:"
+    )
+    assert s.suspects == [("SEMI FIXTURE 004 INC", "CY2025 103.5B vs CY2024 54.0M")]
+    assert not names["0009000001"].suspect  # 30B vs 28B: no flag
+    assert all(c.revenue is None for c in s.candidates[3:])  # revenue missing after suspects
+    # stored and read back: the setup page and the log show the mark
+    engine.execute("BEGIN")
+    peers.store_shortlist(engine, s, NOW)
+    engine.execute("COMMIT")
+    back = {c.cik: c for c in peers.candidates(engine, SEMIS["MU"])}
+    assert back[tigo].suspect == "CY2025 103.5B vs CY2024 54.0M"
+
+
+def test_suspect_revenue_against_stored_facts(dbs, make_client):
+    engine, _ = dbs
+    tigo = _suspect_setup(engine, make_client, facts=True)  # no CY2024 frame values
+    _fact(engine, tigo, "RevenueFromContractWithCustomerExcludingAssessedTax", "2025-01-01",
+          "2025-12-31", 103.5e6, 1)  # fmt: skip
+    assert peers.revenue_suspect(engine, tigo, 2025, 103.5e9, TODAY.isoformat()) == (
+        "CY2025 103.5B vs stored FY to 2025-12-31 103.5M"
+    )
+    assert peers.revenue_suspect(engine, tigo, 2025, 110e6, TODAY.isoformat()) == ""
+    assert peers.revenue_suspect(engine, "0009000002", 2025, 45e9, TODAY.isoformat()) == ""
+    s = peers.shortlist(engine, SEMIS["MU"], "3674", TODAY, year=2025)
+    assert [c.cik for c in s.candidates[:3]] == ["0009000002", "0009000001", tigo]
 
 
 # --- Peer confirmation (D-M04-4) -----------------------------------------------------------------
@@ -585,8 +665,12 @@ def test_profile_run_requests_and_owner_summary(dbs, make_client):
         "7372",
         "7374",
     }  # MSTR's 6199: tag overrides
-    assert len(browses) == 24 and len(transport.calls) == 27  # 8 SICs × 3 browses + 3 frames
+    # 8 SICs × 1 browse (one short page each) + 3 CY2025 frames + 2 CY2024 frames
+    assert len(browses) == 8 and len(transport.calls) == 13
     text = "\n".join(lines)
+    assert "SIC 3674: 1 companies in 1 page(s)" in text and "PARTIAL" not in text
+    assert "20-F browse" not in text and "40-F browse" not in text
+    assert "MSTR: introduction" in text and "introduction with falling revenue (CAGR < 0%)" in text
     for want in ("loaded with 3 entries: MSTR asset_treasury (all periods); ETV fund (all periods); "
                  "INFQ spac_shell (periods ending before 2026-02-13)",
                  "Stages computed: 15", "Setup stage items: 15 queued now",
@@ -664,7 +748,8 @@ def test_setup_page_actions_and_profile_block(tmp_path):
                      "model tag routes first", "on total investing", "asset_treasury", "spac_shell",
                      "OTHER SEMI", "not an SEC filer", "Stage routes red flags only",
                      "keeps routing until you change it", "unknown tag is rejected",
-                     "the engine never writes the file", "M04 setup"):  # fmt: skip
+                     "the engine never writes the file", "M04 setup",
+                     "is marked \"revenue suspect\""):  # fmt: skip
             assert text in html, text
         assert "object at 0x" not in html
         r = c.post("/m04/stage/confirm-all", data={"items": [1, 3]}, follow_redirects=False)
