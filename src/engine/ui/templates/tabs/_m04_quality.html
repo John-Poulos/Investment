@@ -1,0 +1,83 @@
+{# M04 Part 6 sections (owner's mock-up 2026-10-13): earnings-quality scores, contract assets and deferred revenue, estimate changes, recurring "one-time" charges, non-operating swings. #}
+{% if m04_quality %}{% set eq = m04_quality %}
+<h2>Earnings-quality scores <span class="muted">(M04; screens; {{ eq.stage_label }})</span></h2>
+{% if eq.excluded %}
+<p class="empty">missing: {{ eq.excluded }} — {{ eq.tag_how }} (D-M04-8).</p>
+{% elif eq.rows %}
+{% if eq.non_reliance %}<div class="warnbox">{{ eq.non_reliance }}</div>{% endif %}
+<table class="data">
+  <tr><th>Fiscal year</th><th class="num">CFO/NI 3y</th><th class="num">Accruals vs own 5y</th><th class="num">M-score</th><th class="num">M (SGI = 1)</th><th class="num">Misstatement F (approx.)</th><th>Reading</th></tr>
+  {% for r in eq.rows %}
+  <tr><td>{{ r.label }}</td><td class="num">{{ r.cfo_ni or '' }}</td><td class="num">{{ r.accruals or '' }}</td>
+    <td class="num"><span title="{{ r.title_m }}">{{ r.m }}</span></td>
+    <td class="num">{% if r.bold %}<b>{{ r.m1 }}</b>{% else %}{{ r.m1 }}{% endif %}</td>
+    <td class="num"><span title="{{ r.title_f }}">{{ r.f }}</span></td>
+    <td>{% if r.bold %}<b>{{ r.reading }}</b>{% else %}{{ r.reading }}{% endif %}</td></tr>
+  {% endfor %}
+</table>
+<p class="note">{{ eq.cash_line }}</p>
+<p class="note">{{ eq.dso }}</p>
+{% else %}<p class="empty">missing: no fiscal year of revenue or net income stored.</p>{% endif %}
+<p class="note">{{ eq.notes.scores }}</p>
+
+{% if not eq.excluded %}
+<h2>Contract assets and deferred revenue <span class="muted">(M04; GE pattern, S2.2)</span></h2>
+<table class="data">
+  <tr><th>Company</th><th>Line</th><th>Fiscal year</th><th>Tag</th><th class="num">Earlier</th><th class="num">Later</th><th>Line vs revenue</th><th>Reading</th></tr>
+  {% for g in eq.gaps + (eq.reference.gaps or []) %}
+  <tr><td>{{ g.company }}</td><td>{{ g.line }}</td><td>{{ g.label }}</td><td class="muted"><span title="{{ g.title }}">{{ g.tags }}</span></td>
+    <td class="num">{{ g.earlier }}</td><td class="num">{{ g.later }}</td><td>{{ g.growth }}</td><td>{{ g.reading }}</td></tr>
+  {% endfor %}
+</table>
+<p class="note">{{ eq.notes.gaps }}</p>
+
+<h2>Estimate changes <span class="muted">(M04; current + two prior annual reports; D-M04-17, -18)</span></h2>
+{% set est = eq.estimates + (eq.reference.estimates or []) %}
+{% if est %}
+<table class="data">
+  <tr><th>Company · filing</th><th>Sentence (hover: verified quote)</th><th class="num">Amount ($M)</th><th class="num">Denominator ($M)</th><th class="num">Share</th><th>Band</th></tr>
+  {% for e in est %}
+  <tr><td style="white-space:nowrap">{{ e.company }} {{ e.form }} {{ e.filed }}</td>
+    <td><span title="“{{ e.quote }}” ({{ e.doc }})">{{ e.kind }}, {{ e.label }}: {{ e.quote[:140] }}{% if e.quote|length > 140 %}…{% endif %}</span></td>
+    <td class="num">{{ e.amount }} <span class="muted">{{ e.basis }}</span></td>
+    <td class="num"><span title="{{ e.denominator_what }}">{{ e.denominator }}</span></td>
+    <td class="num">{{ e.share }}</td>
+    <td>{% if e.band in ('watch', 'elevated') %}<b>{{ e.band }}</b>{% else %}{{ e.band | replace('_', ' ') }}{% endif %}{% if e.baseline %} <span class="muted">(baseline)</span>{% endif %}{% if e.owner %} <span class="muted">· you: {{ e.owner }}</span>{% endif %}</td></tr>
+  {% endfor %}
+</table>
+{% else %}<p class="empty">No estimate-change sentence with an amount in the stored annual reports.</p>{% endif %}
+{% if eq.recurrence %}<p class="note"><b>Recurrence:</b> {{ eq.recurrence }} in all three disclosures (adds a flag, D-M04-17).</p>{% endif %}
+{% for c in eq.catch_up + (eq.reference.catch_up or []) %}
+<p class="note">Catch-up revenue (ASC 606 tag, revenue not profit, own history only) — {{ c.company }}: {% for lb, v, acc in c.years[-6:] %}{{ lb }} {{ '{:,.0f}'.format(v / 1e6) }}M{{ ' · ' if not loop.last }}{% endfor %}{% if c.flag %} — <b>{{ c.flag }}</b>{% endif %}</p>
+{% endfor %}
+<p class="note">{{ eq.notes.estimates }}</p>
+
+<h2>Recurring “one-time” charges <span class="muted">(M04; special_items, D-M04-19)</span></h2>
+{% if eq.special %}{% set sp = eq.special %}
+<table class="data">
+  <tr><th>Fiscal year</th><th>Tags ($M)</th><th>Wording in the annual report</th></tr>
+  {% for y in sp.years %}
+  <tr><td>{{ y.label }}</td><td>{{ y.tags }}</td>
+    <td>{% for p, q in y.text %}<span title="“{{ q }}”">“{{ p }}”</span>{{ ' · ' if not loop.last }}{% else %}<span class="muted">{{ 'none' if y.text_state == 'read' else 'text not stored' }}</span>{% endfor %}</td></tr>
+  {% endfor %}
+</table>
+<p class="note">Years with items: {{ sp.count }} of {{ sp.of }} → {% if sp.state == 'warn' %}<b>warn</b>{% else %}{{ sp.state | replace('_', ' ') }}{% endif %}; cumulative ÷ operating income: {{ sp.ratio }}.
+{% if sp.non_gaap %} Company-stated non-GAAP gap (quoted, never computed): “{{ sp.non_gaap }}” <span class="muted">({{ sp.non_gaap_ref }})</span>{% else %} No stated non-GAAP reconciliation sentence in the stored releases.{% endif %}</p>
+{% endif %}
+<p class="note">{{ eq.notes.special }}</p>
+
+<h2>Non-operating swings <span class="muted">(M04; by tag; shown, not scored)</span></h2>
+{% if eq.swings %}
+<table class="data">
+  <tr><th>Fiscal year</th><th>Item</th><th class="num">Amount ($M)</th><th class="num">After-tax effect on NI</th><th class="num">Share of NI</th></tr>
+  {% for s in eq.swings %}<tr><td>{{ s.label }}</td><td><span title="{{ s.tag }} {{ s.accession }}">{{ s.what }}</span></td><td class="num">{{ s.amount }}</td><td class="num">{{ s.effect }}</td><td class="num">{{ s.share }}</td></tr>{% endfor %}
+</table>
+{% else %}<p class="empty">No securities, digital-asset or valuation-allowance line tagged in the last 4 fiscal years.</p>{% endif %}
+<p class="note">{{ eq.notes.swings }}</p>
+{% endif %}
+
+<table class="data">
+  <tr><th>Signal (latest)</th><th>Value</th><th>Method</th></tr>
+  {% for name, value, method in eq.signals %}<tr><td>{{ name }}</td><td>{{ value }}</td><td class="muted">{{ method[:400] }}</td></tr>{% endfor %}
+</table>
+{% endif %}

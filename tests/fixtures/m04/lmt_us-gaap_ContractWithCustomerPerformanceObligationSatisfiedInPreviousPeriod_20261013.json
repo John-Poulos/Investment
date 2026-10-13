@@ -1,0 +1,8 @@
+{"cik":936468,"taxonomy":"us-gaap","tag":"ContractWithCustomerPerformanceObligationSatisfiedInPreviousPeriod","label":"Revenue from performance obligations satisfied in previous periods","description":"Hand-built companyconcept fixture (see README Part 6).","entityName":"LOCKHEED MARTIN CORP","units":{"USD":[
+{"start":"2019-01-01","end":"2019-12-31","val":2200000000,"accn":"0000936468-20-900001","fy":2019,"fp":"FY","form":"10-K","filed":"2020-01-28"},
+{"start":"2020-01-01","end":"2020-12-31","val":2000000000,"accn":"0000936468-21-900001","fy":2020,"fp":"FY","form":"10-K","filed":"2021-01-26"},
+{"start":"2021-01-01","end":"2021-12-31","val":2200000000,"accn":"0000936468-22-900001","fy":2021,"fp":"FY","form":"10-K","filed":"2022-01-25"},
+{"start":"2022-01-01","end":"2022-12-31","val":2000000000,"accn":"0000936468-23-900001","fy":2022,"fp":"FY","form":"10-K","filed":"2023-01-24"},
+{"start":"2023-01-01","end":"2023-12-31","val":1600000000,"accn":"0000936468-24-900001","fy":2023,"fp":"FY","form":"10-K","filed":"2024-01-23"},
+{"start":"2024-01-01","end":"2024-12-31","val":1200000000,"accn":"0000936468-25-900001","fy":2024,"fp":"FY","form":"10-K","filed":"2025-01-28"}
+]}}

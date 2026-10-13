@@ -98,7 +98,6 @@ LEGEND = (
 STILL_TO_COME = (
     ("Survival gate: going-concern and covenant text", "4b"),
     ("Dilution and financing pressure", "5"),
-    ("Earnings quality: cash conversion, M-score, estimates", "6"),
     ("Margin collapse (R12), unit economics, customers", "7b"),
     ("Cycle vs decline, health vote, overreaction gauge", "8a"),
 )

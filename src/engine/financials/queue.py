@@ -65,6 +65,8 @@ KIND_LABELS = {
     "m04_restate": "M04: restatement step not explained",
     "m04_rating": "M04: credit-rating action",
     "m04_unit_kpi": "M04: unit KPI category break",  # Part 7a
+    "m04_mscore": "M04: M-score (SGI = 1) above −1.78",  # Part 6
+    "m04_estimate": "M04: estimate change ≥ 10% of profit",  # Part 6
     "m04_gate_fail": "M04: survival gate turned fail or incomplete (alert)",  # Part 4a
     "m04_runway": "M04: capex-funded runway below 6 quarters",  # Part 4a
     "m04_gate_input": "M04: survival-gate input to map",  # Part 4a
@@ -73,6 +75,8 @@ KIND_LABELS = {
 ACTIONS = {
     "m04_stage": ("confirm",),  # target = the stage chosen (default: the computed stage)
     "m04_peer": ("confirm",),  # keep = candidates kept; the rest are struck
+    "m04_mscore": ("explained", "look_closer"),  # Part 6; a screen, no data changes
+    "m04_estimate": ("explained", "concern"),  # Part 6; stored on the estimate_change row
     "m04_event": ("resolve", "noted"),  # resolve clears a fail/warn (D-M04-37)
     "m04_restate": ("explained", "error"),  # the owner's reading of the residual
     "m04_rating": ("noted",),
@@ -303,6 +307,20 @@ def apply(
             raise QueueError("This item names no company.")
         kept, struck, added = peers.confirm(engine, cik, keep or (), by, now)
         return f"confirm: {kept} peer(s) kept, {struck} struck, {added} added by the owner"
+    if kind == "m04_mscore" and action in ACTIONS["m04_mscore"]:
+        # Part 6: a screen (D-M04-14); the answer is kept on the item, no data changes
+        if action == "explained":
+            return "explained: the inputs behind the score are understood (note)"
+        return "look_closer: read the filing behind the score"
+    if kind == "m04_estimate" and action in ACTIONS["m04_estimate"]:
+        # Part 6: the owner's reading is stored on the estimate_change row (D-M04-17)
+        cur = engine.execute(
+            "UPDATE estimate_change SET owner_outcome = ?, owner_at = ? WHERE item_id = ?",
+            (action, iso(now), item_id),
+        )
+        if not cur.rowcount and payload.get("accession"):
+            raise QueueError("The estimate sentence behind this item is no longer stored.")
+        return action
     if kind == "m04_unit_kpi" and action in ACTIONS["m04_unit_kpi"]:
         # Part 7a: the owner's reading is stored on the item (units.owner_breaks reads it);
         # the series stay split either way (D-M04-42), Part 7b's unit flags read the answer.

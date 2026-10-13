@@ -12,6 +12,8 @@
     uv run python scripts/run_financials.py flags --no-sec   # local re-run, 0 SEC requests
     uv run python scripts/run_financials.py gate             # Part 4a live check
     uv run python scripts/run_financials.py gate --no-sec    # local re-run, 0 SEC requests
+    uv run python scripts/run_financials.py quality          # Part 6 live check
+    uv run python scripts/run_financials.py quality --no-sec # local re-run, 0 SEC requests
     uv run python scripts/run_financials.py units            # Part 7a live check
     uv run python scripts/run_financials.py units --no-sec   # local re-run, 0 SEC requests
     uv run python scripts/run_financials.py --list           # the subcommand table
@@ -59,6 +61,15 @@ whose text labels steps over tolerance, and the two prior 10-Ks per company (≤
 request each, large files dropped from the cache); recomputes walk, events, ratings and the
 `restatement`, `non_reliance`, `restate_delta` signals (0 requests) and prints what the
 owner looks for. `--no-sec` uses stored pages, texts and facts.
+`quality` (Part 6): GE's `UnbilledContractsReceivable` companyconcept file, GE's FY2016 10-K
+instance (its `ge:ContractAsset` extension facts; index page + instance), GE's FY2016 and
+FY2017 10-K documents when not stored (the estimate-change sentences; via the filing index)
+and Lockheed's catch-up revenue companyconcept file: about 6–10 requests; then, from stored
+facts and text (0 requests), every covered company's CFO/NI, accruals, M-score (and with
+SGI = 1), misstatement score, contract-asset and deferred-revenue readings, estimate-change
+sentences of the last three annual reports, recurring "one-time" charges and non-operating
+swings; the nine Part 6 signals; `m04_mscore` and `m04_estimate` items (group 7, capped;
+first scan a baseline). `--no-sec` uses stored facts and text.
 `units` (Part 7a): for every core and promoted company, the XBRL instance of each 10-K,
 10-Q, 20-F, 40-F and XBRL 6-K of the last 3 years not read yet (one request each, 2–14 MB,
 not cached; extension and dimensional facts on the one read), the EX-99.2 of the last 4
@@ -110,7 +121,7 @@ SUBCOMMANDS = (
     ("cvd", "8a", "CvD assembly, health vote, M04 tab"),
     ("backtest", "8b", "calibration"),
 )
-BUILT = {"data", "capex", "profile", "peers", "flags", "gate", "units"}
+BUILT = {"data", "capex", "profile", "peers", "flags", "gate", "units", "quality"}
 NVDA_CIK = "0001045810"
 NVDA_YEARS = range(2013, 2022)  # FY2013–FY2021: capex only under the extension tag
 WDC_CIK = "0000106040"
@@ -2071,6 +2082,342 @@ def run_gate(args, log: Log, folder: Path) -> int:
     return 0
 
 
+# --- quality (Part 6) ----------------------------------------------------------------------
+
+QUALITY_TABLES = ("estimate_change", "special_item", "signal", "m04_proposal", "review_queue",
+                  "fact", "refresh_state")  # fmt: skip
+LMT = ("Lockheed Martin", "0000936468")
+LMT_TAG = "ContractWithCustomerPerformanceObligationSatisfiedInPreviousPeriod"
+GE_CONTRACT_TAG = "UnbilledContractsReceivable"
+GE_YEARS = ("2016-12-31", "2017-12-31")  # FY2016 (instance + text) and FY2017 (text) 10-Ks
+# Round 2's scratch values (M04_BUILD_LOG Part 6 fixtures; recomputed here from stored facts)
+QUALITY_EXPECTED = {
+    ("NVDA", "FY2025"): "M −0.96 / SGI = 1 −1.98, F 3.11 → growth-driven note",
+    ("NVDA", "FY2026"): "M −1.17 / SGI = 1 −1.75 → m04_mscore",
+    ("MRVL", "FY2026"): "M −1.60 / SGI = 1 −1.98 → note; F missing (issue unknown)",
+    ("AAPL", "FY2025"): "M −2.29 / SGI = 1 −2.35, F 1.30",
+    ("MSFT", "FY2025"): "M −2.54 / SGI = 1 −2.67, F 1.15",
+    ("BA", "FY2024"): "M incomplete (no SG&A tag), F 1.63",
+    ("MU", "FY2023"): "M −7.01 → not meaningful (gross margin ≤ 0)",
+    ("MSTR", "FY2025"): "not meaningful (asset_treasury)",
+}  # fmt: skip
+
+
+def quality_counts(engine) -> dict[str, int]:
+    return {t: engine.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in QUALITY_TABLES}
+
+
+def _concept_file(client, engine, cik: str, tag: str, who: str, log) -> None:
+    from engine.sec.results import NotFound, Ok
+    from engine.sec.xbrl_facts import CONCEPT_URL, store_concept
+
+    res = client.get_json(
+        CONCEPT_URL.format(cik=cik, taxonomy="us-gaap", tag=tag), ttl_s=30 * 86400
+    )
+    if isinstance(res, NotFound):
+        log(f"  {who} us-gaap:{tag}: not found")
+        return
+    if not isinstance(res, Ok):
+        log(f"  {who} us-gaap:{tag}: {res}")
+        return
+    engine.execute("BEGIN")
+    seen, new = store_concept(engine, cik, res.data)
+    engine.execute("COMMIT")
+    log(f"  {who} us-gaap:{tag}: {seen} facts, {new} new")
+
+
+def ge_annual(engine, period_end: str):
+    """GE's 10-K that first reported the fiscal year (from its stored facts)."""
+    return engine.execute(
+        "SELECT accession, filed FROM fact WHERE cik = ? AND form = '10-K' AND period_end = ? "
+        "AND period_start IS NOT NULL ORDER BY filed, accession LIMIT 1",
+        (GE_CIK, period_end),
+    ).fetchone()
+
+
+def quality_reference_fetch(client, engine, corpus, now, log, clog=None) -> None:
+    """GE (contract assets, estimate text) and Lockheed (catch-up revenue): ~6–10 requests."""
+    from engine.financials import filings
+    from engine.sec import instance_dim
+
+    t0 = time.monotonic()
+    log("GE and Lockheed reference files:")
+    if engine.execute("SELECT 1 FROM fact WHERE cik = ? AND tag = 'Revenues' LIMIT 1",
+                      (GE_CIK,)).fetchone() is None:  # fmt: skip
+        log("  GE revenue not stored (Part 3's flags run stores it): fetching Revenues and pretax")
+        for tag in ("Revenues", GE_TAGS[6]):
+            _concept_file(client, engine, GE_CIK, tag, "GE", log)
+    _concept_file(client, engine, GE_CIK, GE_CONTRACT_TAG, "GE", log)
+    _concept_file(client, engine, LMT[1], LMT_TAG, "Lockheed", log)
+    if clog is not None:
+        clog.seconds["companyconcept"] += time.monotonic() - t0
+    t1 = time.monotonic()
+    fy16 = ge_annual(engine, GE_YEARS[0])
+    if fy16 is None:
+        log("  GE FY2016 10-K: no stored fact names it (run `flags` first); instance skipped")
+    elif engine.execute("SELECT 1 FROM fact WHERE cik = ? AND accession = ? AND taxonomy = 'ge' "
+                        "LIMIT 1", (GE_CIK, fy16["accession"])).fetchone():  # fmt: skip
+        log(f"  GE FY2016 10-K instance {fy16['accession']}: extension facts already stored")
+    else:
+        f = {"accession": fy16["accession"], "primary_doc": None, "form": "10-K",
+             "filed": fy16["filed"], "report_date": GE_YEARS[0]}  # fmt: skip
+        r = instance_dim.read_instance(client, engine, GE_CIK, f, now)
+        ga = engine.execute("SELECT period_end, value FROM fact WHERE cik = ? AND tag = "
+                            "'ContractAsset' AND taxonomy = 'ge' ORDER BY period_end",
+                            (GE_CIK,)).fetchall()  # fmt: skip
+        log(f"  GE FY2016 10-K instance {fy16['accession']}: {r.outcome} ({r.mb:.1f} MB, "
+            f"{r.ext_new} extension facts) {r.detail}".rstrip()
+            + "; ge:ContractAsset " + (", ".join(f"{x[0]} {float(x[1]) / 1e6:,.0f}M" for x in ga)
+                                       or "not found"))  # fmt: skip
+    if clog is not None:
+        clog.seconds["XBRL instance"] += time.monotonic() - t1
+    t2 = time.monotonic()
+    for end in GE_YEARS:
+        row = ge_annual(engine, end)
+        if row is None:
+            log(f"  GE 10-K for {end}: not named by any stored fact")
+            continue
+        got = filings.fetch_primary(client, engine, corpus, row["accession"], now, cik=GE_CIK,
+                                    form="10-K")  # fmt: skip
+        log(
+            f"  GE 10-K {row['accession']} ({end}): {got.outcome}"
+            + (f" — {got.detail}" if got.detail else "")
+            + (f" ({got.mb:.1f} MB)" if got.mb else "")
+        )
+    if clog is not None:
+        clog.seconds["other"] += time.monotonic() - t2
+    log("")
+
+
+def _score_lines(ticker: str, cq) -> list[str]:
+    from engine.financials import quality
+
+    q = cq.q
+    if cq.error:
+        return [f"  {ticker}: error — {cq.error}"]
+    if q is None:
+        return [f"  {ticker}: not computed"]
+    if q.excluded:
+        return [f"  {ticker}: {q.excluded} — {q.tag_how}"]
+    out = [f"  {ticker} ({q.stage_label}; {q.tag_how}):"]
+    for ms, fs in zip(q.mscores, q.fscores, strict=True):
+        if ms.state == "ok":
+            m = f"M {ms.m:.2f} / SGI = 1 {ms.m_sgi1:.2f} → {ms.reading}"
+        elif ms.state == "not_meaningful":
+            m = f"M not meaningful: {ms.why}"
+        else:
+            m = f"M incomplete: {ms.why}"
+        f = (f"F {fs.score:.2f} ({fs.band})" if fs.score is not None
+             else f"F {fs.state}: {fs.why}")  # fmt: skip
+        out.append(f"    {ms.label}: {m}; {f}")
+        if ms.components:
+            out.append(
+                "      M components: " + ", ".join(f"{k} {v:.3f}" for k, v in ms.components.items())
+            )
+        if fs.components:
+            out.append(
+                "      F components: " + ", ".join(f"{k} {v:.3f}" for k, v in fs.components.items())
+            )
+        subs = "; ".join(x for x in (ms.inputs.method(), fs.inputs.method()) if x)
+        if subs:
+            out.append(f"      {subs}")
+        out.append(f"      inputs: {quality.inputs_text(ms.inputs.used + fs.inputs.used)[:900]}")
+    cc = q.cash
+    if cc.ratio3 is not None:
+        line = f"    CFO/NI 3y {cc.ratio3:.2f} ({cc.state}); latest " + (
+            f"{cc.latest:.2f}" if cc.latest is not None else "—"
+        )
+        if cc.accruals is not None:
+            line += f"; accruals {cc.accruals:+.3f} ({cc.accruals_text})"
+        out.append(line)
+    else:
+        out.append(f"    CFO/NI {cc.state}: {cc.why}")
+    for y in cc.years:
+        if y.operating:
+            out.append(
+                f"      {y.label}: operating basis NI {quality.money(y.basis_ni)}M (reported "
+                f"{quality.money(y.ni.value)}M; {', '.join(w for w, _ in y.items)})"
+            )
+    for name, g in (("contract assets", q.contract), ("deferred revenue", q.deferred)):
+        rs = "; ".join(
+            f"{r.label} {r.line_growth:+.1%} vs revenue "
+            + (f"{r.revenue_growth:+.1%}" if r.revenue_growth is not None else "—")
+            + ("" if r.state == "scored" else f" [{r.state}]")
+            for r in g.readings[-3:]
+        )
+        out.append(
+            f"    {name}: {g.state}" + (f" — {rs}" if rs else "") + (f" ({g.why})" if g.why else "")
+        )
+    return out
+
+
+def quality_summary(engine, qp, ge_findings, ge_gap, lmt) -> list[str]:
+    """What the owner looks for (M04_BUILD_LOG Part 6 live check)."""
+    from collections import Counter
+
+    from engine.financials import quality
+
+    lines = ["=== Summary (what the owner looks for) ==="]
+    lines.append("Earnings-quality scores per company (latest 3 fiscal years; values as first "
+                 "reported; inputs with tag and accession):")  # fmt: skip
+    for t, cq in sorted(qp.companies.items()):
+        lines += _score_lines(t, cq)
+    lines.append("Round 2 scratch values vs this run:")
+    for (t, label), want in QUALITY_EXPECTED.items():
+        cq = qp.companies.get(t)
+        got = "not in this run"
+        if cq is not None and cq.q is not None:
+            ms = next((m for m in cq.q.mscores if m.label == label), None)
+            fs = next((f for f in cq.q.fscores if f.label == label), None)
+            if cq.q.excluded:
+                got = cq.q.excluded
+            elif ms is None:
+                got = f"{label} not among the last 3 fiscal years"
+            else:
+                got = (f"M {ms.m:.2f} / {ms.m_sgi1:.2f} ({ms.reading})" if ms.m is not None and
+                       ms.state == "ok" else f"M {ms.state}" + (f" (raw {ms.m:.2f})" if ms.m is not
+                       None else "")) + (f", F {fs.score:.2f}" if fs and fs.score is not None else
+                       f", F {fs.state if fs else '—'}")  # fmt: skip
+        lines.append(f"  {t} {label}: expected {want}; got {got}")
+    props = engine.execute(
+        "SELECT kind, status, reason, payload FROM m04_proposal WHERE kind IN ('m04_mscore', "
+        "'m04_estimate') ORDER BY kind, status, first_seen_at"
+    ).fetchall()
+    by = Counter((r["kind"], r["status"]) for r in props)
+    lines.append("Queued items (1 expected: NVDA FY2026 m04_mscore): " + (", ".join(
+        f"{k} {s} {n}" for (k, s), n in sorted(by.items())) or "none"))  # fmt: skip
+    lines += [f"  {r['status']}: {r['reason']}" for r in props if r["status"] != "baseline"]
+    lines.append(f"Baseline (first scan, older than 12 months, shown not queued): "
+                 f"{sum(1 for r in props if r['status'] == 'baseline')}")  # fmt: skip
+    lines.append("Estimate sentences per company (band · share · amount ÷ denominator):")
+    for t, cq in sorted(qp.companies.items()):
+        if not cq.findings:
+            continue
+        lines.append(
+            f"  {t}: {len(cq.findings)}"
+            + (f"; recurrence {cq.recurrence}" if cq.recurrence else "")
+        )
+        for f in cq.findings[:8]:
+            share = f"{f.share:+.1%}" if f.share is not None else "—"
+            lines.append(f"    {f.form} {f.filed} {f.fiscal_label} {f.band} {share}: "
+                         f"{quality.money(f.amount)}M {f.basis} ÷ {f.denominator_what or f.why} — "
+                         f"“{f.quote[:220]}”")  # fmt: skip
+    lines.append("GE reference (2016 expected: 2,200 ÷ 9,030 = 24.4% → watch; restated $0.7B kept "
+                 "by filing version):")  # fmt: skip
+    for f in ge_findings:
+        share = f"{f.share:+.1%}" if f.share is not None else "—"
+        lines.append(f"  {f.form} {f.accession} {f.filed} {f.fiscal_label} {f.band} {share}: "
+                     f"{quality.money(f.amount)}M {f.basis} ÷ {f.denominator_what or f.why} — "
+                     f"“{f.quote[:220]}”")  # fmt: skip
+    if not ge_findings:
+        lines.append("  no estimate sentence with an amount in GE's stored 10-K texts")
+    lines.append(
+        "GE contract assets (expected FY2016 25,162 ge:ContractAsset → FY2017 28,861 "
+        "UnbilledContractsReceivable, +14.7%: definition changed, not scored):"
+    )
+    for r in ge_gap.readings[-3:]:
+        lines.append(f"  {r.label}: {r.prior.tag} {quality.money(r.prior.value)} → {r.line.tag} "
+                     f"{quality.money(r.line.value)} ({r.line_growth:+.1%}); revenue "
+                     + (f"{r.revenue_growth:+.1%}" if r.revenue_growth is not None else "—")
+                     + f"; {r.state}")  # fmt: skip
+    if not ge_gap.readings:
+        lines.append(f"  {ge_gap.why or 'no readings'}")
+    cu = "not stored"
+    if lmt:
+        cu = " · ".join(f"{lb} {v / 1e9:,.1f}B" for lb, v, _ in lmt.years)
+        cu += f" — {lmt.flag}" if lmt.flag else ""
+    lines.append(f"Lockheed catch-up revenue (expected 2.2B 2019 … 1.2B 2024): {cu}")
+    lines.append("special_items (years with items of 4 · state · cumulative ÷ operating income):")
+    for t, cq in sorted(qp.companies.items()):
+        sp = cq.special
+        if sp is None:
+            continue
+        lines.append(f"  {t}: {sp.count} of {len(sp.years)} · {sp.state} · "
+                     + (f"{sp.ratio:.1%}" if sp.ratio is not None else sp.ratio_why or sp.why)
+                     + (" · non-GAAP sentence quoted" if sp.non_gaap else ""))  # fmt: skip
+    lines.append("Non-operating swings (MSTR expected: digital-asset fair-value loss inside "
+                 "operating income):")  # fmt: skip
+    for t, cq in sorted(qp.companies.items()):
+        if cq.q is None:
+            continue
+        for lb, what, v, effect, share in cq.q.swings:
+            lines.append(
+                f"  {t} {lb}: {what} {quality.money(v.value)}M ({v.tag}); after-tax "
+                f"{quality.money(effect)}M"
+                + (f", {share:.1%} of |NI|" if share is not None else "")
+            )
+    lines.append("Signals (eq_cash · mscore · misstate_f · estimate_share · special_items):")
+    for t, cq in sorted(qp.companies.items()):
+        s = cq.signals
+        lines.append(f"  {t}: " + " · ".join(s.get(k, "—") for k in (
+            "eq_cash", "mscore", "misstate_f", "estimate_share", "special_items")))  # fmt: skip
+    lines.append(f"Overflow flushed this run: {qp.flushed}")
+    return lines
+
+
+def quality_run(engine, corpus, comps: dict[str, str], now, log, client=None, clog=None):
+    """The `quality` work on open connections (tests inject a scratch DB and a fake client;
+    `client=None` = no SEC requests)."""
+    from engine.financials import estimates, quality, quality_step
+    from engine.sec.client import iso
+
+    if client is not None:
+        quality_reference_fetch(client, engine, corpus, now, log, clog)
+    else:
+        log("SEC skipped (--no-sec): stored facts and text used", "")
+    t0 = time.monotonic()
+    qp = quality_step.quality_pass(engine, corpus, comps, now)
+    ge_findings = estimates.scan(engine, corpus, GE_CIK)
+    engine.execute("BEGIN")
+    estimates.store(engine, ge_findings, GE_CIK, iso(now), False)
+    engine.execute("COMMIT")
+    ge_gap = quality.contract_asset_gap(quality.Facts(engine, GE_CIK))
+    lmt = estimates.catch_up(engine, LMT[1])
+    log(f"Scores, estimate sentences, special items and signals recomputed for "
+        f"{len(qp.companies)} companies + GE and Lockheed references (0 requests, "
+        f"{time.monotonic() - t0:.1f} s)", "")  # fmt: skip
+    log(*quality_step.local_lines(qp))
+    log("")
+    log(*quality_summary(engine, qp, ge_findings, ge_gap, lmt))
+    return qp
+
+
+def run_quality(args, log: Log, folder: Path) -> int:
+    from engine.store.db import open_db
+    from engine.store.http import SqliteCache, SqliteFetchLog
+
+    engine = open_db("engine", folder)
+    corpus = open_db("corpus", folder, check_same_thread=False)
+    now = datetime.now(UTC)
+    mb_before, before = db_mb(folder), quality_counts(engine)
+    comps = companies(engine)
+    if args.tickers:
+        wanted = {t.strip().upper() for t in args.tickers.split(",")}
+        comps = {t: c for t, c in comps.items() if t in wanted}
+    head = f"run_financials quality · {now:%Y-%m-%d %H:%M} UTC · {len(comps)} companies"
+    log(head + (" · no SEC" if args.no_sec else ""), f"engine.db before: {mb_before:,.1f} MB", "")
+    client = clog = None
+    if not args.no_sec:
+        from engine.sec.client import SecClient, user_agent_from_env
+
+        clog = CountingLog(SqliteFetchLog(engine))
+        client = SecClient(user_agent_from_env(), cache=SqliteCache(corpus), log=clog)
+    quality_run(engine, corpus, comps, now, log, client, clog)
+    if clog is not None:
+        log(*clog.lines())
+    else:
+        log("SEC requests: 0 (--no-sec)")
+    after = quality_counts(engine)
+    log(
+        "Rows added per table: "
+        + ", ".join(f"{t} {after[t] - before[t]:+,}" for t in QUALITY_TABLES)
+    )
+    log(f"engine.db: {mb_before:,.1f} MB → {db_mb(folder):,.1f} MB")
+    corpus.close()
+    engine.close()
+    return 0
+
+
 def _main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("subcommand", nargs="?", choices=[s for s, _, _ in SUBCOMMANDS])
@@ -2106,6 +2453,8 @@ def _main() -> int:
             return run_flags(args, log, data_dir())
         if args.subcommand == "units":
             return run_units(args, log, data_dir())
+        if args.subcommand == "quality":
+            return run_quality(args, log, data_dir())
         if args.subcommand == "gate":
             return run_gate(args, log, data_dir())
         return run_data(args, log, data_dir())

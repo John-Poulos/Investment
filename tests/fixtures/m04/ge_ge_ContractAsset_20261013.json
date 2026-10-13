@@ -1,0 +1,4 @@
+{"cik":40545,"taxonomy":"ge","tag":"ContractAsset","label":"Contract assets (GE extension; read from the FY2016 10-K instance at the live check)","description":"Hand-built companyconcept-shaped fixture (see README Part 6).","entityName":"GENERAL ELECTRIC CO","units":{"USD":[
+{"end":"2015-12-31","val":21156000000,"accn":"0000040545-17-000010","fy":2016,"fp":"FY","form":"10-K","filed":"2017-02-24"},
+{"end":"2016-12-31","val":25162000000,"accn":"0000040545-17-000010","fy":2016,"fp":"FY","form":"10-K","filed":"2017-02-24"}
+]}}

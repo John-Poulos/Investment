@@ -158,6 +158,25 @@
     <tr><th>Lines in the release filed {{ p.filed }}</th><td>{{ (p.after or []) | join(', ') or 'none' }} <span class="muted">({{ p.accession }})</span></td></tr>
   </table>
   <p class="muted">The earlier and later series stay split either way (D-M04-42). “Break” = the categories changed scope (e.g. a new model line), so a per-line trend across the release is not compared; “Same scope, renamed” = only the label changed. See the Unit KPIs table on the <a href="/c/{{ it.ticker or p.ticker }}?tab=financials">Financials tab</a>.</p>
+  {% elif it.kind == 'm04_mscore' %}
+  {% set p = it.payload %}
+  <table class="data">
+    <tr><th>Fiscal year</th><td>{{ p.fiscal_label }} ({{ p.period_end }}) · annual report {{ p.accession }} filed {{ p.filed }}</td></tr>
+    <tr><th>M-score</th><td>raw {{ p.m }} · <b>SGI = 1: {{ p.m_sgi1 }}</b> (review above −1.78)</td></tr>
+    <tr><th>Components</th><td>{% for k, v in (p.components or {}).items() %}{{ k }} {{ v }}{{ ' · ' if not loop.last }}{% endfor %}</td></tr>
+    <tr><th>Inputs (as first reported)</th><td class="muted">{{ p.inputs }}{% if p.substitutions %} · {{ p.substitutions }}{% endif %}</td></tr>
+  </table>
+  <p class="muted">A screen with many false alarms (more than 100 per true case), never a signal (D-M04-14). Read which component moved (here usually AQI: assets outside current assets and PP&amp;E) in the annual report. <b>Explained</b> when the move has an ordinary cause you can name (note it); <b>Look closer</b> keeps it on your list. Neither changes data. See the guide above for a worked example.</p>
+  {% elif it.kind == 'm04_estimate' %}
+  {% set p = it.payload %}
+  <table class="data">
+    <tr><th>Filing</th><td>{{ p.form }} {{ p.accession }} filed {{ p.filed }} · {{ (p.kind or '') | replace('_', ' ') }} · {{ p.fiscal_label }}</td></tr>
+    <tr><th>Amount</th><td>{{ '{:,.0f}'.format((p.amount or 0) / 1e6) }}M ({{ (p.basis or '') | replace('_', '-') }}; + raises income)</td></tr>
+    <tr><th>Denominator</th><td>{{ p.denominator_what }}</td></tr>
+    <tr><th>Share and band</th><td><b>{{ '%+.1f' | format((p.share or 0) * 100) }}% → {{ p.band }}</b>{% if p.recurrence %} · recurrence: {{ p.recurrence }} in 3 disclosures{% endif %}</td></tr>
+  </table>
+  <h3 class="sub">Deciding sentence <span class="muted">({{ p.doc }})</span></h3><div class="quote">“{{ p.quote }}”</div>
+  <p class="muted">Check that the amount and its sign are what the sentence says and that it is the company's whole effect for that year (D-M04-17, -18). <b>Explained</b>: an ordinary re-estimate (useful lives after a study, a contract closing out); <b>Concern</b>: profit leans on re-estimates (the GE pattern). The answer is stored on the sentence; the band stays as computed.</p>
   {% elif it.kind in ('m04_gate_fail', 'm04_runway', 'm04_gate_input', 'm04_score_gap') %}
   {% set p = it.payload %}
   <table class="data">
@@ -225,6 +244,13 @@
   {% set gate_actions = {'m04_gate_fail': (('noted', 'Noted'), ('inputs_wrong', 'Inputs wrong (note)')), 'm04_runway': (('allow_strength', 'Capex can be cut (allow strength)'), ('keep_blocked', 'Keep blocked')), 'm04_gate_input': (('map_tag', 'Map tag'), ('not_reported', 'Not reported')), 'm04_score_gap': (('noted', 'Noted'), ('look_closer', 'Look closer'))} %}
   {% for a, text in gate_actions[it.kind] %}
   <form method="post" action="/review/{{ it.item_id }}/{{ a }}">{% if a == 'map_tag' %}<input name="target" size="44" placeholder="us-gaap:PaymentsToAcquireProductiveAssets" required> {% endif %}<input name="note" size="36" placeholder="Note{{ '' if a == 'inputs_wrong' else ' (optional)' }}"{% if a == 'inputs_wrong' %} required{% endif %}><button class="btn" type="submit">{{ text }}</button></form>
+  {% endfor %}
+  </div>
+  {% elif it.kind in ('m04_mscore', 'm04_estimate') %}
+  <h3 class="sub">Resolve</h3>
+  <div class="actions">
+  {% for a, text in ((('explained', 'Explained (note)'), ('look_closer', 'Look closer')) if it.kind == 'm04_mscore' else (('explained', 'Explained — ordinary re-estimate'), ('concern', 'Concern — profit leans on estimates'))) %}
+  <form method="post" action="/review/{{ it.item_id }}/{{ a }}"><input name="note" size="40" placeholder="Note (optional)"><button class="btn" type="submit">{{ text }}</button></form>
   {% endfor %}
   </div>
   {% elif it.kind in ('m04_stage', 'm04_peer') %}
