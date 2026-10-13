@@ -1279,81 +1279,77 @@ def m04_rows(engine, c: CvD) -> m01_rules.M04Rows:
     return rows
 
 
+OPEN = ("allowed", "first_tranche")  # m01_rules.rule3 states that let a tranche through
+
+
 def m01_reading(engine, c: CvD) -> M01:
-    st, g = c.state, c.gate
-    gs = g.state if g else "missing"
-    rule4: list[str] = []
+    """M01's reading of this CvD (D-M04-58 = D-M01-5). `m01_rules` decides on the live CvD
+    (the single M01 reader, M09 Part 2, D-M09-15); the words are the M04 tab's since 8a."""
+    rows = m04_rows(engine, c)
+    r3, r7 = m01_rules.rule3(rows), m01_rules.rule7(rows)
     notes = []
     for name, bad in RED_FLAGS:
         r = _latest_text(engine, c.cik, name, c.as_of)
         if r is not None and r["value_text"] in bad:
             notes.append(f"{name} {r['value_text']}")
-    rem = engine.execute(
-        "SELECT as_of FROM signal WHERE cik = ? AND module_id = 'M04' AND signal = "
-        "'guidance_removed' AND timeframe = 'MY' AND value_text = 'removed' AND as_of <= ? "
-        "AND as_of >= ? ORDER BY as_of DESC LIMIT 1",
-        (c.cik, c.as_of, (_d(c.as_of) - timedelta(days=365)).isoformat()),
-    ).fetchone()
-    if rem:
-        rule4.append(f"guidance_removed {rem['as_of']} (quietly removed targets, S1.7)")
+    return M01(_rule3_words(c, r3), _rule7_words(c, r3, r7), m01_rules.rule4(rows), notes)
+
+
+def _rule3_words(c: CvD, r3: m01_rules.Reading) -> str:
+    st, g = c.state, c.gate
+    gs = g.state if g else "missing"
+    if r3.state in OPEN:
+        out = "allowed"
+        if st == "STUMBLE":
+            out = "allowed: you resolved the m04_cvd item as STUMBLE (D-M01-5)"
+        if gs == "warn":
+            out += " (gate warn counts as pass, D-M04-31)"
+        if r3.state == "first_tranche":
+            out += (
+                "; stale: the first tranche may use the carried state, later tranches wait "
+                "for the filing (D-M04-61)"
+            )
+        return out
+    # blocked: the cause m01_rules found, in its order, in the tab's words
     if gs == "fail":
-        rule4.append("survival gate fail (S6.14)")
-        return M01("blocked: survival gate fail overrides the grid (D-M04-31)", "no", rule4, notes)
-    if gs in ("incomplete", "not_applicable", "missing"):
+        return "blocked: survival gate fail overrides the grid (D-M04-31)"
+    if gs not in m01_rules.PASS:
         why = ", ".join(g.missing) if g and g.missing else gs
-        if c.overdue:
-            rule4.append("filing overdue (D-M04-61)")
-        return M01(f"blocked: gate {gs} ({why}; D-M04-35)", "no", rule4, notes)
+        return f"blocked: gate {gs} ({why}; D-M04-35)"
     if c.overdue:
-        rule4.append("filing overdue (D-M04-61)")
-        return M01("blocked: filing overdue (D-M04-58, -61)", "no", rule4, notes)
+        return "blocked: filing overdue (D-M04-58, -61)"
     if st == INSUFFICIENT:
         qs = ", ".join(
             f"{q.q} {q.present} of {q.applicable}"
             for q in (c.q1, c.q2)
             if q is not None and q.present < MIN_PRESENT
         )
-        return M01(
+        return (
             f"blocked: CvD insufficient data ({INSUFFICIENT_WHY}: {qs}; no review item; "
-            "D-M04-56, -58, -102)",
-            "no",
-            rule4,
-            notes,
+            "D-M04-56, -58, -102)"
         )
-    if st in ("CYCLE_PLUS_DAMAGE", "STRUCTURAL_DECLINE"):
-        rule4.append(f"CvD {st} (M01 rule 4, S6.14)")
-        r3 = "blocked (D-M04-58)"
+    if st in m01_rules.DAMAGE:
         if st == "CYCLE_PLUS_DAMAGE" and not c.answer:
-            r3 = "blocked; the m04_cvd item asks you to confirm (D-M04-56, -58)"
-        return M01(r3, "no", rule4, notes)
-    if st == "AMBIGUOUS" or (st == "STUMBLE" and not c.answer):
-        return M01(
+            return "blocked; the m04_cvd item asks you to confirm (D-M04-56, -58)"
+        return "blocked (D-M04-58)"
+    if st in ("AMBIGUOUS", "STUMBLE"):
+        return (
             "blocked until you answer the m04_cvd item; your answer becomes the state "
-            "(D-M04-56, -58)",
-            "no",
-            rule4,
-            notes,
+            "(D-M04-56, -58)"
         )
-    if st == "STUMBLE":
-        r3, r7 = "allowed: you resolved the m04_cvd item as STUMBLE (D-M01-5)", "no (STUMBLE)"
-    elif st == "NO_SLOWDOWN":
-        r3 = "allowed"
-        r7 = "no (NO_SLOWDOWN)"
-    elif st == "CYCLICAL_TROUGH":
-        r3 = "allowed"
-        r7 = "yes (CYCLICAL_TROUGH with a gate pass, D27; gauge not required, D-M04-62)"
-        if g and g.runway_review:
-            r7 = "no: capex-funded runway review open (D-M04-38)"
-    else:
-        return M01("blocked: no CvD state", "no", rule4, notes)
-    if gs == "warn":
-        r3 += " (gate warn counts as pass, D-M04-31)"
-    if c.stale:
-        r3 += (
-            "; stale: the first tranche may use the carried state, later tranches wait for "
-            "the filing (D-M04-61)"
-        )
-    return M01(r3, r7, rule4, notes)
+    if st is None:
+        return "blocked: no CvD state"
+    return r3.text
+
+
+def _rule7_words(c: CvD, r3: m01_rules.Reading, r7: m01_rules.Reading) -> str:
+    if r7.state == "stronger":
+        return "yes (CYCLICAL_TROUGH with a gate pass, D27; gauge not required, D-M04-62)"
+    if r3.state not in OPEN:
+        return "no"
+    if c.state == "CYCLICAL_TROUGH":  # open tranches, CT, no strength: the runway review
+        return "no: capex-funded runway review open (D-M04-38)"
+    return f"no ({c.state})"
 
 
 # --- Assembly --------------------------------------------------------------------------------
