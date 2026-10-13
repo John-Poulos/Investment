@@ -73,10 +73,11 @@
 {% macro m04_table(t, unit_label) %}
 <div style="overflow-x:auto">
 <table class="data">
-  <tr><th>{{ unit_label }}</th>{% for l in t.labels %}<th class="num">{{ l }}</th>{% endfor %}</tr>
+  <tr><th>{{ unit_label }}</th>{% for l in t.labels %}<th class="num">{{ l }}</th>{% endfor %}{% for h in t.extra_heads %}<th{% if not loop.last %} class="num"{% endif %}>{{ h }}</th>{% endfor %}</tr>
   {% for r in t.rows %}
   <tr{% if r.sub %} class="sub"{% endif %}><td>{{ r.label }}{% if r.note %}<br><span class="muted">{{ r.note }}</span>{% endif %}</td>
     {% for c in r.cells %}<td class="num"><span{% if c.title %} title="{{ c.title }}"{% endif %}{% if c.muted %} class="muted"{% endif %}>{{ c.text }}</span></td>{% endfor %}
+    {% for c in r.extra %}<td{% if not loop.last %} class="num"{% endif %}><span{% if c.title %} title="{{ c.title }}"{% endif %}{% if c.muted %} class="muted"{% endif %}>{{ c.text }}</span></td>{% endfor %}
   </tr>
   {% endfor %}
 </table>
@@ -100,7 +101,25 @@
   {% for name, value, method in m04.signals %}<tr><td>{{ name }}</td><td class="num">{{ value }}</td><td class="muted">{{ method }}</td></tr>{% endfor %}
 </table>
 {% endif %}
-<p class="note">Own history now; peer robust z arrives with Part 2 (D-M04-11). Growth on a base ≤ 0 or below 1% of revenue is n/m (S2.1); a capex definition change is not scored. ROIC = NOPAT ÷ average invested capital (S6.5).</p>
+<p class="note">Own history in the year columns; peer columns compare the latest period with the confirmed peers at matched periods (12-month rows: the latest TTM or fiscal year; CAGR, FCF growth and ROIC: the latest fiscal year). Robust z = (company − peer median) ÷ MAD × 1.4826 × b_n for 5–9 peers, ÷ IQR/1.35 for 10 or more; |z| &gt; 3 dropped once; fewer than 5 → fixed-gap fallback, low confidence, z information only (D-M04-52). Capex rows compare on the PP&amp;E tag only; NVDA and AMZN are not like-for-like and excluded (D-M04-3). Hover the median for each peer's value, period end and offset. Information rows, no vote until Part 8 (D-M04-11). Growth on a base ≤ 0 or below 1% of revenue is n/m (S2.1); a capex definition change is not scored. ROIC = NOPAT ÷ average invested capital (S6.5).</p>
+
+{% if m04.peers %}{% set pz = m04.peers %}
+<h2>{{ pz.title }} <span class="muted">(M04 peers; {{ pz.ref }})</span></h2>
+{% if pz.status %}<p class="empty">missing: {{ pz.status }}{% if pz.status.startswith('peers not confirmed') %} — confirm them on <a href="/m04/setup">M04 setup</a>{% endif %}.</p>
+{% else %}
+<table class="data">
+  <tr><th>Peer</th><th>Latest period end</th><th class="num">Offset (days)</th><th>In comparison?</th><th>Note</th></tr>
+  {% for p in pz.lines %}
+  <tr><td>{{ p.name }}{% if p.cik %} <span class="muted">({{ p.cik | int }})</span>{% endif %}</td>
+    <td>{{ p.latest_end or '—' }}</td>
+    <td class="num">{% if p.offset is none %}<span class="muted">—</span>{% else %}{{ '%+d' | format(p.offset) }}{% endif %}</td>
+    <td>{% if p.in_comparison.startswith('yes') %}<b>{{ p.in_comparison }}</b>{% else %}<span class="muted">{{ p.in_comparison }}</span>{% endif %}</td>
+    <td>{{ p.note }}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+<p class="note">{{ pz.note }}</p>
+{% endif %}
 
 <h2>Guidance record <span class="muted">(M04 Q2 row; shared with M11)</span></h2>
 {% set g = m04.guidance %}

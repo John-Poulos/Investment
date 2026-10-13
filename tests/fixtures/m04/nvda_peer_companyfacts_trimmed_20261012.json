@@ -1,0 +1,126 @@
+{
+ "cik": 1045810,
+ "entityName": "NVIDIA CORP",
+ "facts": {
+  "us-gaap": {
+   "Revenues": {
+    "label": "Revenues",
+    "units": {
+     "USD": [
+      {
+       "start": "2020-01-27",
+       "end": "2021-01-31",
+       "val": 16675000000,
+       "accn": "0001045810-21-900000",
+       "fy": 2021,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2021-03-22"
+      },
+      {
+       "start": "2021-02-01",
+       "end": "2022-01-30",
+       "val": 26914000000,
+       "accn": "0001045810-22-900001",
+       "fy": 2022,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2022-03-21"
+      },
+      {
+       "start": "2022-01-31",
+       "end": "2023-01-29",
+       "val": 26974000000,
+       "accn": "0001045810-23-900002",
+       "fy": 2023,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2023-03-20"
+      },
+      {
+       "start": "2023-01-30",
+       "end": "2024-01-28",
+       "val": 60922000000,
+       "accn": "0001045810-24-900003",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2024-03-18"
+      }
+     ]
+    }
+   },
+   "PaymentsToAcquireProductiveAssets": {
+    "label": "PaymentsToAcquireProductiveAssets",
+    "units": {
+     "USD": [
+      {
+       "start": "2021-02-01",
+       "end": "2022-01-30",
+       "val": 976000000,
+       "accn": "0001045810-22-900000",
+       "fy": 2022,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2022-03-21"
+      },
+      {
+       "start": "2022-01-31",
+       "end": "2023-01-29",
+       "val": 1833000000,
+       "accn": "0001045810-23-900001",
+       "fy": 2023,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2023-03-20"
+      }
+     ]
+    }
+   },
+   "PaymentsToAcquirePropertyPlantAndEquipment": {
+    "label": "PaymentsToAcquirePropertyPlantAndEquipment",
+    "units": {
+     "USD": [
+      {
+       "start": "2022-01-31",
+       "end": "2023-01-29",
+       "val": 1800000000,
+       "accn": "0001045810-23-900000",
+       "fy": 2023,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2023-03-20"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivities": {
+    "label": "NetCashProvidedByUsedInOperatingActivities",
+    "units": {
+     "USD": [
+      {
+       "start": "2021-02-01",
+       "end": "2022-01-30",
+       "val": 9108000000,
+       "accn": "0001045810-22-900000",
+       "fy": 2022,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2022-03-21"
+      },
+      {
+       "start": "2022-01-31",
+       "end": "2023-01-29",
+       "val": 5641000000,
+       "accn": "0001045810-23-900001",
+       "fy": 2023,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2023-03-20"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

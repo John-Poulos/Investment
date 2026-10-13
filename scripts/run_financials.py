@@ -6,6 +6,8 @@
     uv run python scripts/run_financials.py capex --no-sec   # local re-run, 0 SEC requests
     uv run python scripts/run_financials.py profile          # Part 1c live check
     uv run python scripts/run_financials.py profile --no-sec # local re-run, 0 SEC requests
+    uv run python scripts/run_financials.py peers            # Part 2 live check
+    uv run python scripts/run_financials.py peers --no-sec   # local re-run, 0 SEC requests
     uv run python scripts/run_financials.py --list           # the subcommand table
 
 Subcommands: data (1a) · capex (1b) · profile (1c) · peers (2) · flags (3) · gate (4a) ·
@@ -33,6 +35,15 @@ active filers (stored form indexes, 0 requests), suspect revenue last; opens the
 setup batch (one `m04_stage` and one `m04_peer` item per company, outside the weekly cap);
 writes `lifecycle_stage`; prints what the owner looks for. `--no-sec` re-ranks from stored
 lists and frames.
+
+`peers` (Part 2): reads the confirmed peer sets (M04 setup page; a company without one reads
+"peers not confirmed on the M04 setup page" and nothing is fetched for it); downloads each
+distinct SEC peer's companyfacts once (not cached; trimmed to M04's tags and stored as
+facts; peers that are covered companies use their own facts; a stored peer is downloaded
+again only when the refresh marked it due, or with `--refetch`); recomputes the trend rows
+with peer robust z and their signals for every covered company (0 requests); prints rows
+and MB per peer, n per peer group and the groups below 5, peers with no comparable period,
+peer flags and the peer z on MU's and INTC's revenue rows. `--no-sec` uses stored facts.
 
 Takes data/refresh.lock (one SEC process at a time). Writes
 logs/financials_<subcommand>_<YYYYMMDD-HHMMSS>.txt as it goes, with requests, MB and
@@ -69,7 +80,7 @@ SUBCOMMANDS = (
     ("cvd", "8a", "CvD assembly, health vote, M04 tab"),
     ("backtest", "8b", "calibration"),
 )
-BUILT = {"data", "capex", "profile"}
+BUILT = {"data", "capex", "profile", "peers"}
 NVDA_CIK = "0001045810"
 NVDA_YEARS = range(2013, 2022)  # FY2013–FY2021: capex only under the extension tag
 WDC_CIK = "0000106040"
@@ -77,7 +88,8 @@ WDC_TAGS = ("Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax")
 COUNTED_TABLES = ("fact", "series", "cover_shares", "filing_status", "signal", "entity_link",
                   "entity", "refresh_state", "fetch_log", "capex_split",
                   "guidance_outcome", "company_stage", "m04_proposal", "peer_candidate",
-                  "sic_listing", "frame_value", "review_queue")  # fmt: skip
+                  "sic_listing", "frame_value", "review_queue", "peer_fetch", "peer_group",
+                  "peer_member")  # fmt: skip
 
 
 class Log:
@@ -809,12 +821,229 @@ def run_profile(args, log: Log, folder: Path) -> int:
     return 0
 
 
+# --- peers (Part 2) ------------------------------------------------------------------------
+
+
+Z_ROWS = ("rev_yoy", "rev_cagr3", "fcf_growth", "fcf_growth_oe", "gm", "gm_trend_pp",
+          "opex_vs_sales", "roic")  # fmt: skip
+Z_DETAIL = ("MU", "INTC")
+
+
+def peers_summary(engine, sets, results, fetched, covered) -> list[str]:
+    """What the owner looks for (M04_BUILD_LOG Part 2 live check)."""
+    lines = ["=== Summary (what the owner looks for) ==="]
+    ciks = sorted({m["cik"] for s in sets.values() if s.confirmed for m in s.sec})
+    lines.append(f"Peer facts per SEC peer ({len(ciks)} distinct; rows kept · new · MB · tags "
+                 "kept · fiscal year end · latest period):")  # fmt: skip
+    tot_mb = tot_rows = 0.0
+    for cik in ciks:
+        name = next(m["name"] for s in sets.values() if s.confirmed for m in s.sec
+                    if m["cik"] == cik)  # fmt: skip
+        if cik in covered:
+            lines.append(f"  {name} ({cik}): own facts (covered company, kept by the refresh)")
+            continue
+        r = engine.execute("SELECT * FROM peer_fetch WHERE cik = ?", (cik,)).fetchone()
+        if r is None:
+            lines.append(f"  {name} ({cik}): not fetched")
+            continue
+        when = "this run" if cik in fetched else f"stored, fetched {(r['ok_at'] or '')[:10]}"
+        if r["outcome"] != "ok" and not r["ok_at"]:
+            lines.append(f"  {name} ({cik}): {r['outcome']}: {r['detail']}")
+            continue
+        tot_mb += float(r["mb"] or 0)
+        tot_rows += r["rows_kept"] or 0
+        line = (f"  {name} ({cik}): {r['rows_kept'] or 0:,} rows · {r['rows_new'] or 0:,} new · "
+                f"{float(r['mb'] or 0):.2f} MB · {r['tags_kept']} of {r['tags_total']} tags · "
+                f"FYE {r['fiscal_year_end'] or 'unknown'} · latest {r['latest_end'] or '—'} "
+                f"({when})")  # fmt: skip
+        if r["outcome"] != "ok":
+            line += f"; last attempt {r['outcome']}: {r['detail']}"
+        if r["due_filed"]:
+            line += f"; due: {r['due_form']} filed {r['due_filed']}"
+        lines.append(line)
+    lines.append(
+        f"  total: {tot_rows:,.0f} rows kept, {tot_mb:.1f} MB downloaded (as last fetched)"
+    )
+    lines.append("n per peer group (comparable peers scored per row; < 5 = fixed-gap fallback):")
+    below = []
+    for ticker, comp in sorted(results.items()):
+        if comp is None:
+            continue
+        if comp.status:
+            lines.append(f"  {ticker}: {comp.status}")
+            continue
+        parts = []
+        for key in Z_ROWS:
+            row = comp.rows.get(key)
+            if row is None or row.missing:
+                parts.append(f"{key} —")
+                continue
+            r = row.result
+            parts.append(f"{key} {r.n}" + (f"/{r.n_in}" if r.n_in != r.n else ""))
+            if r.n < 5:
+                below.append(f"{ticker} {key}")
+        lines.append(f"  {ticker} ({len(comp.lines)} peers): " + " · ".join(parts))
+    lines.append(f"Groups below 5 (fallback, low confidence): {len(below)}"
+                 + (f" — {', '.join(below)}" if below else ""))  # fmt: skip
+    lines.append("Peers with no comparable period (latest 12 months, ±45 d) or no facts:")
+    nothing = True
+    for ticker, comp in sorted(results.items()):
+        if comp is None or comp.status:
+            continue
+        for p in comp.lines:
+            if not p.in_comparison.startswith("yes"):
+                nothing = False
+                off = f", offset {p.offset:+d} d" if p.offset is not None else ""
+                lines.append(f"  {ticker}: {p.name} — {p.in_comparison} (latest "
+                             f"{p.latest_end or '—'}{off}); {p.note}")  # fmt: skip
+    if nothing:
+        lines.append("  none")
+    lines.append("Peer flags (53-week year, acquisition year):")
+    flagged = [(t, p) for t, c in sorted(results.items()) if c and not c.status
+               for p in c.lines if p.in_comparison.startswith("yes") and p.note]  # fmt: skip
+    lines += [f"  {t}: {p.name} ({p.latest_end}): {p.note}" for t, p in flagged] or ["  none"]
+    for ticker in Z_DETAIL:
+        comp = results.get(ticker)
+        if comp is None:
+            lines.append(f"Peer z on {ticker} revenue rows: {ticker} not in this run")
+            continue
+        lines.append(f"Peer z on {ticker} revenue rows:")
+        for key in ("rev_yoy", "rev_cagr3"):
+            if comp.status:
+                lines.append(f"  {key}: missing: {comp.status}")
+                continue
+            row = comp.rows[key]
+            lines.append(f"  {key}: {row.text()}")
+            if row.company.value is not None:
+                lines.append(f"    company {row.company.value:+.1%}")
+            for m in row.members:
+                if m.included:
+                    lines.append(f"    {m.name}: {m.value:+.1%} ({m.end}, {m.offset:+d} d)"
+                                 + (f" [{'; '.join(m.flags)}]" if m.flags else ""))  # fmt: skip
+                else:
+                    lines.append(f"    {m.name}: not in comparison — {m.why}")
+    return lines
+
+
+def peers_run(engine, comps: dict[str, str], now, log, client=None, clog=None,
+              refetch: bool = False, corpus=None) -> dict:  # fmt: skip
+    """The `peers` work on open connections (tests inject a scratch DB and a fake client;
+    `client=None` = no SEC requests). Returns ticker → peer comparison."""
+    from engine.financials import models, peer_facts, profile
+    from engine.financials.step import part1b
+
+    mf = models.load_safe()
+    targets = profile.peer_targets(engine, comps, mf)
+    skipped = sorted(set(comps) - set(targets))
+    sets = peer_facts.peer_sets(engine, {t: c for t, (c, _, _) in targets.items()})
+    covered = set(comps.values())
+    log(f"Peer sets ({len(sets)} companies; tracked names and fund/financial tags have none: "
+        f"{', '.join(skipped) or 'none'}):")  # fmt: skip
+    for t, s in sets.items():
+        if not s.confirmed:
+            log(f"  {t}: {peer_facts.NOT_CONFIRMED} — nothing fetched for {t}")
+        else:
+            non = [m["name"] for m in s.members if not m["cik"]]
+            log(f"  {t}: {len(s.members)} confirmed — {len(s.sec)} SEC filers"
+                + (f", not SEC filers: {', '.join(non)}" if non else "")
+                + (": " + ", ".join(m["name"] for m in s.sec) if s.sec else ""))  # fmt: skip
+    want: dict[str, str] = {}
+    for s in sets.values():
+        if s.confirmed:
+            for m in s.sec:
+                want.setdefault(m["cik"], m["name"])
+    own = sorted(c for c in want if c in covered)
+    log(f"Distinct SEC peers: {len(want)}; covered companies using their own facts: {len(own)}", "")
+    fetched: set[str] = set()
+    if client is not None:
+        todo = []
+        for cik, name in sorted(want.items(), key=lambda kv: kv[1]):
+            if cik in covered:
+                continue
+            r = peer_facts.stored(engine, cik)
+            if r is not None and r["ok_at"] and not r["due_filed"] and not refetch:
+                continue
+            todo.append((cik, name))
+        stored_n = len(want) - len(own) - len(todo)
+        log(f"Companyfacts downloads: {len(todo)} to fetch (not cached; trimmed to "
+            f"{len(peer_facts.KEEP)} M04 tags); {stored_n} already stored"
+            + (" (use --refetch to download again)" if stored_n else "") + ":")  # fmt: skip
+        t0 = time.monotonic()
+        for cik, name in todo:
+            f = peer_facts.fetch_peer(client, engine, cik, name, now)
+            log("  " + f.line())
+            if f.outcome == "ok":
+                fetched.add(cik)
+            if f.throttled:
+                log("  SEC throttle: the rest waits for the next run")
+                break
+        if clog is not None:
+            clog.seconds["companyfacts"] += time.monotonic() - t0
+        log("")
+    else:
+        log("SEC skipped (--no-sec): stored peer facts used", "")
+
+    t1 = time.monotonic()
+    cache: dict = {}
+    results: dict = {}
+    for ticker, cik in sorted(comps.items()):
+        try:
+            got = part1b(engine, corpus, cik, ticker, now, peer_cache=cache, covered=covered)
+            results[ticker] = got.peers if ticker in targets else None
+        except Exception as e:  # one company's error must not stop the others
+            if engine.in_transaction:
+                engine.execute("ROLLBACK")
+            log(f"  {ticker}: error — {type(e).__name__}: {e}")
+    log(f"Trend rows, peer z and signals recomputed for {len(results)} companies "
+        f"(0 requests, {time.monotonic() - t1:.1f} s)", "")  # fmt: skip
+    log(*peers_summary(engine, sets, results, fetched, covered))
+    return results
+
+
+def run_peers(args, log: Log, folder: Path) -> int:
+    from engine.store.db import open_db
+    from engine.store.http import SqliteCache, SqliteFetchLog
+
+    engine = open_db("engine", folder)
+    corpus = open_db("corpus", folder, check_same_thread=False)
+    now = datetime.now(UTC)
+    mb_before, before = db_mb(folder), counts(engine)
+    comps = companies(engine)
+    if args.tickers:
+        wanted = {t.strip().upper() for t in args.tickers.split(",")}
+        comps = {t: c for t, c in comps.items() if t in wanted}
+    head = f"run_financials peers · {now:%Y-%m-%d %H:%M} UTC · {len(comps)} companies"
+    log(head + (" · no SEC" if args.no_sec else ""), f"engine.db before: {mb_before:,.1f} MB", "")
+    client = clog = None
+    if not args.no_sec:
+        from engine.sec.client import SecClient, user_agent_from_env
+
+        clog = CountingLog(SqliteFetchLog(engine))
+        client = SecClient(user_agent_from_env(), cache=SqliteCache(corpus), log=clog)
+    peers_run(engine, comps, now, log, client, clog, refetch=args.refetch, corpus=corpus)
+    if clog is not None:
+        log(*clog.lines())
+    else:
+        log("SEC requests: 0 (--no-sec)")
+    after = counts(engine)
+    log(
+        "Rows added per table: "
+        + ", ".join(f"{t} {after[t] - before[t]:+,}" for t in COUNTED_TABLES)
+    )
+    log(f"engine.db: {mb_before:,.1f} MB → {db_mb(folder):,.1f} MB")
+    corpus.close()
+    engine.close()
+    return 0
+
+
 def _main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("subcommand", nargs="?", choices=[s for s, _, _ in SUBCOMMANDS])
     ap.add_argument("--no-sec", action="store_true", help="no SEC requests (local re-run)")
     ap.add_argument("--tickers", help="comma-separated subset (default: watchlist + tracked)")
     ap.add_argument("--years", type=int, default=3, help="R1 history for multi-class filers")
+    ap.add_argument("--refetch", action="store_true",
+                    help="peers: download every peer's companyfacts again")  # fmt: skip
     ap.add_argument("--list", action="store_true", help="print the subcommand table")
     args = ap.parse_args()
     if args.list or not args.subcommand:
@@ -835,6 +1064,8 @@ def _main() -> int:
             return run_capex(args, log, data_dir())
         if args.subcommand == "profile":
             return run_profile(args, log, data_dir())
+        if args.subcommand == "peers":
+            return run_peers(args, log, data_dir())
         return run_data(args, log, data_dir())
     except Exception:
         log("FAILED with a traceback:", traceback.format_exc())

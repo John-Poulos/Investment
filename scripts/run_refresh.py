@@ -141,7 +141,8 @@ def official_step(engine, report) -> str:
 def financials_sec_step(client, engine, report) -> str:
     """M04 SEC part after the official feeds (M04_BUILD_LOG logon constraints, D-M04-70):
     per-new-filing work only (Part 1a: R1 cover pages of new annual reports and of a
-    multi-class filer's 10-Qs). Never fails the run."""
+    multi-class filer's 10-Qs; Part 2: a confirmed peer's companyfacts when the daily index
+    showed its new periodic filing). Never fails the run."""
     from engine.financials.step import run_sec_part
 
     try:

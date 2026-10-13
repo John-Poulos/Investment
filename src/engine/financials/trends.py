@@ -1,7 +1,8 @@
 """Core trend rows and ROIC (outline "Analyze the financials" 1–4; D-M04-11, S6.5; Part 1b).
 
 Information rows, no vote in CvD or confluence until Part 8 (D-M04-11), each against the
-company's own history (peer robust z arrives with Part 2):
+company's own history and, from Part 2, as peer robust z (`peer_z.py`, written into each
+signal's method):
 
 - `rev_yoy` — revenue growth year over year (TTM for the signal, fiscal years in the table);
 - `rev_cagr3` — 3-year revenue CAGR;
@@ -39,6 +40,9 @@ YEARS = 8
 NEAR_ZERO = 0.01  # base below 1% of revenue → not meaningful (S2.1)
 TAX_CAP = 0.35
 NM = "not_meaningful"
+# Replaced by the peer robust z text (`peer_z.annotate`, Part 2); left as is when no peer
+# comparison was run for the view.
+PEER_TOKEN = "peer z: not computed"
 
 
 @dataclass(frozen=True)
@@ -306,7 +310,7 @@ def _signals(engine, cik, as_of, rows, labels, ends, rev, gp, cost, oi, capex_ye
         (p.accession, p.filed) for p in (at(rev, last_end), at(oi, last_end)) if p is not None
     )
     newest = max((f for _, f in srcs), default=last_end)
-    peer = "peer z: Part 2"
+    peer = PEER_TOKEN
 
     # TTM-based rows when a TTM a year earlier exists, else fiscal years.
     ttm_rev = fy_points(engine, cik, "revenue", as_of, "TTM")

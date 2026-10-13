@@ -6,7 +6,10 @@ Two hooks in `scripts/run_refresh.py`, both inside the refresh lock and timed:
   page of each new annual report (10-K, 10-KT, 20-F, 40-F; cover count and the error-
   correction flag) and of each new 10-Q of a multi-class filer (~30 requests a year).
   "New" = filed in the last 30 days and not read yet; history is backfilled only by the
-  owner (`scripts/run_financials.py data`).
+  owner (`scripts/run_financials.py data`). Part 2: a confirmed peer's companyfacts is
+  re-fetched (trimmed to M04's tags, not cached) when the refresh's daily-index read marked
+  it due for a new 10-K/10-Q/20-F/40-F (`peer_facts.refetch_due`, ~160–200 a year); peers
+  never fetched are listed, not fetched (first downloads are owner-run, D-M04-70).
 - **Local pass, after prices (0 SEC requests; also when prices are skipped):**
   `filing_status` for every covered company from the calendar, and the `filing_status`,
   `shares_cover` and `implied_float_shares` signals (Part 1a); Part 1b recomputes the
@@ -19,7 +22,8 @@ Two hooks in `scripts/run_refresh.py`, both inside the refresh lock and timed:
   company (D-M04-80), opens the setup `m04_stage` items on the first run and an item per new
   fiscal year whose computed stage differs from the owner's or is ambiguous (D-M04-12),
   flushes M04 overflow (cap 5, D-M04-71) and writes `lifecycle_stage`. Browse-by-SIC and the
-  revenue frames are owner-run only (`scripts/run_financials.py profile`).
+  revenue frames are owner-run only (`scripts/run_financials.py profile`). Part 2 adds the
+  peer robust z to the trend signals' method (peer facts read once per pass).
 
 Never fails the run: errors are reported in its lines; writes are short transactions.
 """
@@ -32,7 +36,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from engine.financials import capex, models, profile, shares, status, trends
+from engine.financials import capex, models, peer_facts, peer_z, profile, shares, status, trends
 from engine.guidance import record
 from engine.sec.client import SecClient
 from engine.sec.cover import fetch_cover, r1_done
@@ -139,7 +143,20 @@ def run_sec_part(
         if engine.in_transaction:
             engine.execute("ROLLBACK")
         lines.append(f"error — {type(e).__name__}: {e}")
-    head = f"M04 financials — SEC part (Part 1a) ({clock() - t0:.1f} s):"
+    try:  # Part 2: a peer's companyfacts when the daily index showed its periodic filing
+        if client.paused_for() > 0:
+            lines.append("M04 peer facts: SEC throttle open; due peers wait for the next run")
+        else:
+            lines += peer_facts.refetch_due(client, engine, now, clock=clock)
+        new = peer_facts.unfetched_peers(engine, companies.values())
+        if new:
+            lines.append(f"M04 peer facts: {len(new)} confirmed peer(s) never fetched (owner-run: "
+                         "scripts/run_financials.py peers)")  # fmt: skip
+    except Exception as e:
+        if engine.in_transaction:
+            engine.execute("ROLLBACK")
+        lines.append(f"M04 peer facts: error — {type(e).__name__}: {e}")
+    head = f"M04 financials — SEC part (Parts 1a, 2) ({clock() - t0:.1f} s):"
     return [head, *lines]
 
 
@@ -233,6 +250,7 @@ class Part1b:
     capex: capex.CapexView
     trends: trends.TrendsView
     record: record.Record
+    peers: peer_z.Comparison | None = None
 
 
 def part1b(
@@ -241,11 +259,18 @@ def part1b(
     cik: str,
     ticker: str | None,
     now: datetime,
+    *,
+    peer_cache: dict | None = None,
+    covered: set[str] | None = None,
 ) -> Part1b:
-    """Recompute capex split, trend rows and the guidance record; store and signal them."""
+    """Recompute capex split, trend rows and the guidance record; store and signal them.
+    The trend signals carry the peer robust z in their method (Part 2, D-M04-11)."""
     today = now.date()
     cv = capex.capex_view(engine, cik, today.isoformat())
     tv = trends.trends_view(engine, cik, today.isoformat(), cv)
+    comp = peer_z.compare(engine, ticker or cik, cik, today.isoformat(), cache=peer_cache,
+                          covered=covered)  # fmt: skip
+    peer_z.annotate(tv, comp)
     rec = record.record_for(engine, corpus, cik, today)
     engine.execute("BEGIN")
     try:
@@ -259,7 +284,7 @@ def part1b(
     except Exception:
         engine.execute("ROLLBACK")
         raise
-    return Part1b(cv, tv, rec)
+    return Part1b(cv, tv, rec, comp)
 
 
 def run_local_part(
@@ -274,8 +299,10 @@ def run_local_part(
     t0 = clock()
     lines: list[str] = []
     counts = {"current": 0, "stale": 0, "overdue": 0, "none": 0}
-    p1b = {"companies": 0, "split": 0, "scored": 0, "removed": 0}
+    p1b = {"companies": 0, "split": 0, "scored": 0, "removed": 0, "peer_sets": 0}
     alerts = []
+    cache: dict = {}  # peers recur across peer sets: read their facts once per pass
+    covered = set(companies.values())
     for ticker, cik in sorted(companies.items()):
         try:
             rec = status.refresh_status(engine, corpus, cik, ticker, now)
@@ -293,8 +320,9 @@ def run_local_part(
             except Exception:
                 engine.execute("ROLLBACK")
                 raise
-            got = part1b(engine, corpus, cik, ticker, now)
+            got = part1b(engine, corpus, cik, ticker, now, peer_cache=cache, covered=covered)
             p1b["companies"] += 1
+            p1b["peer_sets"] += bool(got.peers and got.peers.confirmed)
             p1b["split"] += sum(1 for y in got.capex.years if y.maintenance is not None)
             p1b["scored"] += got.record.scored
             p1b["removed"] += sum(
@@ -311,7 +339,7 @@ def run_local_part(
     summary += (
         f"; capex/trends/guidance recomputed for {p1b['companies']} companies "
         f"({p1b['split']} split years, {p1b['scored']} scored guides, "
-        f"{p1b['removed']} removed guides)"
+        f"{p1b['removed']} removed guides; peer z for {p1b['peer_sets']} confirmed peer sets)"
     )
     try:
         mf = models.load_safe()
@@ -328,5 +356,5 @@ def run_local_part(
         lines.append(f"  stage pass: error — {type(e).__name__}: {e}")
     lines.insert(0, summary)
     lines[1:1] = alerts
-    head = f"M04 financials — local pass (Parts 1a–1c, 0 SEC requests) ({clock() - t0:.1f} s):"
+    head = f"M04 financials — local pass (Parts 1a–2, 0 SEC requests) ({clock() - t0:.1f} s):"
     return [head, *lines]

@@ -808,6 +808,22 @@ def create_app(settings: UiSettings) -> FastAPI:
             return RedirectResponse(f"/m04/setup?error={quote(str(e))}#stages", 303)
         return RedirectResponse(f"/m04/setup?msg={quote(f'{ticker.upper()}: {done}')}#stages", 303)
 
+    @app.post("/m04/peers/{ticker}/edit")
+    def m04_peer_edit(ticker: str, engine: Engine, owner: OwnerDep,
+                      note: Annotated[str, Form()] = "") -> RedirectResponse:  # fmt: skip
+        """'Edit peers' on a confirmed set (M04 Part 2): reopens it as a new `m04_peer`
+        item (setup, outside the cap), kept in the review history."""
+        cik = services.resolve_ticker(engine, ticker.upper())
+        if cik is None:
+            raise HTTPException(404, f"Unknown ticker {ticker}.")
+        try:
+            item_id = review.m04_peer_reopen(engine, cik, ticker.upper(), note, owner.id,
+                                             datetime.now(UTC))  # fmt: skip
+        except review.ReviewError as e:
+            return RedirectResponse(f"/m04/setup?error={quote(str(e))}#peers", 303)
+        msg = f"{ticker.upper()}: peer set reopened (item {item_id})"
+        return RedirectResponse(f"/m04/setup?msg={quote(msg)}#peer-{item_id}", 303)
+
     @app.post("/m04/peer/{item_id}/add")
     def m04_peer_add(item_id: int, engine: Engine, owner: OwnerDep,
                      peer: Annotated[str, Form()] = "",

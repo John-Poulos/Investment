@@ -558,7 +558,7 @@ def test_sec_part_reads_r1_of_new_filings_only(make_client, dbs, clock):
     transport = FakeTransport({meta_htm: [ok((M04 / "meta_10k_fy2025_R1.htm").read_bytes())],
                                mu_htm: [ok((M04 / "spcx_10q_2026q2_R1.htm").read_bytes())]})  # fmt: skip
     lines = step.run_sec_part(make_client(transport), engine, {"META": META, "MU": MU}, now)
-    assert lines[0].startswith("M04 financials — SEC part (Part 1a)")
+    assert lines[0].startswith("M04 financials — SEC part (Parts 1a, 2)")
     assert "2 new filing(s); read 2" in lines[1]
     assert len(transport.calls) == 2
     step.run_sec_part(make_client(transport), engine, {"META": META, "MU": MU}, now)
@@ -606,7 +606,7 @@ def test_financials_tab_shows_the_m04_sections(tmp_path, clock):
         html = c.get("/c/META?tab=financials").text
     for text in ("Filing status", "Share counts", "Marker legend", "M04 rows still to come",
                  "2,529,555,464", "2,187,177,748", "Class B Common Stock", "R1 cover page",
-                 "missing: not built, Part 2", "missing: not built, Part 8a", "Profile", "Capex", "Core trends", "Guidance record", "≈ broader tag",
+                 "missing: not built, Part 3", "missing: not built, Part 8a", "Profile", "Capex", "Core trends", "Guidance record", "≈ broader tag",
                  "current", "2026-03-02"):  # fmt: skip
         assert text in html, text
     assert "object at 0x" not in html
@@ -621,10 +621,10 @@ def test_run_financials_table_and_unbuilt_parts(capsys, monkeypatch):
     out = capsys.readouterr().out
     assert "data       Part 1a" in out and "backtest   Part 8b" in out and "(not built)" in out
     # An unbuilt subcommand only: a built one would open the real data folder (never in tests).
-    assert "peers" not in run_financials.BUILT
-    monkeypatch.setattr(sys, "argv", ["run_financials.py", "peers"])
+    assert "flags" not in run_financials.BUILT
+    monkeypatch.setattr(sys, "argv", ["run_financials.py", "flags"])
     assert run_financials.main() == 2
-    assert "peers: not built, Part 2" in capsys.readouterr().out
+    assert "flags: not built, Part 3" in capsys.readouterr().out
     assert (
         run_financials.fetch_type("https://www.sec.gov/Archives/edgar/data/1/2/R1.htm") == "R page"
     )
