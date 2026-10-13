@@ -214,7 +214,7 @@
     <tr><th>Q</th><th>Row</th><th>Reading</th><th>Value / why</th></tr>
     {% for r in p.rows or [] %}<tr><td>{{ r.q }}</td><td>{{ r.label }}</td><td>{{ r.reading | replace('_', '-') }}</td><td>{{ r.value }}{% if r.why %}<br><span class="muted">{{ r.why }}</span>{% endif %}</td></tr>{% endfor %}
   </table>
-  <p class="muted">The grid could not decide (AMBIGUOUS: no 2/3 majority, or fewer than 2 rows in a question), or it reads STUMBLE or CYCLE_PLUS_DAMAGE, which D-M04-1 sends to you. Your answer becomes the state (D-M04-56) while the computed state stays the same; tranches wait until you answer (D-M04-58). See the <a href="/c/{{ it.ticker or p.ticker }}?tab=m04">M04 tab</a>.</p>
+  <p class="muted">The grid could not decide (AMBIGUOUS: no 2/3 majority), or it reads STUMBLE or CYCLE_PLUS_DAMAGE, which D-M04-1 sends to you. Your answer becomes the state (D-M04-56) while the computed state stays the same; tranches wait until you answer (D-M04-58). See the <a href="/c/{{ it.ticker or p.ticker }}?tab=m04">M04 tab</a>.</p>
   {% elif it.kind.startswith('m02_') %}
   {% if it.payload.earlier %}<div class="warnbox">Shown before and {{ it.payload.earlier.resolution }}ed{% if it.payload.earlier.note %} — your note: “{{ it.payload.earlier.note }}”{% endif %}. Back because it changed materially (distinct filers doubled or money-flow evidence appeared).</div>{% endif %}
   <table class="data">

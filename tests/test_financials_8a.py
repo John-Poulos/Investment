@@ -158,7 +158,7 @@ def test_mu_q4_fy22_activates_on_the_latest_quarter_only(dbs):
     assert "D-M04-67" in a.triggers[0]
     assert any("+11.0%" in t for t in a.tests)
     c = ev(engine, MU, "MU", "2022-10-07")
-    assert c.active and c.raw_state == "AMBIGUOUS"  # WDC's matching quarter not filed yet
+    assert c.active and c.raw_state == cvd.INSUFFICIENT  # WDC's matching quarter not filed yet
     assert c.row("revenue_vs_peers").awaiting
 
 
@@ -203,12 +203,15 @@ def test_mu_q4_fy23_cyclical_trough_1_00_with_q2_on_3_of_7(dbs):
     assert c.m01.rule7.startswith("yes (CYCLICAL_TROUGH with a gate pass")
 
 
-def test_mu_before_wdc_files_is_ambiguous_but_awaits_peers_without_an_item(dbs):
+def test_mu_before_wdc_files_is_insufficient_data_without_an_item(dbs):
     engine, _ = dbs
     micron(engine)
     c = ev(engine, MU, "MU", "2023-10-06")  # the 10-K's filing day
-    assert c.raw_state == "AMBIGUOUS" and c.q1.present == 1 and c.confidence == 0.0
+    assert c.raw_state == c.state == cvd.INSUFFICIENT and c.q1.present == 1
+    assert c.confidence is None  # missing, never 0.00 (D-M04-102 as amended)
     assert "awaiting peer filing" in c.row("revenue_vs_peers").why
+    assert c.m01.rule3.startswith("blocked: CvD insufficient data") and "Q1 1 of 5" in c.m01.rule3
+    assert c.m01.rule7 == "no"
     assert not propose(engine, c, MU, "MU").queued  # S6.1: re-runs when the peer files
 
 
@@ -425,6 +428,8 @@ def test_resolution_missing_rows_leave_the_denominator_and_2_of_3_wins():
     assert (q.present, q.applicable) == (3, 5)
     one = cvd.resolve("Q1", _rows("Q1", "shared", "missing"))
     assert not one.resolved and one.share == 0.0  # fewer than 2 present rows
+    assert cvd.classify(True, one, q) == (cvd.INSUFFICIENT, None)  # live check 1 (MSTR)
+    assert cvd.classify(False, one, q) == ("NO_SLOWDOWN", None)
     split = cvd.resolve("Q1", _rows("Q1", "shared", "company_specific", "neutral", "neutral"))
     assert not split.resolved and split.share == 0.25
     assert cvd.classify(True, split, q) == ("AMBIGUOUS", 0.25)
@@ -644,3 +649,233 @@ def test_m04_tab_and_summary_page(tmp_path):
     assert "Choose the state" in one and "structural decline" in one and "Q1 slump shared?" in one
     assert r.status_code == 303 and "tab=m04" in r.headers["location"]
     assert "market%20share%201%20added" in r.headers["location"]
+
+
+# --- Live check 1 (2026-10-13): insufficient data, asset_treasury, revenue text, capex level --
+
+
+def company(engine, cik: str, name: str, fye: str, facts: dict[str, list[tuple]]) -> str:
+    """A hand-built company: {us-gaap tag: [(start, end, filed, form, $M), …]}."""
+    engine.execute(
+        "INSERT OR REPLACE INTO entity (cik, name, sic, fiscal_year_end, source_ref, fetched_at) "
+        "VALUES (?, ?, '7372', ?, 't', 'n')",
+        (cik, name, fye),
+    )
+    body: dict[str, dict] = {}
+    for tag, rows in facts.items():
+        for start, end, filed, form, v in rows:
+            row = {"end": end, "val": v * M, "accn": acc(cik, filed), "form": form, "filed": filed}
+            if start:
+                row["start"] = start
+            body.setdefault(tag, {"units": {"USD": []}})["units"]["USD"].append(row)
+    engine.execute("BEGIN")
+    store_facts(engine, cik, {"facts": {"us-gaap": body}})
+    engine.execute("COMMIT")
+    return cik
+
+
+TREASURY = "0001050446"
+Y24 = ("2024-01-01", "2024-12-31", "2025-02-18", "10-K")
+Y25 = ("2025-01-01", "2025-12-31", "2026-02-10", "10-K")
+
+
+def treasury_co(engine, *, loss_both: bool = True) -> str:
+    def fy(v24, v25):
+        return [(*Y24, v24), (*Y25, v25)]
+
+    facts = {
+        "Revenues": fy(463, 477),
+        "GrossProfit": fy(330, 330),
+        "OperatingIncomeLoss": fy(100, -5_253),
+        "CryptoAssetUnrealizedLossOperating": fy(50, 5_403) if loss_both else [(*Y25, 5_403)],
+    }
+    return company(engine, TREASURY, "TREASURY CO", "1231", facts)
+
+
+TREASURY_MF = models.parse(
+    {"company": [{"cik": TREASURY, "tag": "asset_treasury", "reason": "bitcoin", "source": "t"}]}
+)
+
+
+def test_asset_treasury_activation_takes_the_digital_asset_line_out_of_operating_income(dbs):
+    engine, _ = dbs
+    treasury_co(engine)
+    raw = cvd.activation(engine, TREASURY, "2026-03-01")
+    assert any(t.startswith("operating income -5353.0%") for t in raw.triggers)  # bitcoin
+    a = cvd.activation(engine, TREASURY, "2026-03-01", treasury=True)
+    assert not a.triggers
+    oi = next(t for t in a.tests if t.startswith("operating income ex digital-asset"))
+    assert "us-gaap:CryptoAssetUnrealizedLossOperating: -50M → -5,403M" in oi
+    assert oi.endswith("+0.0%")  # 150 → 150 once the fair-value change is out
+    c = cvd.evaluate(engine, TREASURY, "TCO", "2026-03-01", models=TREASURY_MF, calendar=False)
+    assert c.tag == "asset_treasury" and c.state == "NO_SLOWDOWN" and not c.active
+
+
+def test_asset_treasury_without_the_line_in_both_years_reads_not_meaningful(dbs):
+    engine, _ = dbs
+    treasury_co(engine, loss_both=False)  # adopted ASU 2023-08 in 2025: no 2024 line
+    a = cvd.activation(engine, TREASURY, "2026-03-01", treasury=True)
+    assert not a.triggers
+    assert any(
+        "not meaningful for asset_treasury" in t and "12 months to 2024-12-31" in t for t in a.tests
+    )
+
+
+def test_insufficient_rows_write_the_state_and_withdraw_an_overflow_item(dbs):
+    engine, _ = dbs
+    micron(engine)
+    engine.execute(
+        "INSERT INTO m04_proposal (prop_key, kind, cik, reason, payload, priority, capped, "
+        "baseline, status, item_id, first_seen_at, last_seen_at) VALUES (?, 'm04_cvd', ?, "
+        "'MU: CvD AMBIGUOUS', '{}', 2, 1, 0, 'overflow', NULL, '2023-10-01T00:00:00+00:00', "
+        "'2023-10-01T00:00:00+00:00')",
+        (f"m04_cvd:{MU}:AMBIGUOUS", MU),
+    )
+    cc = cvd_step.company_cvd(engine, "MU", MU, datetime(2023, 10, 6, 12, tzinfo=UTC), mf=MF)
+    assert cc.c.state == cvd.INSUFFICIENT and not cc.queued and cc.withdrawn == 1
+    gone = engine.execute("SELECT resolution, note FROM review_queue WHERE kind = 'm04_cvd'")
+    gone = gone.fetchone()
+    assert gone["resolution"] == "withdrawn" and "fewer than 2 rows" in gone["note"]
+    assert "was overflow" in gone["note"]  # kept as history
+    assert engine.execute("SELECT count(*) FROM m04_proposal").fetchone()[0] == 0
+    by = {
+        r["signal"]: r
+        for r in engine.execute(
+            "SELECT signal, value, value_text, method FROM signal WHERE cik = ? AND "
+            "timeframe = 'MY'",
+            (MU,),
+        )
+    }
+    st = by["cvd_state"]
+    assert st["value_text"] == "insufficient_data"
+    assert st["method"].startswith("missing: fewer than 2 rows present in Q1/Q2")
+    conf = by["cvd_confidence"]
+    assert conf["value"] is None and conf["method"].startswith("missing: fewer than 2 rows")
+    grid = "\n".join(cvd.grid_lines(cc.c))
+    assert "insufficient_data (fewer than 2 rows present in Q1/Q2; no review item)" in grid
+
+
+def _cmp(gap: float, median: float, z: float | None, n: int, fallback: bool):
+    from types import SimpleNamespace as NS
+
+    r = NS(gap=gap, median=median, z=z, n=n, fallback=fallback)
+    row = NS(missing="", result=r, members=[])
+    return NS(status="", rows={"rev_yoy": row})
+
+
+def test_revenue_far_above_growing_peers_says_no_slump_not_within_10pp():
+    reading, _, why, deep, cand, _ = cvd._rev_reading(_cmp(2.242, 0.321, 12.28, 4, True))
+    assert reading == "neutral" and not deep and not cand
+    assert "within 10 pp" not in why and "no slump here" in why  # MU 2026: gap +224.2 pp
+    _, _, why, *_ = cvd._rev_reading(_cmp(-0.05, 0.10, None, 4, True))
+    assert why.startswith("peers growing, gap within 10 pp below")
+    _, _, why, *_ = cvd._rev_reading(_cmp(0.528, 0.306, 2.24, 7, False))
+    assert "no slump here" in why  # NVDA 2026: z +2.24
+    _, _, why, *_ = cvd._rev_reading(_cmp(-0.195, 0.209, -1.19, 7, False))
+    assert why == "peers growing and z > -1.5 (D-M04-55)"  # GFS 2026
+
+
+def _fy(year: int) -> tuple[str, str, str, str]:
+    return (f"{year}-01-01", f"{year}-12-31", f"{year + 1}-02-15", "10-K")
+
+
+def capex_co(engine, revenue: list[int], capex: list[int]) -> str:
+    cik = "0000000777"
+    years = range(2022, 2022 + len(revenue))
+    company(
+        engine,
+        cik,
+        "BOOM CO",
+        "1231",
+        {
+            "Revenues": [(*_fy(y), v) for y, v in zip(years, revenue, strict=True)],
+            "PaymentsToAcquirePropertyPlantAndEquipment": [
+                (*_fy(y), v) for y, v in zip(years, capex, strict=True)
+            ],
+        },
+    )
+    return cik
+
+
+def _capex_row(engine, cik: str, as_of: str):
+    return cvd.capex_rd_row(engine, cik, as_of, health.Book(engine, cik, as_of), False, [])
+
+
+def test_capex_in_a_boom_is_read_on_the_level_not_intensity(dbs):
+    engine, _ = dbs
+    cik = capex_co(engine, [30_000, 25_000, 37_000, 133_000], [7_700, 8_400, 15_900, 30_700])
+    r = _capex_row(engine, cik, "2026-06-01")
+    assert r.reading == "intact"  # intensity 0.68× would have read weakening (MU FY2026)
+    assert "= 0.68×" in r.value and "capex 30,700M vs 3-yr avg 10,667M = 2.88×" in r.value
+    assert "read on the capex level, not intensity" in r.value
+    assert r.number == pytest.approx(2.878, abs=0.001)
+
+
+def test_capex_level_cut_in_a_boom_still_weakens(dbs):
+    engine, _ = dbs
+    cik = capex_co(engine, [30_000, 25_000, 37_000, 133_000], [7_700, 8_400, 15_900, 7_000])
+    r = _capex_row(engine, cik, "2026-06-01")
+    assert r.reading == "weakening" and r.why.startswith("capex level cut > 20%")
+
+
+def test_capex_with_flat_revenue_reads_intensity(dbs):
+    engine, _ = dbs
+    cik = capex_co(engine, [8_100, 7_400, 6_750, 6_800], [3_000, 2_200, 700, 720])
+    r = _capex_row(engine, cik, "2026-06-01")
+    assert "read on intensity" in r.value and r.reading == "weakening"  # GFS-like
+    assert r.why.startswith("capex intensity cut > 20%")
+
+
+def test_capex_row_never_reads_an_older_year_than_the_latest_fiscal_year(dbs):
+    engine, _ = dbs
+    cik = capex_co(engine, [30_000, 25_000, 37_000, 40_000, 41_000], [1, 2, 3, 4, 5])
+    engine.execute(
+        "DELETE FROM fact WHERE cik = ? AND tag LIKE 'Payments%' AND period_end = '2026-12-31'",
+        (cik,),
+    )
+    r = _capex_row(engine, cik, "2027-06-01")
+    assert r.reading == "missing" and "latest fiscal year FY2026" in r.why  # NVDA FY2023 case
+
+
+def test_f_quality_falls_back_to_continuing_operations_cfo_labelled(dbs):
+    engine, _ = dbs
+    cik = "0000000778"
+    company(
+        engine,
+        cik,
+        "OLD TAG CO",
+        "1231",
+        {
+            "Revenues": [(*_fy(2015), 1_000), (*_fy(2016), 900)],
+            "NetIncomeLoss": [(*_fy(2015), 50), (*_fy(2016), -30)],
+            "NetCashProvidedByUsedInOperatingActivities": [(*_fy(2015), 120)],
+            "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations": [(*_fy(2016), 80)],
+        },
+    )
+    fq = health.f_quality(engine, cik, "2017-06-01", stage="mature")
+    pts = {p.name: p for p in fq.points}
+    assert pts["accruals"].value == 1 and pts["cfo_positive"].value == 1
+    assert health.CFO_CONT_NOTE in pts["accruals"].text
+    bk = health.Book(engine, cik, "2017-06-01")
+    assert bk.v("operating_cash_flow", "2015-12-31") == 120 * M  # the total wins where tagged
+    assert bk.cfo_note("2015-12-31") == ""
+
+
+def test_regression_lines_print_every_row_and_the_fact_trace(dbs):
+    engine, _ = dbs
+    micron(engine)
+    rf = run_financials_module()
+    lines: list[str] = []
+    rf.cvd_regression(engine, lambda *ls: lines.extend(ls), MF)
+    text = "\n".join(lines)
+    reg = text.split("MU Q4 FY23", 1)[1].split("INTC 2023", 1)[0]
+    for want in (
+        "peers (today's confirmed set, read as of 2023-11-10): WESTERN DIGITAL CORP",
+        "    Q1 Revenue growth vs peers (12 months): shared",
+        "    Q2 Trough vs prior trough (gross margin and ROIC): intact",
+        "    Q2 Health vote (F-quality 0–5): intact",
+        "Q1 shared 1.00",
+    ):
+        assert want in reg, want
+    trace = rf.cvd_fact_trace(engine, MU, "2016-09-01", "2016-12-31")
+    assert "us-gaap:NetIncomeLoss" in "\n".join(trace)

@@ -22,7 +22,11 @@ vs. Decline (CvD) profile"). `evaluate(engine, cik, ticker, as_of)` reads facts 
   until M06" and the R12 vote (Part 7b; counts only when it fires) stay out of coverage.
 - **Resolution** (D-M04-56): missing rows leave the denominator; ≥ 2 present rows; one side
   holding ≥ 2/3† of present weight; confidence = the lower of the two winning shares;
-  coverage = present ÷ applicable per question.
+  coverage = present ÷ applicable per question. An active grid with a question below 2
+  present rows cannot resolve: `insufficient_data`, no review item, M01 blocked
+  (D-M04-102 as amended, Part 8a live check 1).
+- **asset_treasury** (D-M04-8): activation's operating-income test excludes the
+  digital-asset fair-value line inside operating income (D-M04-100 as amended).
 - **Overrides:** an owner's `m04_cvd` answer becomes the state (D-M04-56); the survival gate
   overrides the grid for M01 (D-M04-31); stale / overdue (D-M04-61); open 4.02 marks the
   inputs "under non-reliance" (D-M04-21).
@@ -71,6 +75,17 @@ GM_GAP_INTACT, GM_GAP_WEAK, GM_GAP_PEERS = -3.0, -5.0, 3  # D-M04-1, S6.10
 SWING_PP = 5.0  # turning points (D-M04-54)
 SURGE = 1.5  # D-M04-64
 CUT = 0.20  # S6.4
+REV_ROSE = 0.10  # revenue > 10%† above its own 3-year average → capex read on the level
+INSUFFICIENT = "insufficient_data"  # D-M04-102 as amended (Part 8a live check 1)
+INSUFFICIENT_WHY = "fewer than 2 rows present in Q1/Q2"
+# Digital-asset fair-value lines inside operating income (ASU 2023-08; Part 6 swing tags):
+# (concept, sign of a gain) — the gain/loss tag is + for a gain, the loss-only tag + for a loss
+CRYPTO_OPERATING = (
+    (Concept("crypto_gl_operating", (("us-gaap", "CryptoAssetUnrealizedGainLossOperating"),),
+             "currency", "flow"), 1),
+    (Concept("crypto_loss_operating", (("us-gaap", "CryptoAssetUnrealizedLossOperating"),),
+             "currency", "flow"), -1),
+)  # fmt: skip
 EXCLUDED = ("fund", "financial", "reit", "spac_shell")  # D-M04-8 table: CvD excluded
 
 STATES = (
@@ -185,6 +200,11 @@ class CvD:
     missing: str = ""  # no CvD at all (no 12-month revenue)
     notes: list[str] = field(default_factory=list)
     sources: list[Source] = field(default_factory=list)
+    peers: list[str] = field(default_factory=list)  # the confirmed SEC peers used (today's set)
+
+    @property
+    def insufficient(self) -> bool:
+        return self.raw_state == INSUFFICIENT
 
     @property
     def stale(self) -> bool:
@@ -216,6 +236,10 @@ class CvD:
         )
         if self.q1 and self.q2:
             bits.append(f"Q1 {self.q1.text()}; Q2 {self.q2.text()}")
+        if self.insufficient:
+            bits.append(
+                f"{INSUFFICIENT_WHY}: the grid cannot resolve, no review item (D-M04-56, -102)"
+            )
         if self.raw_state and self.state != self.raw_state:
             a = self.answer or {}
             bits.append(
@@ -280,7 +304,24 @@ class Activation:
     sources: list[Source]
 
 
-def activation(engine: sqlite3.Connection, cik: str, as_of: str) -> Activation:
+def crypto_operating(engine, cik: str, as_of: str, end: str | None):
+    """The digital-asset fair-value change inside operating income for the 12 months to
+    `end` (+ = gain) and its tag; (None, "") when no such line is tagged (D-M04-8, -100)."""
+    if end is None:
+        return None, ""
+    for con, sign in CRYPTO_OPERATING:
+        p = at(peer_z.twelve(engine, cik, con, as_of), end)
+        if p is not None:
+            return sign * float(p.value), f"{con.tags[0][0]}:{con.tags[0][1]}"
+    return None, ""
+
+
+def activation(
+    engine: sqlite3.Connection, cik: str, as_of: str, *, treasury: bool = False
+) -> Activation:
+    """`treasury` (model tag `asset_treasury`, D-M04-8): the operating-income test runs on
+    operating income less the digital-asset fair-value line, or reads "not meaningful" when
+    that line is not tagged for both 12-month periods (D-M04-100 as amended)."""
     f = peer_z.Facts(engine, cik, as_of)
     if not f.rev:
         return Activation(None, "", [], ["no 12-month revenue stored"], None, "", [])
@@ -305,14 +346,35 @@ def activation(engine: sqlite3.Connection, cik: str, as_of: str) -> Activation:
     else:
         tests.append(f"gross margin {g1 - g0:+.1f} pp")
     o1, o0 = peer_z._v(f.oi, ref), peer_z._v(f.oi, prev)
-    if o1 is None or o0 is None:
-        tests.append("operating income: missing")
+    oi_name = "operating income"
+    if treasury and o1 is not None and o0 is not None:
+        c1, tag1 = crypto_operating(engine, f.cik, as_of, ref)
+        c0, tag0 = crypto_operating(engine, f.cik, as_of, prev)
+        if c1 is None or c0 is None:
+            gone = ", ".join(e for e, c in ((prev, c0), (ref, c1)) if c is None)
+            tests.append(
+                "operating income: not meaningful for asset_treasury — no digital-asset "
+                f"fair-value line tagged for the 12 months to {gone}, so bitcoin's price "
+                "cannot be taken out (D-M04-8, -100)"
+            )
+            o1 = o0 = None
+            oi_name = ""
+        else:
+            o1, o0 = o1 - c1, o0 - c0
+            oi_name = (
+                f"operating income ex digital-asset fair value ({tag1 or tag0}: "
+                f"{c0 / 1e6:,.0f}M → {c1 / 1e6:,.0f}M, D-M04-8)"
+            )
+    if not oi_name:
+        pass  # not meaningful, named above
+    elif o1 is None or o0 is None:
+        tests.append(f"{oi_name}: missing")
     elif o0 <= 0:
-        tests.append("operating income: base ≤ 0, not meaningful")
+        tests.append(f"{oi_name}: base ≤ 0, not meaningful")
     elif o1 / o0 - 1 <= -OI_DROP:
-        trig.append(f"operating income {_pct(o1 / o0 - 1)} (≤ −{OI_DROP:.0%}†)")
+        trig.append(f"{oi_name} {_pct(o1 / o0 - 1)} (≤ −{OI_DROP:.0%}†)")
     else:
-        tests.append(f"operating income {_pct(o1 / o0 - 1)}")
+        tests.append(f"{oi_name} {_pct(o1 / o0 - 1)}")
     q = _points(engine, f.cik, "revenue", as_of, "Q")
     srcs = _src(pt, f"revenue {kind} {ref}")
     if not q:
@@ -337,6 +399,11 @@ def activation(engine: sqlite3.Connection, cik: str, as_of: str) -> Activation:
 
 
 # --- Q1 rows ---------------------------------------------------------------------------------
+
+ABOVE_PEERS = (
+    "growing at or above the growing peers' median: no slump here, neither shared nor "
+    "company-specific → neutral (D-M04-55)"
+)
 
 
 def _rev_reading(comp: peer_z.Comparison) -> tuple[str, str, str, bool | None, bool, float | None]:
@@ -366,7 +433,16 @@ def _rev_reading(comp: peer_z.Comparison) -> tuple[str, str, str, bool | None, b
             )
         if gap <= -GAP_PP:
             return "neutral", val, f"≥ {GAP_PP:.0f} pp below growing peers", False, True, gap
-        return "neutral", val, f"peers growing, gap within {GAP_PP:.0f} pp", False, False, gap
+        if gap >= 0:
+            return "neutral", val, ABOVE_PEERS, False, False, gap
+        return (
+            "neutral",
+            val,
+            f"peers growing, gap within {GAP_PP:.0f} pp below (D-M04-55)",
+            False,
+            False,
+            gap,
+        )
     val = f"z {r.z:+.2f}, gap {gap:+.1f} pp vs median {r.median * 100:+.1f}% (n {r.n})"
     if r.median < 0:
         deep = r.z is not None and r.z <= Z_DEEP
@@ -380,6 +456,8 @@ def _rev_reading(comp: peer_z.Comparison) -> tuple[str, str, str, bool | None, b
         )
     if r.z is not None and r.z <= Z_SPECIFIC:
         return "neutral", val, f"z ≤ {Z_SPECIFIC} while peers grow", False, True, r.z
+    if gap >= 0:
+        return "neutral", val, ABOVE_PEERS, False, False, r.z
     return "neutral", val, f"peers growing and z > {Z_SPECIFIC} (D-M04-55)", False, False, r.z
 
 
@@ -931,8 +1009,23 @@ def capex_rd_row(engine, cik, as_of, bk: health.Book, rev_falling: bool, peer_li
         row.why = "not scored: capex definition changed inside the window (D-M04-3)"
         return row
     (te, ratio), prior = window[-1], window[:-1]
+    latest = bk.latest()
+    if latest and not near(te.end, latest):
+        row.why = (
+            f"no capex with revenue for the latest fiscal year {fiscal_label(latest)} as known "
+            f"then (latest with both: {te.label}); an older year is not read"
+        )
+        return row
     avg = sum(x for _, x in prior) / 3
     mult = ratio / avg if avg else None
+    # D-M04-100 as amended (live check 1; D-M04-54, -64): when revenue rose over the window,
+    # a falling intensity is the revenue, not a cut — read the capex level instead
+    revs = [bk.v("revenue", t.end) or 0.0 for t, _ in window]
+    rev_avg = sum(revs[:-1]) / 3
+    rev_chg = revs[-1] / rev_avg - 1 if rev_avg > 0 else None
+    lvl_avg = sum(t.value for t, _ in prior) / 3
+    lvl = te.value / lvl_avg if lvl_avg > 0 else None
+    on_level = rev_chg is not None and rev_chg > REV_ROSE
     rd = bk.v("rd", te.end)
     rd_prior = [bk.v("rd", t.end) for t, _ in prior]
     rd_avg = sum(rd_prior) / 3 if rd is not None and all(v is not None for v in rd_prior) else None
@@ -941,11 +1034,26 @@ def capex_rd_row(engine, cik, as_of, bk: health.Book, rev_falling: bool, peer_li
         if rd_avg
         else "R&D not tagged: judged on capex alone"
     )
+    lvl_txt = (
+        f"capex {te.value / 1e6:,.0f}M vs 3-yr avg {lvl_avg / 1e6:,.0f}M = {lvl:.2f}×"
+        if lvl is not None
+        else "capex level: no positive 3-yr average"
+    )
+    basis = (
+        f"revenue {_pct(rev_chg)} vs its 3-yr average"
+        + (
+            f" (> +{REV_ROSE:.0%}†): read on the capex level, not intensity"
+            if on_level
+            else ": read on intensity"
+        )
+        if rev_chg is not None
+        else "revenue average ≤ 0: read on intensity"
+    )
     row.value = (
         f"{te.label}: capex ÷ revenue {ratio:.1%} vs 3-yr avg {avg:.1%} = "
-        f"{mult:.2f}× ({te.tag}); {rd_txt}"
+        f"{mult:.2f}× ({te.tag}); {lvl_txt}; {basis}; {rd_txt}"
     )
-    row.number = mult
+    row.number = lvl if on_level else mult
     row.sources = [Source(te.accession, te.filed, "A", f"capex {te.label}")]
     if mult is not None and mult > SURGE and rev_falling:
         row.reading = "neutral"
@@ -954,10 +1062,17 @@ def capex_rd_row(engine, cik, as_of, bk: health.Book, rev_falling: bool, peer_li
             "see M05 (growth capex × ROIC; D-M04-64)"
         )
         return row
-    cut_c = mult is not None and mult < 1 - CUT
+    cut_c = (
+        (lvl is not None and lvl < 1 - CUT) if on_level else (mult is not None and mult < 1 - CUT)
+    )
     cut_r = rd_avg is not None and rd < (1 - CUT) * rd_avg
     if not (cut_c or cut_r):
-        row.reading, row.why = "intact", "capex intensity and R&D held near the own 3-year average"
+        row.reading = "intact"
+        row.why = (
+            "capex level (revenue rose) and R&D held near the own 3-year average (D-M04-100)"
+            if on_level
+            else "capex intensity and R&D held near the own 3-year average"
+        )
         return row
     held = []
     for _name, pcik in peer_list:
@@ -971,14 +1086,19 @@ def capex_rd_row(engine, cik, as_of, bk: health.Book, rev_falling: bool, peer_li
         cur = at(pc, mt.end)
         prs = [pb.prior(mt.end, k) for k in (1, 2, 3)]
         vals = [at(pc, e) if e else None for e in prs]
-        revs = [pb.v("revenue", e) for e in prs]
+        prevs = [pb.v("revenue", e) for e in prs]
         r0 = pb.v("revenue", mt.end)
-        if cur is None or None in vals or None in revs or not r0:
+        if cur is None or None in vals or None in prevs or not r0:
             continue
-        pavg = sum(float(v.value) / r for v, r in zip(vals, revs, strict=True)) / 3
+        if on_level:  # like with like: the peer's capex level vs its own 3-year average
+            pavg = sum(float(v.value) for v in vals) / 3
+            if pavg > 0:
+                held.append(float(cur.value) / pavg)
+            continue
+        pavg = sum(float(v.value) / r for v, r in zip(vals, prevs, strict=True)) / 3
         if pavg:
             held.append((float(cur.value) / r0) / pavg)
-    what = "capex intensity" if cut_c else "R&D"
+    what = ("capex level" if on_level else "capex intensity") if cut_c else "R&D"
     if not held:
         row.reading = "weakening"
         row.why = (
@@ -1100,8 +1220,13 @@ TABLE = {
 
 
 def classify(active: bool, q1: Question, q2: Question) -> tuple[str, float | None]:
+    """D-M04-56 as amended by D-M04-102 (live check 1): an active grid with a question below
+    2 present rows cannot resolve → `insufficient_data` with no confidence (missing, never
+    0.00) and no review item; M01 blocks tranches until the rows exist."""
     if not active:
         return "NO_SLOWDOWN", None
+    if q1.present < MIN_PRESENT or q2.present < MIN_PRESENT:
+        return INSUFFICIENT, None
     conf = round(min(q1.share, q2.share), 2)
     if q1.resolved and q2.resolved:
         return TABLE[(q1.lead, q2.lead)], conf
@@ -1157,6 +1282,19 @@ def m01_reading(engine, c: CvD) -> M01:
     if c.overdue:
         rule4.append("filing overdue (D-M04-61)")
         return M01("blocked: filing overdue (D-M04-58, -61)", "no", rule4, notes)
+    if st == INSUFFICIENT:
+        qs = ", ".join(
+            f"{q.q} {q.present} of {q.applicable}"
+            for q in (c.q1, c.q2)
+            if q is not None and q.present < MIN_PRESENT
+        )
+        return M01(
+            f"blocked: CvD insufficient data ({INSUFFICIENT_WHY}: {qs}; no review item; "
+            "D-M04-56, -58, -102)",
+            "no",
+            rule4,
+            notes,
+        )
     if st in ("CYCLE_PLUS_DAMAGE", "STRUCTURAL_DECLINE"):
         rule4.append(f"CvD {st} (M01 rule 4, S6.14)")
         r3 = "blocked (D-M04-58)"
@@ -1232,6 +1370,9 @@ def evaluate(
     if c.tag in EXCLUDED:
         c.excluded = f"not applicable ({c.tag}): {how}"
         return c
+    treasury = c.tag == "asset_treasury"
+    if treasury:  # bitcoin's price taken out of the operating-income test (D-M04-8, -100)
+        act = activation(engine, norm, as_of, treasury=True)
     srow = stage_mod.confirmed(engine, norm)
     c.stage = srow["confirmed"] if srow else None
     c.gate = gate.evaluate(engine, norm, ticker, as_of, models=mf, today=as_of, calendar=calendar)
@@ -1246,7 +1387,7 @@ def evaluate(
     c.sources = act.sources
     prev_as_of = (_d(act.filed) - timedelta(days=1)).isoformat() if act.filed else as_of
     c.triggers, c.tests = act.triggers, act.tests
-    before = activation(engine, norm, prev_as_of) if act.filed else None
+    before = activation(engine, norm, prev_as_of, treasury=treasury) if act.filed else None
     c.active = bool(act.triggers) or bool(
         before and before.ref and before.ref != act.ref and before.triggers
     )
@@ -1257,6 +1398,7 @@ def evaluate(
         ]
     ps = peer_facts.peer_set(engine, ticker or norm, norm)
     peer_list = [(m["name"], m["cik"]) for m in ps.sec]
+    c.peers = [name for name, _ in peer_list]
     me = peer_z._facts(engine, norm, as_of, cache)
     rev_row, c.deeper = revenue_row(engine, norm, ticker, as_of, prev_as_of, cache)
     gm_now = peer_z._gm(me, act.ref)
@@ -1330,6 +1472,21 @@ def evaluate(
     return c
 
 
+def row_lines(c: CvD, indent: str = "    ") -> list[str]:
+    """Each Q1 and Q2 row with its reading, value and reason (the grid and the regression
+    lines print the same text)."""
+    out = []
+    for r in c.rows:
+        what = r.value if r.present else ""
+        why = f"missing: {r.why}" if r.reading == "missing" else r.why
+        out.append(
+            f"{indent}{r.q} {r.label}: {r.reading}"
+            + (f" — {what}" if what else "")
+            + (f" [{why}]" if why else "")
+        )
+    return out
+
+
 def grid_lines(c: CvD) -> list[str]:
     """One grid for the log: state, confidence, coverage, each row's value or reason."""
     head = c.ticker or c.cik
@@ -1337,6 +1494,8 @@ def grid_lines(c: CvD) -> list[str]:
         return [f"{head}: {c.excluded or 'missing: ' + c.missing}"]
     conf = f"{c.confidence:.2f}" if c.confidence is not None else "—"
     state = c.state + (f" (computed {c.raw_state}, owner answer)" if c.state != c.raw_state else "")
+    if c.insufficient:
+        state += f" ({INSUFFICIENT_WHY}; no review item)"
     out = [
         f"{head}: {state} · confidence {conf} · coverage {c.coverage_text()} · "
         f"{c.ref_kind} to {c.ref_end} · gate {c.gate.state if c.gate else '—'}"
@@ -1347,16 +1506,7 @@ def grid_lines(c: CvD) -> list[str]:
         "    activation: "
         + ("; ".join(c.triggers) if c.active else "not active — " + "; ".join(c.tests))
     )
-    for r in c.rows:
-        what = r.value if r.present else ""
-        why = r.why
-        if r.reading == "missing":
-            why = f"missing: {r.why}"
-        out.append(
-            f"    {r.q} {r.label}: {r.reading}"
-            + (f" — {what}" if what else "")
-            + (f" [{why}]" if why else "")
-        )
+    out += row_lines(c)
     for s in (c.f_score, c.g_score):
         if s is not None:
             v = f"{s.known} of {s.n}" if s.points else "—"

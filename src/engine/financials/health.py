@@ -34,6 +34,7 @@ from engine.financials import peer_facts, peer_z, peers
 from engine.financials.capex import at, fiscal_label, fy_points, near
 from engine.sec.asof import AsOfPoint, facts_as_of
 from engine.sec.identity import normalize_cik
+from engine.sec.xbrl_facts import Concept
 from engine.signals import Source
 
 EQUITY_LOSS = 0.10  # MVP starting value † (Part 5 deferred; D-M04-101)
@@ -52,6 +53,15 @@ FY_CONCEPTS = (
     "advertising",
 )
 I_CONCEPTS = ("total_assets", "long_term_debt", "current_assets", "current_liabilities")
+# Labelled fallback for a fiscal year without the total CFO tag (Part 8a live check 1: MU
+# FY2016 read "missing: CFO"); used only where the total is absent, named in the text.
+CFO_CONT = Concept(
+    "operating_cash_flow_cont",
+    (("us-gaap", "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"),),
+    "currency",
+    "flow",
+)
+CFO_CONT_NOTE = "≈ continuing-operations CFO: total CFO not tagged that year"
 
 
 @dataclass(frozen=True)
@@ -102,6 +112,13 @@ class Book:
         self.as_of = as_of
         self.fy = {c: fy_points(engine, self.cik, c, as_of) for c in FY_CONCEPTS}
         self.i = {c: fy_points(engine, self.cik, c, as_of, "I") for c in I_CONCEPTS}
+        self.cfo_cont: set[str] = set()  # fiscal year ends read from CFO_CONT
+        cfo = self.fy["operating_cash_flow"]
+        for e, p in fy_points(engine, self.cik, CFO_CONT, as_of).items():
+            if at(cfo, e) is None:
+                cfo[e] = p
+                self.cfo_cont.add(e)
+        self.fy["operating_cash_flow"] = dict(sorted(cfo.items()))
         ends: list[str] = []
         for e in sorted(self.fy["revenue"]) or sorted(self.fy["net_income"]):
             if not any(near(e, x) for x in ends):
@@ -126,6 +143,9 @@ class Book:
         if i is None or i - back < 0:
             return None
         return self.ends[i - back]
+
+    def cfo_note(self, end: str | None) -> str:
+        return f"; {CFO_CONT_NOTE}" if end and any(near(e, end) for e in self.cfo_cont) else ""
 
     def gross(self, end: str | None) -> float | None:
         g = self.v("gross_profit", end)
@@ -220,9 +240,16 @@ def f_quality(
     ni, cfo = bk.v("net_income", end), bk.v("operating_cash_flow", end)
     pts = sc.points
     if ni is None or cfo is None:
-        pts.append(Pt("accruals", None, "missing: net income or CFO"))
+        gone = " and ".join(n for n, v in (("net income", ni), ("CFO", cfo)) if v is None)
+        pts.append(Pt("accruals", None, f"missing: {gone}"))
     else:
-        pts.append(Pt("accruals", int(cfo > ni), f"CFO {cfo / 1e6:,.0f}M vs NI {ni / 1e6:,.0f}M"))
+        pts.append(
+            Pt(
+                "accruals",
+                int(cfo > ni),
+                f"CFO {cfo / 1e6:,.0f}M vs NI {ni / 1e6:,.0f}M{bk.cfo_note(end)}",
+            )
+        )
     lv1, h1 = leverage(bk, end)
     lv0, h0 = leverage(bk, p) if p else (None, "")
     if lv1 is None or lv0 is None:
@@ -248,7 +275,7 @@ def f_quality(
     if cfo is None:
         pts.append(Pt("cfo_positive", None, "missing: CFO"))
     else:
-        pts.append(Pt("cfo_positive", int(cfo > 0), f"CFO {cfo / 1e6:,.0f}M"))
+        pts.append(Pt("cfo_positive", int(cfo > 0), f"CFO {cfo / 1e6:,.0f}M{bk.cfo_note(end)}"))
     unknown = sum(1 for x in pts if x.value is None)
     sc.band = band(sc.known, unknown)
     if sc.band is None:

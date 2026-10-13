@@ -17,11 +17,12 @@ quarter's filing date (the annual report's for the health scores), so the logon 
 updates the same rows.
 
 `m04_cvd` (D-M04-56, -102): opens when the computed state is AMBIGUOUS, STUMBLE or
-CYCLE_PLUS_DAMAGE — not while the gate fails (the gate alert covers it) and not while a
-question lacks rows only because a peer's period is not filed yet (S6.1). One item per
-company and computed state; the owner's answer (a state) becomes the effective state while
-the computed state stays the same; when the computed state leaves review the answer is
-cleared, so a later episode asks again.
+CYCLE_PLUS_DAMAGE — not while the gate fails (the gate alert covers it). An active grid with
+a question below 2 present rows (awaited peers included, S6.1) is `insufficient_data`: no
+item (D-M04-102 as amended, live check 1). One item per company and computed state; the
+owner's answer (a state) becomes the effective state while the computed state stays the
+same; when the computed state leaves review the answer is cleared, so a later episode asks
+again.
 """
 
 from __future__ import annotations
@@ -147,6 +148,8 @@ def write_signals(engine: sqlite3.Connection, c: cvd.CvD, today: str) -> int:
         return n
 
     method = c.method()
+    if c.insufficient:  # D-M04-102 as amended: the state is known to be undecidable
+        method = f"missing: {cvd.INSUFFICIENT_WHY} (D-M04-56, -102); {method}"
     n += write_signal(
         **common,
         signal="cvd_state",
@@ -156,7 +159,9 @@ def write_signals(engine: sqlite3.Connection, c: cvd.CvD, today: str) -> int:
         sources=_grade_sources(c),
         info=("ST",),
     )
-    if c.active and c.confidence is not None:
+    if c.insufficient:
+        missing("cvd_confidence", f"{cvd.INSUFFICIENT_WHY} ({c.coverage_text()}; D-M04-102)")
+    elif c.active and c.confidence is not None:
         n += write_signal(
             **common,
             signal="cvd_confidence",
@@ -275,15 +280,6 @@ def _payload(c: cvd.CvD) -> dict:
     }
 
 
-def _awaiting_peers(c: cvd.CvD) -> bool:
-    for q in (c.q1, c.q2):
-        if q is None or q.present >= cvd.MIN_PRESENT:
-            continue
-        if any(r.awaiting for r in c.rows if r.q == q.q):
-            return True
-    return False
-
-
 def _clear(engine: sqlite3.Connection, cik: str) -> None:
     engine.execute("DELETE FROM refresh_state WHERE name = ?", (cvd.ANSWER_KEY.format(cik=cik),))
     # a resolved proposal row would suppress the next episode's item: drop the routing rows
@@ -304,7 +300,6 @@ def propose_items(engine: sqlite3.Connection, cc: CompanyCvd, now: datetime) -> 
         and not c.missing
         and c.raw_state in cvd.REVIEW
         and not (c.gate and c.gate.state == "fail")
-        and not _awaiting_peers(c)
     )
     if c is not None and c.raw_state not in cvd.REVIEW:
         _clear(engine, cc.cik)
@@ -332,8 +327,8 @@ def propose_items(engine: sqlite3.Connection, cc: CompanyCvd, now: datetime) -> 
         cc.cik,
         live,
         now,
-        "recomputed: the CvD state no longer needs review (or the gate fails, or peers are "
-        "awaited)",
+        "recomputed: the CvD state no longer needs review (not active, fewer than 2 rows "
+        "present in Q1/Q2, or the gate fails; D-M04-102)",
     )
 
 

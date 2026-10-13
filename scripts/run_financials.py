@@ -2652,9 +2652,12 @@ CVD_CASES = (  # (label, cik, ticker, as of, expected) — M04_BUILD_LOG Part 8a
     ("MU Q4 FY22 (10-K 2022-10-07)", "0000723125", "MU", "2022-10-07",
      "active by D-M04-67: TTM +11.0%, latest quarter ≈ −19.7%"),
     ("MU Q4 FY23 (after WDC's 10-Q of 2023-11-07)", "0000723125", "MU", "2023-11-10",
-     "CYCLICAL_TROUGH 1.00, Q2 on 3 of 7 rows; capex 1.30× intact"),
+     "CYCLICAL_TROUGH 1.00, Q2 on 3 of 7 rows; capex 1.30× intact (fixture: WDC the only "
+     "peer, stage confirmed; with today's logic/analog peer set and the stage unconfirmed "
+     "the rows below decide, live check 1)"),
     ("INTC 2023 (10-K; peers filed)", "0000050863", "INTC", "2024-03-01",
-     "AMBIGUOUS 0.25 → m04_cvd; capex 1.75× into falling revenue → neutral"),
+     "AMBIGUOUS 0.25 → m04_cvd; capex 1.75× into falling revenue → neutral (fixture: stage "
+     "confirmed, F-quality 3 neutral votes in Q2)"),
     ("NVDA FY2023 (10-K 2023-02-24)", "0001045810", "NVDA", "2023-03-01",
      "active on margin, not revenue (GM −8.0 pp, revenue +0.2%)"),
     ("Invitae FY2021 (10-K)", "0001501134", "Invitae", "2022-03-01",
@@ -2673,7 +2676,8 @@ def cvd_regression(engine, log, mf=None) -> None:
     log("Regression cases (stored data as of the dates shown; filing status not tested):")
     for label, cik, ticker, as_of, expect in CVD_CASES:
         try:
-            c = cvd.evaluate(engine, cik, ticker, as_of, models=mf, calendar=False)
+            c = cvd.evaluate(engine, cik, ticker, as_of, models=mf, calendar=False,
+                             use_answer=False)  # fmt: skip
         except Exception as e:  # a case's data may be absent: report, never stop
             log(f"  {label}: error — {type(e).__name__}: {e} | expected: {expect}")
             continue
@@ -2681,13 +2685,18 @@ def cvd_regression(engine, log, mf=None) -> None:
             log(f"  {label}: {c.excluded or 'missing: ' + c.missing} | expected: {expect}")
             continue
         conf = f"{c.confidence:.2f}" if c.confidence is not None else "—"
-        cap = c.row("capex_rd")
         act = "; ".join(c.triggers) if c.active else "not active — " + "; ".join(c.tests)
-        capex = f"{cap.reading} ({cap.value})" if cap else "—"
         gate_state = c.gate.state if c.gate else "—"
-        log(f"  {label}: {c.state} {conf} ({c.coverage_text()}); activation: {act}; "
-            f"capex row {capex}; gate {gate_state}; M01 rule 3: {c.m01.rule3} | "
-            f"expected: {expect}")  # fmt: skip
+        log(f"  {label}: {c.state} {conf} ({c.coverage_text()}) | expected: {expect}",
+            f"    activation: {act}",
+            f"    Q1 {c.q1.text() if c.q1 else '—'} · Q2 {c.q2.text() if c.q2 else '—'} · "
+            f"gate {gate_state} · M01 rule 3: {c.m01.rule3}",
+            f"    peers (today's confirmed set, read as of {as_of}): "
+            + (", ".join(c.peers) or "none"),
+            *cvd.row_lines(c, "    "))  # fmt: skip
+        fq = c.f_quality
+        if fq is not None and (fq.band is None or fq.note):
+            log(f"    F-quality {fq.label}: {fq.text()}")
     try:
         d = cvd.inventory_days(engine, "0000723125", "2023-11-10", "Q", "2023-03-02")
         got = d if isinstance(d, str) else f"{d.reported:.1f} / {d.adjusted:.1f} days ({d.text})"
@@ -2705,8 +2714,46 @@ def cvd_regression(engine, log, mf=None) -> None:
             fq = health.f_quality(engine, cik, as_of, stage=row["confirmed"] if row else None)
             log(f"  {label} ({fq.label}): {fq.known} of 5 → {fq.band or 'missing: ' + fq.missing}; "
                 f"{fq.text()} | expected: {expect}")  # fmt: skip
+            if fq.end and any(
+                p.value is None for p in fq.points if p.name in ("accruals", "cfo_positive")
+            ):
+                log(*cvd_fact_trace(engine, cik, fq.end, as_of))
         except Exception as e:
             log(f"  {label}: error — {e}")
+
+
+TRACE_TAGS = ("%OperatingActivities%", "NetIncomeLoss%", "ProfitLoss%")
+
+
+def cvd_fact_trace(engine, cik: str, end: str, as_of: str) -> list[str]:
+    """Stored net-income and operating-cash-flow facts ending within 20 days of `end`: tag,
+    period, form, filed (marked when after `as_of`) — why an F-quality input is missing
+    (Part 8a live check 1, MU FY2016)."""
+    from datetime import date as _date
+    from datetime import timedelta as _td
+
+    e = _date.fromisoformat(end)
+    lo, hi = (e - _td(days=20)).isoformat(), (e + _td(days=20)).isoformat()
+    like = " OR ".join("tag LIKE ?" for _ in TRACE_TAGS)
+    rows = engine.execute(
+        f"SELECT taxonomy, tag, period_start, period_end, value, form, filed FROM fact "
+        f"WHERE cik = ? AND period_end BETWEEN ? AND ? AND ({like}) "
+        "ORDER BY tag, period_start, filed",
+        (cik, lo, hi, *TRACE_TAGS),
+    ).fetchall()
+    fye = engine.execute("SELECT fiscal_year_end FROM entity WHERE cik = ?", (cik,)).fetchone()
+    out = [f"    stored facts ending {lo}…{hi} (fiscal year end on file "
+           f"{fye[0] if fye else '—'}; as of {as_of}): {len(rows)}"]  # fmt: skip
+    seen: dict[tuple, list[str]] = {}
+    for r in rows:
+        k = (f"{r['taxonomy']}:{r['tag']}", r["period_start"], r["period_end"])
+        late = " (after as-of)" if r["filed"] > as_of else ""
+        seen.setdefault(k, []).append(f"{r['form']} {r['filed']}{late} = {r['value'] / 1e6:,.0f}M")
+    for (tag, start, stop), vers in list(seen.items())[:20]:
+        out.append(f"      {tag} {start or '—'}…{stop}: " + "; ".join(vers[:4]))
+    if not rows:
+        out.append("      none: no net-income or operating-cash-flow tag stored for that period")
+    return out
 
 
 def cvd_summary(engine, cp, now) -> list[str]:
