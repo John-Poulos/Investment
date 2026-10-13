@@ -1,4 +1,5 @@
 # M07 Ownership & insiders — MVP brief
+**Decided 2026-10-13 → docs/M07_OWNERSHIP.md** (D-M07-1…8; Q07.1a–Q07.8a, Q07.8 restored by MVP_PLAN QP.3). Kept as the sitting record.
 Updated 2026-10-13 · Source: docs/M07_DESIGN_PACK.md (research) · Status: for owner decision (one sitting) · Outputs are research signals, not advice.
 
 ## Purpose in one paragraph

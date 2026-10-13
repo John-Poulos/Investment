@@ -1,4 +1,5 @@
 # M09 Technicals — MVP brief
+**Decided 2026-10-13 → docs/M09_TECHNICALS.md** (D-M09-1…8; Q09.1a–Q09.8a, Q09.2a with the owner's price-level σ band amendment). Kept as the sitting record.
 Updated 2026-10-13 · Source: docs/M09_DESIGN_PACK.md (research) · Status: for owner decision (one sitting)
 
 Research signals only, not advice. Nothing here is decided until you answer (D7). Answers become D-M09-1 onward.
