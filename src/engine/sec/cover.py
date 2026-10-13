@@ -337,7 +337,8 @@ def store_cover(
     detail = {"outcome": outcome, "url": url}
     if read is not None:
         detail |= {"title": read.title, "cover_date": read.cover_date, "notes": read.notes,
-                   "classes": len(read.classes), "document_type": read.document_type}  # fmt: skip
+                   "classes": len(read.classes), "document_type": read.document_type,
+                   "error_correction_flag": read.error_correction_flag}  # fmt: skip
     flag = None if read is None or read.error_correction_flag is None else int(
         read.error_correction_flag)  # fmt: skip
     engine.execute("BEGIN")

@@ -10,6 +10,8 @@ Two hooks in `scripts/run_refresh.py`, both inside the refresh lock and timed:
   re-fetched (trimmed to M04's tags, not cached) when the refresh's daily-index read marked
   it due for a new 10-K/10-Q/20-F/40-F (`peer_facts.refetch_due`, ~160–200 a year); peers
   never fetched are listed, not fetched (first downloads are owner-run, D-M04-70).
+  Part 3: the text of a new 8-K whose item class needs it (3.01, 4.01, 4.02, 2.04, 1.03),
+  when the nightly document step has not stored it (`flags_step.run_sec_part`).
 - **Local pass, after prices (0 SEC requests; also when prices are skipped):**
   `filing_status` for every covered company from the calendar, and the `filing_status`,
   `shares_cover` and `implied_float_shares` signals (Part 1a); Part 1b recomputes the
@@ -23,7 +25,10 @@ Two hooks in `scripts/run_refresh.py`, both inside the refresh lock and timed:
   fiscal year whose computed stage differs from the owner's or is ambiguous (D-M04-12),
   flushes M04 overflow (cap 5, D-M04-71) and writes `lifecycle_stage`. Browse-by-SIC and the
   revenue frames are owner-run only (`scripts/run_financials.py profile`). Part 2 adds the
-  peer robust z to the trend signals' method (peer facts read once per pass).
+  peer robust z to the trend signals' method (peer facts read once per pass). Part 3
+  recomputes the restatement walk, the filing events (states and clearing from the
+  calendar of later filings) and rating sentences, and writes `restatement`,
+  `non_reliance` and `restate_delta` (`flags_step.flags_pass`).
 
 Never fails the run: errors are reported in its lines; writes are short transactions.
 """
@@ -36,7 +41,17 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from engine.financials import capex, models, peer_facts, peer_z, profile, shares, status, trends
+from engine.financials import (
+    capex,
+    flags_step,
+    models,
+    peer_facts,
+    peer_z,
+    profile,
+    shares,
+    status,
+    trends,
+)
 from engine.guidance import record
 from engine.sec.client import SecClient
 from engine.sec.cover import fetch_cover, r1_done
@@ -125,8 +140,9 @@ def run_sec_part(
     now: datetime,
     *,
     clock: Callable[[], float] = time.monotonic,
+    corpus: sqlite3.Connection | None = None,
 ) -> list[str]:
-    """New R1 cover pages (per-new-filing work only)."""
+    """New R1 cover pages (per-new-filing work only); Part 3 adds new 8-K texts."""
     t0 = clock()
     lines: list[str] = []
     try:
@@ -156,8 +172,31 @@ def run_sec_part(
         if engine.in_transaction:
             engine.execute("ROLLBACK")
         lines.append(f"M04 peer facts: error — {type(e).__name__}: {e}")
-    head = f"M04 financials — SEC part (Parts 1a, 2) ({clock() - t0:.1f} s):"
+    lines += _part3_sec(client, engine, corpus, companies, now, clock)
+    head = f"M04 financials — SEC part (Parts 1a, 2, 3) ({clock() - t0:.1f} s):"
     return [head, *lines]
+
+
+def _part3_sec(client, engine, corpus, companies, now, clock) -> list[str]:
+    """Part 3 per-new-filing work (flags_step); never fails the step."""
+    if corpus is None:
+        return ["M04 filing-event texts (Part 3): skipped (no corpus connection)"]
+    try:
+        return flags_step.run_sec_part(client, engine, corpus, companies, now, clock=clock)
+    except Exception as e:
+        if engine.in_transaction:
+            engine.execute("ROLLBACK")
+        return [f"M04 filing-event texts (Part 3): error — {type(e).__name__}: {e}"]
+
+
+def _part3_local(engine, corpus, companies, now) -> list[str]:
+    """Part 3 local pass (flags_step); never fails the step."""
+    try:
+        return flags_step.local_lines(flags_step.flags_pass(engine, corpus, companies, now))
+    except Exception as e:
+        if engine.in_transaction:
+            engine.execute("ROLLBACK")
+        return [f"  Part 3: error — {type(e).__name__}: {e}"]
 
 
 def share_signals(engine: sqlite3.Connection, cik: str, ticker: str | None, today: str) -> int:
@@ -354,7 +393,8 @@ def run_local_part(
         if engine.in_transaction:
             engine.execute("ROLLBACK")
         lines.append(f"  stage pass: error — {type(e).__name__}: {e}")
+    lines += _part3_local(engine, corpus, companies, now)
     lines.insert(0, summary)
     lines[1:1] = alerts
-    head = f"M04 financials — local pass (Parts 1a–2, 0 SEC requests) ({clock() - t0:.1f} s):"
+    head = f"M04 financials — local pass (Parts 1a–3, 0 SEC requests) ({clock() - t0:.1f} s):"
     return [head, *lines]

@@ -266,9 +266,9 @@ Every row: `cik` (key; ticker for display, D-M04-74), one row per timeframe, `va
 | `eq_cash`, `eq_accruals`* | ratio; text not_meaningful | Cash conversion, accruals | ✓ | ✓ | info |
 | `contract_asset_gap`, `deferred_rev_gap` | pp; text flag | GE pattern | ✓ | ✓ | info |
 | `mscore`, `mscore_sgi1`*, `misstate_f` | float; band in text | Screens | info | info | info |
-| `restatement` | text: 4.02 / dei / little_r / escalated | Error event | ✓ | ✓ | ✓ |
-| `non_reliance`* | text | Open 4.02 mark | ✓ | ✓ | ✓ |
-| `restate_delta` | %; text label | Walk step | ✓ | ✓ | info |
+| `restatement` | text: none / little_r / dei / 4.02 / escalated (the most severe in 3 years); sources and counts in `method` | Error event; built Part 3 (as_of = newest evidence, else the latest periodic filing) | ✓ | ✓ | ✓ |
+| `non_reliance` | text: open / none | Open 4.02 mark (`restate.non_reliance(cik, period_end)` gives the row mark later parts show); built Part 3 | ✓ | ✓ | ✓ |
+| `restate_delta` | largest open residual in % of the old value; text: review / watch / explained / none | Walk steps filed in 3 years; an owner "explained" answer releases a step; built Part 3 | ✓ | ✓ | info |
 | `estimate_share` | %; text band | Profit from estimate changes | ✓ | ✓ | info |
 | `special_items` | ratio to operating income; text flag | Recurring "one-time" charges | ✓ | ✓ | info |
 | `net_issuance_yoy` | log change | Issuance | ✓ | ✓ | info |

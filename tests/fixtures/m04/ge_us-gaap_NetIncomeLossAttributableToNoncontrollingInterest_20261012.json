@@ -1,0 +1,7 @@
+{"cik":40545,"taxonomy":"us-gaap","tag":"NetIncomeLossAttributableToNoncontrollingInterest","label":"NetIncomeLossAttributableToNoncontrollingInterest","description":"Hand-built companyconcept fixture (see README).","entityName":"GENERAL ELECTRIC CO","units":{"USD":[
+{"start":"2016-01-01","end":"2016-12-31","val":-16000000,"accn":"0000040545-18-000014","fy":2017,"fp":"FY","form":"10-K","filed":"2018-02-23"},
+{"start":"2016-01-01","end":"2016-12-31","val":-16000000,"accn":"0000040545-19-900010","fy":2018,"fp":"FY","form":"10-K","filed":"2019-02-26"},
+{"start":"2017-01-01","end":"2017-12-31","val":-173000000,"accn":"0000040545-18-000014","fy":2017,"fp":"FY","form":"10-K","filed":"2018-02-23"},
+{"start":"2017-01-01","end":"2017-12-31","val":-79000000,"accn":"0000040545-19-900010","fy":2018,"fp":"FY","form":"10-K","filed":"2019-02-26"},
+{"start":"2017-01-01","end":"2017-12-31","val":-79000000,"accn":"0000040545-20-900010","fy":2019,"fp":"FY","form":"10-K","filed":"2020-02-24"}
+]}}

@@ -1,0 +1,456 @@
+# M04 owner labels (D-M04-51, D-M04-73; M04_BUILD_LOG "Label schedule").
+#
+# Created by M04 Part 3 as a template. The OWNER fills `label`, `label_date` and `note`
+# during Parts 3–7, blind (before seeing any engine output for that episode). The app
+# never edits this file; Part 8b reads it (confusion matrix, label stability, walk-forward:
+# calibrate on episodes up to FY2017, test on 2018 onward). Red-flag weights stay 0 until
+# at least 20 owner-labelled episodes exist (D-M04-45, D-M04-60).
+#
+# CvD labels (one per episode): CYCLICAL_TROUGH, CYCLE_PLUS_DAMAGE, STUMBLE,
+#   STRUCTURAL_DECLINE, NO_SLOWDOWN, AMBIGUOUS
+# Red-flag labels (one per row): flag (the flag should have fired), clean (it should not),
+#   unsure
+# label_date: the day you wrote the label (YYYY-MM-DD). Leave a row blank to skip it.
+# CIKs were filled at build from memory: check any that look wrong before Part 8b
+# (`uv run python scripts/check_tickers.py` or EDGAR company search).
+#
+# Windows are fiscal years (FY) or calendar years as the episode list in M04_BUILD_LOG
+# names them. `set`: calibrate (up to FY2017) or test (2018 onward); controls are
+# no-slowdown cases.
+
+# --- CvD episodes (D-M04-51): 15 up to FY2017, 9 from 2018, 4 controls -------------------
+
+[[episode]]
+key = "mu_fy2012"
+company = "Micron Technology"
+cik = "0000723125"
+window = "FY2012"
+group = "trough"
+set = "calibrate"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "mu_fy2016"
+company = "Micron Technology"
+cik = "0000723125"
+window = "FY2016"
+group = "trough"
+set = "calibrate"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "hal_2015_16"
+company = "Halliburton"
+cik = "0000045012"
+window = "2015–2016"
+group = "trough"
+set = "calibrate"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "nue_2015_16"
+company = "Nucor"
+cik = "0000073309"
+window = "2015–2016"
+group = "trough"
+set = "calibrate"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "cat_2015_16"
+company = "Caterpillar"
+cik = "0000018230"
+window = "2015–2016"
+group = "trough"
+set = "calibrate"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "de_2015_16"
+company = "Deere"
+cik = "0000315189"
+window = "2015–2016"
+group = "trough"
+set = "calibrate"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "btu_2015_16"
+company = "Peabody Energy"
+cik = "0001064728"
+window = "2015–2016"
+group = "damage"
+set = "calibrate"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "chk_2015_16"
+company = "Chesapeake Energy"
+cik = "0000895126"
+window = "2015–2016"
+group = "damage"
+set = "calibrate"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "fcx_2015_16"
+company = "Freeport-McMoRan"
+cik = "0000831259"
+window = "2015–2016"
+group = "damage"
+set = "calibrate"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "amd_2012_15"
+company = "Advanced Micro Devices"
+cik = "0000002488"
+window = "2012–2015"
+group = "stumble"
+set = "calibrate"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "jcp_fy2012"
+company = "J.C. Penney"
+cik = "0001166126"
+window = "FY2012"
+group = "stumble"
+set = "calibrate"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "gpro_2016"
+company = "GoPro"
+cik = "0001500435"
+window = "2016"
+group = "stumble"
+set = "calibrate"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "shld_2012_17"
+company = "Sears Holdings"
+cik = "0001310067"
+window = "2012–2017"
+group = "decline"
+set = "calibrate"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "rshcq_2012_14"
+company = "RadioShack"
+cik = "0000096289"
+window = "2012–2014"
+group = "decline"
+set = "calibrate"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "fit_2017"
+company = "Fitbit"
+cik = "0001447599"
+window = "2017"
+group = "decline"
+set = "calibrate"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "mu_fy2019_20"
+company = "Micron Technology"
+cik = "0000723125"
+window = "FY2019–FY2020"
+group = "test"
+set = "test"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "mu_fy2023"
+company = "Micron Technology"
+cik = "0000723125"
+window = "FY2023"
+group = "test"
+set = "test"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "wdc_fy2023"
+company = "Western Digital"
+cik = "0000106040"
+window = "FY2023"
+group = "test"
+set = "test"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "intc_2022_25"
+company = "Intel"
+cik = "0000050863"
+window = "2022–2025"
+group = "test"
+set = "test"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "nvta_2022_23"
+company = "Invitae"
+cik = "0001501134"
+window = "2022–2023"
+group = "test"
+set = "test"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "bbby_2019_23"
+company = "Bed Bath & Beyond"
+cik = "0000886158"
+window = "2019–2023"
+group = "test"
+set = "test"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "rad_2021_23"
+company = "Rite Aid"
+cik = "0000084129"
+window = "2021–2023"
+group = "test"
+set = "test"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "jcp_2017_20"
+company = "J.C. Penney"
+cik = "0001166126"
+window = "2017–2020"
+group = "test"
+set = "test"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "ba_2019_20"
+company = "Boeing"
+cik = "0000012927"
+window = "2019–2020"
+group = "test"
+set = "test"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "nvda_fy2024"
+company = "NVIDIA"
+cik = "0001045810"
+window = "FY2024"
+group = "control"
+set = "control"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "mu_fy2018"
+company = "Micron Technology"
+cik = "0000723125"
+window = "FY2018"
+group = "control"
+set = "control"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "cat_2018"
+company = "Caterpillar"
+cik = "0000018230"
+window = "2018"
+group = "control"
+set = "control"
+label = ""
+label_date = ""
+note = ""
+
+[[episode]]
+key = "nue_2021"
+company = "Nucor"
+cik = "0000073309"
+window = "2021"
+group = "control"
+set = "control"
+label = ""
+label_date = ""
+note = ""
+
+# --- Red flags (D-M04-73): one row per company and flag family --------------------------
+# Families: earnings_quality (eq_cash, restatement, restate_delta, estimate_share,
+# special_items, mscore), dilution (financing_pressure, overhang), distress
+# (distress_score, fcf_burn, negative_equity, survival gate), unit_economics (R12, young
+# per-unit flags), customer (customer row). Add rows for other families as you need them;
+# the 24 CvD episodes above may also get red-flag rows (same keys plus the family).
+
+[[red_flag]]
+key = "ge_2016_17"
+company = "General Electric"
+cik = "0000040545"
+window = "2016–2017"
+family = "earnings_quality"
+label = ""
+label_date = ""
+note = ""
+
+[[red_flag]]
+key = "nvta_2021_23"
+company = "Invitae"
+cik = "0001501134"
+window = "2021–2023"
+family = "distress"
+label = ""
+label_date = ""
+note = ""
+
+[[red_flag]]
+key = "nvta_2021_23"
+company = "Invitae"
+cik = "0001501134"
+window = "2021–2023"
+family = "dilution"
+label = ""
+label_date = ""
+note = ""
+
+[[red_flag]]
+key = "rshcq_2012_14"
+company = "RadioShack"
+cik = "0000096289"
+window = "2012–2014"
+family = "distress"
+label = ""
+label_date = ""
+note = ""
+
+[[red_flag]]
+key = "shld_2012_17"
+company = "Sears Holdings"
+cik = "0001310067"
+window = "2012–2017"
+family = "distress"
+label = ""
+label_date = ""
+note = ""
+
+[[red_flag]]
+key = "rivn_2022_26"
+company = "Rivian Automotive"
+cik = "0001874178"
+window = "2022–2026"
+family = "unit_economics"
+label = ""
+label_date = ""
+note = ""
+
+[[red_flag]]
+key = "rivn_2022_26"
+company = "Rivian Automotive"
+cik = "0001874178"
+window = "2022–2026"
+family = "dilution"
+label = ""
+label_date = ""
+note = ""
+
+[[red_flag]]
+key = "mstr_2025_26"
+company = "Strategy (MicroStrategy)"
+cik = "0001050446"
+window = "2025–2026"
+family = "dilution"
+label = ""
+label_date = ""
+note = ""
+
+[[red_flag]]
+key = "tgt_fy2022"
+company = "Target"
+cik = "0000027419"
+window = "FY2022"
+family = "earnings_quality"
+label = ""
+label_date = ""
+note = ""
+
+[[red_flag]]
+key = "tsla_2023"
+company = "Tesla"
+cik = "0001318605"
+window = "2023"
+family = "earnings_quality"
+label = ""
+label_date = ""
+note = ""
+
+[[red_flag]]
+key = "lmt_control"
+company = "Lockheed Martin"
+cik = "0000936468"
+window = "2016–2025"
+family = "control"
+label = ""
+label_date = ""
+note = ""
+
+[[red_flag]]
+key = "googl_control"
+company = "Alphabet"
+cik = "0001652044"
+window = "2016–2025"
+family = "control"
+label = ""
+label_date = ""
+note = ""

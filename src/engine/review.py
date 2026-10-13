@@ -12,7 +12,8 @@ Every action closes the item with who, when, the action and the owner's note
   force; approval valid 7 days) or keep the stored map.
 - m02_*: M02 proposals (engine/themes/proposals.py); data changes in `m02_action`.
 - m04_*: M04 proposals (engine/financials/queue.py); data changes in `m04_action`
-  (stage confirmations and overrides, peer shortlists; M04 Part 1c).
+  (stage confirmations and overrides, peer shortlists; M04 Part 1c; filing events,
+  restatement steps, rating sentences; M04 Part 3).
 """
 
 from __future__ import annotations
@@ -232,7 +233,7 @@ def m04_action(
     engine.execute("BEGIN")
     try:
         done = m04_queue.apply(engine, item_id, it.kind, action, it.payload, it.cik, by, now,
-                               target=target, keep=keep)  # fmt: skip
+                               target=target, keep=keep, note=note)  # fmt: skip
         _close(engine, item_id, done, note, by, now)
         if it.kind == "m04_stage" and it.cik:
             mf = models.load_safe()

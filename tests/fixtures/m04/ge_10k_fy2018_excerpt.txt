@@ -1,0 +1,9 @@
+GENERAL ELECTRIC COMPANY - FORM 10-K FOR 2018 (hand-built fixture excerpt; see README)
+
+(In millions; per-share amounts in dollars)
+
+NEW ACCOUNTING STANDARDS. On January 1, 2018, we adopted ASC 606 on a full retrospective basis. The adoption reduced revenues by $4,225 million for 2016 and $3,849 million for 2017.
+
+The adoption of ASC 606 decreased net earnings attributable to the Company by $1,182 million for 2016 and $2,668 million for 2017. We also changed our inventory accounting from LIFO to FIFO, which decreased net earnings by $147 million for 2016 and $124 million for 2017.
+
+We adopted ASU 2016-15 on a retrospective basis, which increased cash from operating activities of continuing operations by $1,400 million for 2016 and decreased cash from operating activities by $4,411 million for 2017. Under ASU 2016-18, restricted cash of $153 million is now included with cash and equivalents in the statement of cash flows.

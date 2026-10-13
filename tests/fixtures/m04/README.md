@@ -66,3 +66,33 @@ Trimmed companyfacts files (SEC companyfacts JSON layout; D-M04-75). Revenue fig
 | nvda_peer_companyfacts_trimmed_20261012.json | NVDA revenue FY2021-24 16,675 / 26,914 / 26,974 / 60,922 (pack: +0.2%, +125.9%); capex on PaymentsToAcquireProductiveAssets FY2022 976 | **FY2023 PP&E-tag value 1,800 is illustrative** (shows NVDA stays excluded in every year); FY2023 productive-assets 1,833 and OCF approximate |
 | mu_peer_companyfacts_trimmed_20261012.json | Micron discrete quarters Q1 FY2021 - Q1 FY2023 (TTM to 2021-12-02 = 29,619 and to 2022-12-01 = 27,156, pack) and FY2021-22 27,705 / 30,758 | quarter dates approximate (Thursday ends); Q4 entered as a discrete 10-K fact |
 | wdc_companyfacts_trimmed_20261012.json | Western Digital quarters 2021-01-02 .. 2022-12-30 (Friday ends, a month after Micron's: offset +29 d at 2022-12-30, -62 d before its filing; pack "WDC 62 days off until 2023-11-07" pattern) | **quarterly revenue values approximate** (only the offsets and the YoY arithmetic are tested) |
+## Part 3
+
+GE companyconcept files (SEC companyconcept JSON layout, one tag per file) and two short text
+excerpts, hand-built from Round 2's worked walk (docs/m04_review/R2_brief.md "Worked example";
+$M). Placeholders: accessions of the FY2018 and FY2019 10-Ks (`0000040545-19-900010`,
+`-20-900010`; the FY2016 and FY2017 accessions are the real ones from the probe log S5), filed
+dates approximate, and **every level value is illustrative**: only the steps between versions
+are Round 2's figures. The excerpt texts are written for the fixture (not quoted from GE's
+filings) and carry the amounts Round 2 attributes to each cause.
+
+| File | Figures and their source | Placeholders |
+|---|---|---|
+| ge_us-gaap_Revenues_20261012.json | Revenue FY2016 −4,224 and FY2017 −3,849 (ASC 606) in the FY2018 10-K; FY2017 −18,964 in the FY2019 10-K (discontinued operations) | levels illustrative |
+| ge_us-gaap_NetIncomeLoss_20261012.json | NI FY2016 −1,331, FY2017 −2,698 (FY2018 10-K); FY2017 unchanged in the FY2019 10-K | levels illustrative |
+| ge_us-gaap_NetIncomeLossAttributableToNoncontrollingInterest_20261012.json | NCI FY2017 change +94 (Round 2: the residual is the NCI share) | levels illustrative |
+| ge_us-gaap_NetCashProvidedByUsedInOperatingActivities_20261012.json | CFO FY2017 −4,394 (FY2018 10-K) | levels illustrative |
+| ge_us-gaap_NetCashProvidedByUsedInOperatingActivitiesContinuingOperations_20261012.json | CFO FY2016 −244 → +1,160 (+1,404, the "−244 base") | level after the step illustrative |
+| ge_us-gaap_IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest_20261012.json | pretax FY2016 unchanged across two 10-Ks (walked, no step) | value illustrative |
+| ge_10k_fy2018_excerpt.txt | ASC 606 revenue −4,225 / −3,849, NI −1,182 / −2,668; LIFO→FIFO −147 / −124; ASU 2016-15 +1,400 (2016) / −4,411 (2017); restricted cash 153 (R2 brief rows 1–7) | wording written for the fixture; 4,225 chosen to leave Round 2's +1 |
+| ge_10k_fy2019_excerpt.txt | FY2017 recast for discontinued operations, NI unchanged (R2 row 3) | wording written for the fixture |
+
+Entered in `tests/test_financials_3.py`: Infleqtion Q1 2026 little r (revenue +$446K, net loss
+−$544K; M04_BUILD_LOG Part 3; levels 9.1M / −30.2M illustrative); Rite Aid FY2017 revenue
+32,845 first filed 2017-05-03 → 22,928 filed 2019-04-25 (probe S17; NI and accessions
+illustrative); Invitae 3.01 2024-02-06 and 1.03 + 2.04 2024-02-14 (PROBE_RESULTS); INFQ 3.01
+2026-02-03 and 4.01 2026-03-26 (M04_BUILD_LOG); the 1.02 + 2.03 co-filings AMZN 2023-11-01,
+MU 2025-01-21 and 2025-03-12, TSLA 2026-09-29 (PROBE_RESULTS L8); AVGO's 10-K of 2023-12-14
+(accession illustrative; its R1 is served from the META fixture page, flag false); Intel's
+rating action BBB+ → BBB (August 2025; sentence written for the test). All 8-K texts are
+written for the tests.

@@ -48,6 +48,7 @@ Updated: 2026-10-12 · Read at the start of every module build. One line each, w
 - Probe a vendor's period parameter with an off-calendar company (Microsoft June FY, Oracle May FY) before building: Alpha Vantage's `quarter` is the company's fiscal label (D-M02-6).
 - Call transcripts mix analyst questions with management statements; parse management turns only, or analysts' numbers become "guidance" (D-M02-6).
 - An empty vendor response is "not available yet", never "none" (Alpha Vantage returned an empty transcript for a month-old call) (D-M02-6).
+- Fitting quoted amounts to a number needs the sentence to name the same line item: GE's ASC 606 *revenue* amount (4,225) fitted its *cash-flow* step closer than the right ASU 2016-15 amount until candidates were limited to sentences naming operating activities; also drop accounting codes ("ASC 606", "ASU 2016-15") and the recast values themselves (M04 Part 3, D-M04-16).
 - Run the parser on the real corpus early; each live scan found new wording (guidance-1 → guidance-4).
 - A vendor document may carry no date (Alpha Vantage transcripts): anchor it to an SEC record (the quarter's earnings 8-K) and leave it unparsed when none matches, rather than using the fetch date (D-M02-22).
 - Spoken periods are relative ("next quarter", "this year"); resolve them only against the document's own fiscal quarter, and leave the ambiguous ones ("this year" on a Q4 call) for review (D-M02-22).

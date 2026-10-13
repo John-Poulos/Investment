@@ -51,14 +51,20 @@ GROUP_NAMES = {0: "setup / operational", 1: "survival", 2: "CvD review and stage
                3: "filing events", 4: "restatement", 5: "dilution and overhang",
                6: "margin cause, customer, unit KPI", 7: "estimate and M-score"}  # fmt: skip
 
-# Kinds built so far (Part 1c); later parts add theirs here.
+# Kinds built so far (Parts 1c, 3); later parts add theirs here.
 KIND_LABELS = {
     "m04_stage": "M04: life-cycle stage to confirm",
     "m04_peer": "M04: peer shortlist to confirm",
+    "m04_event": "M04: filing event (8-K item or late filing)",
+    "m04_restate": "M04: restatement step not explained",
+    "m04_rating": "M04: credit-rating action",
 }
 ACTIONS = {
     "m04_stage": ("confirm",),  # target = the stage chosen (default: the computed stage)
     "m04_peer": ("confirm",),  # keep = candidates kept; the rest are struck
+    "m04_event": ("resolve", "noted"),  # resolve clears a fail/warn (D-M04-37)
+    "m04_restate": ("explained", "error"),  # the owner's reading of the residual
+    "m04_rating": ("noted",),
 }
 
 
@@ -188,9 +194,31 @@ def apply(
     *,
     target: str = "",
     keep: tuple[str, ...] | None = None,
+    note: str = "",
 ) -> str:
     """Data changes behind an M04 action (the caller closes the item). Returns the
     resolution text stored on the item."""
+    if kind == "m04_event":
+        from engine.financials import events
+
+        acc, item = payload.get("accession"), payload.get("item")
+        if not acc or not item:
+            raise QueueError("This item names no filing event.")
+        if action == "resolve":
+            events.resolve(engine, acc, item, note.strip() or f"resolved by {by}", now)
+            return "resolve"
+        return "noted (event state unchanged)"
+    if kind == "m04_restate":
+        acc = payload.get("accession")
+        engine.execute(
+            "UPDATE restate_step SET owner_outcome = ?, owner_at = ? WHERE item_id = ?",
+            (action, iso(now), item_id),
+        )
+        if engine.execute("SELECT changes()").fetchone()[0] == 0 and acc:
+            raise QueueError("The walk step behind this item is no longer stored.")
+        return action
+    if kind == "m04_rating" and action == "noted":
+        return "noted"
     if kind == "m04_stage" and action == "confirm":
         from engine.financials import stage
 
