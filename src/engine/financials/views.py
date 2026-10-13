@@ -96,7 +96,6 @@ LEGEND = (
 )
 
 STILL_TO_COME = (
-    ("Survival gate: runway, maturity wall, distress score", "4a"),
     ("Survival gate: going-concern and covenant text", "4b"),
     ("Dilution and financing pressure", "5"),
     ("Earnings quality: cash conversion, M-score, estimates", "6"),

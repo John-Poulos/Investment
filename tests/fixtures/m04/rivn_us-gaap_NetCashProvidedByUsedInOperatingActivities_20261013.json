@@ -1,0 +1,8 @@
+{"cik":1874178,"taxonomy":"us-gaap","tag":"NetCashProvidedByUsedInOperatingActivities","label":"NetCashProvidedByUsedInOperatingActivities","description":"Hand-built companyconcept fixture (see README, Part 4a): Rivian Q2 2026 gate inputs","entityName":"Rivian Automotive, Inc. / DE","units":{"USD":[
+{"start":"2025-01-01","end":"2025-03-31","val":-500000000,"accn":"0001874178-25-900021","fy":2025,"fp":"Q1","form":"10-Q","filed":"2025-05-07"},
+{"start":"2025-01-01","end":"2025-06-30","val":-900000000,"accn":"0001874178-25-900031","fy":2025,"fp":"Q2","form":"10-Q","filed":"2025-08-06"},
+{"start":"2025-01-01","end":"2025-09-30","val":-1220000000,"accn":"0001874178-25-900041","fy":2025,"fp":"Q3","form":"10-Q","filed":"2025-11-05"},
+{"start":"2025-01-01","end":"2025-12-31","val":-1665000000,"accn":"0001874178-26-900010","fy":2025,"fp":"FY","form":"10-K","filed":"2026-02-20"},
+{"start":"2026-01-01","end":"2026-03-31","val":-625000000,"accn":"0001874178-26-900021","fy":2026,"fp":"Q1","form":"10-Q","filed":"2026-05-06"},
+{"start":"2026-01-01","end":"2026-06-30","val":-1080000000,"accn":"0001874178-26-900031","fy":2026,"fp":"Q2","form":"10-Q","filed":"2026-08-05"}
+]}}

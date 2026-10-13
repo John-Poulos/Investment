@@ -1,0 +1,68 @@
+{# M04 Part 4a (owner's mock-up 2026-10-13, D-UI-28): survival gate, credit lines, distress / debt / FCF rows, all covered companies. Directly under the Profile block. #}
+{% if m04_gate %}{% set gv = m04_gate %}{% set g = gv.gate %}
+<h2 id="gate">Survival gate — {{ ticker }} <span class="muted">(M04; D-M04-31…39; recomputed on every logon run)</span></h2>
+<table class="data">
+  <tr><th>Test</th><th>Result</th><th>Inputs (as of)</th><th>Rule</th></tr>
+  {% for r in gv.rows %}
+  <tr><td>{% if r.strong %}<b>{{ r.test }}</b>{% else %}{{ r.test }}{% endif %}</td>
+    <td>{% if r.strong %}<b{% if g.state in ('fail', 'incomplete') %} style="color:var(--bad, #b00)"{% elif g.state == 'warn' %} style="color:var(--warn, #a60)"{% endif %}>{{ r.result }}</b>{% else %}{{ r.result }}{% endif %}</td>
+    <td>{{ r.inputs }}</td><td class="muted">{{ r.rule }}</td></tr>
+  {% endfor %}
+</table>
+{% if g.triggers or g.missing or g.warnings %}<p class="note">{% if g.triggers %}<b>Trigger:</b> {{ g.triggers | join('; ') }}. {% endif %}{% if g.missing %}<b>Missing:</b> {{ g.missing | join('; ') }}. {% endif %}{% if g.warnings %}<b>Warn:</b> {{ g.warnings | join('; ') }}.{% endif %}</p>{% endif %}
+{% if g.notes %}<ul class="note">{% for n in g.notes %}<li>{{ n }}</li>{% endfor %}</ul>{% endif %}
+<p class="note">M01 reading: rule-3 adds open on pass or warn; fail, incomplete and not applicable block them (D-M04-31, -35); while <code>m04_runway</code> is open, adds stay allowed and rule-7 strength is blocked (D-M04-38). A fail or an overdue filing is an exit warning (S6.14, D-M04-61). Text tests (going concern, covenants) and the undrawn-credit finder arrive in Part 4b; until then the runway is cash-only unless you confirm a credit line below.{% if gv.items %} Open items: {% for i, k in gv.items %}<a href="/review/{{ i }}">{{ i }}</a> <span class="muted">({{ k }})</span>{{ ', ' if not loop.last }}{% endfor %}.{% endif %}</p>
+
+{% if g.scope in ('full', 'liquidity_only') %}
+<h3 class="sub">Credit lines <span class="muted">(undrawn committed credit, D-M04-32, -86)</span></h3>
+{% if gv.credit %}
+<table class="data">
+  <tr><th>Facility</th><th class="num">Undrawn</th><th>Matures</th><th>Stated for</th><th>Status</th><th>In this runway?</th><th>Source</th>{% if viewer.is_owner %}<th></th>{% endif %}</tr>
+  {% for c in gv.credit %}{% set j = gv.credit_judged | selectattr('line_id', 'equalto', c['line_id']) | first %}
+  <tr><td>{{ c['facility'] }}</td><td class="num">{{ (c['amount'] / 1e6) | round(0) | int }}M</td><td>{{ c['maturity'] }}</td><td>{{ c['as_of'] }}</td>
+    <td>{{ c['status'] }} <span class="muted">({{ c['origin'] }}{% if c['confirmed_by'] %}, {{ c['confirmed_by'] }} {{ (c['confirmed_at'] or '')[:10] }}{% endif %}; grade {{ c['grade'] }})</span></td>
+    <td>{% if c['status'] != 'confirmed' %}<span class="muted">no ({{ c['status'] }})</span>{% elif j %}{% if j.counted %}<b>yes</b> — {{ j.why }}{% else %}no — {{ j.why }}{% endif %}{% else %}<span class="muted">no — stated for a later balance sheet</span>{% endif %}</td>
+    <td>{% if c['source_url'] %}<a href="{{ c['source_url'] }}" target="_blank" rel="noopener">{{ c['source_url'][:60] }}</a>{% else %}“{{ c['source_text'][:160] }}”{% endif %}</td>
+    {% if viewer.is_owner %}<td>{% if c['status'] in ('confirmed', 'proposed') %}<form method="post" action="/m04/gate/{{ ticker }}/credit-line/{{ c['line_id'] }}/withdraw"><button class="btn" type="submit">Withdraw</button></form>{% endif %}</td>{% endif %}</tr>
+  {% endfor %}
+</table>
+{% else %}<p class="empty">No credit line confirmed: the runway is cash-only (labelled).{% if g.tagged_capacity %} Tagged undrawn capacity {{ (g.tagged_capacity / 1e6) | round(0) | int }}M has no maturity, so it is not counted.{% endif %}</p>{% endif %}
+{% if viewer.is_owner %}
+<form method="post" action="/m04/gate/{{ ticker }}/credit-line" class="entry">
+  <p><b>Add confirmed credit line</b> <span class="muted">— you are the confirmer; only the stated undrawn amount counts, never facility size, and only when it matures more than 12 months after the balance sheet it was stated for.</span></p>
+  <label>Facility <input name="facility" size="22" placeholder="five-year revolver" required></label>
+  <label>Undrawn $M <input name="amount" size="8" placeholder="3200" required></label>
+  <label>Matures <input name="maturity" size="10" placeholder="YYYY-MM-DD" required></label>
+  <label>Stated for (balance sheet) <input name="as_of" size="10" value="{{ gv.default_as_of }}" required></label>
+  <label class="wide">Source (sentence or filing URL) <input name="source" size="60" required></label>
+  <label class="wide">Note <input name="note" size="40" placeholder="optional"></label>
+  <button class="btn" type="submit">Add and recompute the gate</button>
+  <p class="muted">Grade A when the source is a filing (sec.gov archive URL or accession), else B (D-M04-9). A newer 10-Q or 10-K needs the line confirmed again (pack S4.2). Part 4b's finder will propose lines here from verified sentences.</p>
+</form>
+<form method="post" action="/m04/gate/{{ ticker }}/recompute"><button class="btn" type="submit">Recompute the gate now</button> <span class="muted">(0 SEC requests; the refresh does this on every logon run)</span></form>
+{% endif %}
+{% endif %}
+
+{% if gv.score_rows %}
+<h2>Distress, debt and FCF burn — {{ ticker }} <span class="muted">(information and warnings beside the gate; never gate inputs)</span></h2>
+<table class="data">
+  <tr><th>Row</th><th class="num">Value</th><th>Zone / reading</th><th>Basis</th></tr>
+  {% for r in gv.score_rows %}
+  <tr><td><code>{{ r.test }}</code></td><td class="num">{% if r.strong %}<b>{{ r.result }}</b>{% else %}{{ r.result }}{% endif %}</td><td>{{ r.inputs }}</td><td class="muted">{{ r.rule }}</td></tr>
+  {% endfor %}
+</table>
+<p class="note">Z for manufacturers (SIC 2000–3999; zones 1.81 / 2.99), Z'' otherwise (no constant; 1.10 / 2.60); market value = class-summed cover shares × the close named in the row. In the distress zone → a warning; while the gate passes → <code>m04_score_gap</code> review (S4.8). Ohlson O is information beside its 0.038 cut-off. <code>fcf_burn</code>, <code>debt_to_revenue</code> and net debt ÷ EBITDA are information until Part 8 (D-M04-29, -39); negative equity with a deficit, an operating loss or negative OCF warns, buyback-funded is a note.</p>
+{% endif %}
+
+{% if gv.everyone %}
+<h2>Gate — all covered companies <span class="muted">(stored signals of the last local pass; the same line the <code>gate</code> log prints)</span></h2>
+<table class="data">
+  <tr><th>Company</th><th>Scope</th><th>State</th><th>Trigger / missing</th><th class="num">Runway q</th><th class="num">Wall ratio</th><th>Distress</th></tr>
+  {% for r in gv.everyone %}
+  <tr{% if r.ticker == ticker %} class="hl"{% endif %}><td><a href="/c/{{ r.ticker }}?tab=financials#gate">{{ r.ticker }}</a></td><td>{{ r.scope }}</td>
+    <td>{% if r.state in ('fail', 'incomplete') %}<b>{{ r.state }}</b>{% else %}{{ r.state }}{% endif %}</td>
+    <td class="muted">{{ r.trigger[:180] }}</td><td class="num">{{ r.runway }}</td><td class="num">{{ r.wall }}</td><td>{{ r.distress }}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endif %}

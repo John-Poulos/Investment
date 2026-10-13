@@ -144,6 +144,14 @@ Liquidity and legal facts only; runs at every stage; scope by model tag (D-M04-8
 - **Scope:** liquidity-only gate for `asset_treasury` and `reit`; trust only for `spac_shell`; not applicable for `fund`, `financial` and untagged FF12 group 11, read as not-pass by M01 until a sector gate exists (D-M04-8, -35).
 - **Open 4.02:** the gate is marked "inputs under non-reliance" and warns; it is not set to incomplete (D-M04-21).
 - Regression: Invitae fails at the FY2021 10-K (715 days before its 8-K 1.03); Boeing FY2019 runway 5.9 and Q2 2024 5.5 → fail, wall passes; Intel FY2024 capex-funded → warn + review (D-M04-32, probe).
+- **Built (Part 4a; `financials/gate.py`, `distress.py`, `debt.py`, `gate_step.py`, `gate_view.py`):**
+  - Burn bases: the last two quarters (contiguous, derived from year-to-date facts as filed) and TTM ÷ 4 at the same end; fewer than four quarters → last two only ("short history"); one quarter → incomplete; a foreign annual filer whose latest period is a fiscal year uses fiscal year ÷ 4 until 16 months after it, then incomplete (D-M04-36). Total capex on the Part 1b own-history definition, the other definition's tags as fallback; a broader tag is named. Capex untagged → OCF-only runway, labelled, plus an `m04_gate_input` item.
+  - Tiers per basis sums: OCF < 0 on either basis → cash burner; else FCF < 0 on either → capex-funded; else self-funding (runway "self-funding", passes).
+  - Credit counts only from `credit_line`: confirmed, stated for this balance sheet (`as_of` within 45 days before it) and maturing more than 12 months after it; tagged undrawn capacity (`LineOfCreditFacilityRemainingBorrowingCapacity`, IFRS `UndrawnBorrowingFacilities`) is shown, never counted (no maturity). The runway is shown with credit and cash-only (D-M04-86).
+  - 12-month debt: `DebtCurrent` (commercial paper inside, never added), else `LongTermDebtCurrent` + `ShortTermBorrowings`, else either alone or commercial paper alone; at a fiscal year end the larger of that and the year-1 maturity tag; with no current-debt tag, the latest annual schedule's year-1 within a year (labelled). No debt tags → wall "not tested" (optional input). 24-month wall = 12-month debt + year-2 of the latest schedule, shown.
+  - Legal facts: open Part 3 events with item 1.03, 2.04 or 3.01 (fail or warn as their state); other open events listed, not gate triggers; an open 4.02 warns ("inputs under non-reliance"); an unfiled overdue period → incomplete + exit warning. Cash and investments above total assets → "withheld" (incomplete).
+  - Signals: `survival_gate`, `runway_q`, `maturity_wall`, `distress_score`, `fcf_burn`, `debt_to_revenue`, `net_debt_ebitda`, `negative_equity`; `as_of` = the newest input's filing date (the due date when overdue). Review items open on a turn and are withdrawn when the condition ends (D-M04-88).
+  - Scope readings for the open question below: liquidity-only (`asset_treasury`, `reit`) tests the wall, legal facts and filing status, the runway shown only; trust only (`spac_shell` periods) reads the trust account (`AssetsHeldInTrust…`; pass when stated, incomplete when not) plus legal facts and filing status. Open for the owner.
 
 ### How M01 reads M04 (D27; D-M04-58 = D-M01-5; rule 4 per M01 rule 4 and S6.14)
 "Yes" in the rule-4 column is an exit warning: a warning only, the owner decides (D16).
@@ -260,11 +268,11 @@ Every row: `cik` (key; ticker for display, D-M04-74), one row per timeframe, `va
 | `filing_status` | text: current / stale / overdue; days in `method` | Filing age; built Part 1a (as_of = filed date, period end or due date) | ✓ | ✓ | ✓ |
 | `shares_cover` | shares (all classes, split-adjusted); classes and tag in `method` | Cover count on its cover date (D-M04-2); built Part 1a | info | info | info |
 | `implied_float_shares` | shares; float, close and date in `method` | Float ÷ close, yearly, "implied" (D-M04-2; M07 owns R22); built Part 1a | info | info | info |
-| `survival_gate` | text: pass / warn / fail / incomplete / not_applicable | Gate verdict; trigger or missing inputs in `method` | ✓ | ✓ | ✓ |
-| `runway_q` | quarters, or text "self-funding"; tier in `method` | Runway at D-M04-32 burn | ✓ | ✓ | info |
-| `maturity_wall` | ratio | (12-month debt + 4 × burn) ÷ liquidity | ✓ | ✓ | info |
+| `survival_gate` | text: pass / warn / fail / incomplete / not_applicable | Gate verdict; trigger or missing inputs in `method`; built Part 4a | ✓ | ✓ | ✓ |
+| `runway_q` | quarters (with confirmed credit; cash-only and both bases in `method`), or text "self-funding"; tier, capex-funded review and raised share (S4.13) in `method`; built Part 4a | Runway at D-M04-32 burn | ✓ | ✓ | info |
+| `maturity_wall` | ratio | (12-month debt + 4 × burn) ÷ liquidity; 24-month wall in `method`; built Part 4a | ✓ | ✓ | info |
 | `gc_language`, `covenant_status` | text class + quote | Latest text class | ✓ | ✓ | ✓ |
-| `distress_score` | float; variant in `method` | Z, Z'', O warning | ✓ | ✓ | info |
+| `distress_score` | float; zone (distress / grey / safe) or `not_meaningful` in text; variant, X terms, close date, Z'' beside Z, Ohlson O in `method`; built Part 4a | Z, Z'' warning | ✓ | ✓ | info |
 | `eq_cash`, `eq_accruals`* | ratio; text not_meaningful | Cash conversion, accruals | ✓ | ✓ | info |
 | `contract_asset_gap`, `deferred_rev_gap` | pp; text flag | GE pattern | ✓ | ✓ | info |
 | `mscore`, `mscore_sgi1`*, `misstate_f` | float; band in text | Screens | info | info | info |
@@ -279,8 +287,8 @@ Every row: `cik` (key; ticker for display, D-M04-74), one row per timeframe, `va
 | `overhang_gross_pct`, `overhang_net_pct` | % of basic shares | Overhang | ✓ | ✓ | info |
 | `financing_pressure` | text: warn / review / info / not_meaningful | Dilution to survive | ✓ | ✓ | ✓ |
 | `burn_no_share_gain`* | text: warn | Red Flag 1 row | ✓ | ✓ | info |
-| `negative_equity`* | text: warn / note | S4.8 | ✓ | ✓ | info |
-| `fcf_burn`, `debt_to_revenue`, `net_debt_ebitda`* | ratio | Information rows | info | info | info |
+| `negative_equity` | text: warn / note / none; built Part 4a | S4.8 | ✓ | ✓ | info |
+| `fcf_burn`, `debt_to_revenue`, `net_debt_ebitda` | ratio (`fcf_burn`: TTM FCF ÷ revenue, tier in text; `net_debt_ebitda`: text `not_meaningful` when EBITDA ≤ 0); built Part 4a | Information rows | info | info | info |
 | `r12_episode` | text: open / closed | R12 trigger | ✓ | ✓ | info |
 | `margin_cause` | text class; stated $M in `method` | Confirmed cause | ✓ | ✓ | info |
 | `r12_warning` | text: warn / watch / cleared | R12 outcome | ✓ | ✓ | info |
@@ -302,7 +310,7 @@ Every row: `cik` (key; ticker for display, D-M04-74), one row per timeframe, `va
 | `m04_gate_fail` (alert) | Gate turns fail or incomplete (D-M04-71); fail-class text | 0 | Rare |
 | `m04_gc_text` | Alleviated, audit-matter, IFRS uncertainty; hypothetical when runway < 8 | History baseline only | < 1 a quarter |
 | `m04_covenant` | Waived or reset covenant; current-debt jump above roll-down (sub-class `m04_current_jump`) | Baseline | < 1 a month |
-| `m04_runway`* | Capex-funded runway < 6 quarters (D-M04-38) | 0–1 | Rare |
+| `m04_runway` | Capex-funded runway < 6 quarters (D-M04-38); name confirmed at Part 4a | 0–1 | Rare |
 | `m04_score_gap` | `distress_score` in distress while the gate passes | 0–1 (BA Z 1.53) | Rare |
 | `m04_credit_line` (operational) | Text-found undrawn credit to confirm (runway < 12 or capex-funded warn) | ~2 | Per 10-Q for those names |
 | `m04_gate_input` (operational) | Non-financing gate input tag to map (financing tags go through M02's `fin_tag_map`, D-M02-31) | 1 (INFQ) | Rare |
@@ -530,6 +538,10 @@ No decision in this review overrode a research recommendation. These rows cover 
 - D-M04-83 (2026-10-12, closing C.8a): Cycle-average window for normalized earnings power — trough to trough using the 5 pp turning points (D-M04-54); with no completed cycle in XBRL, the longest available history, labelled. Needed before the M06 review.
 - D-M04-84 (2026-10-12, Part 1b live check 1, owner; refines D-M04-10, -79): Direction-aware guidance scoring — revenue, margin, EPS and income metrics (and capex) miss when below the low end (or floor); cost metrics (operating expenses, total expenses, cost of revenue) miss when above the high end (a ceiling is their high end; a floor on a cost is unscored); tax rate and other income are unscored, "not a performance target", and still shown (NVIDIA's and Meta's tax-rate rows). A capex guide is scored only when M02's recipe for the company is exact; an approximate recipe or an unmapped clause reads "unscored: capex recipe approximate (<clause>)" (Microsoft FY2026 Q4: guide ≥ $40B, PP&E-only actual $35.8B).
 - D-M04-85 (2026-10-12, Part 1b live check 1, owner; refines D-M04-10 "removed" and M01 rule 4): Only core families count as removed and feed `guidance_removed` / M01 rule 4: revenue, gross margin, EPS, operating income, net income, capex, FCF. Other families' removals (operating expenses, tax rate, other income …) are stored and shown as "dropped (information)" (outcome `dropped`, migration 0031), never in the signal.
+- D-M04-86 (2026-10-13, owner at the wave B mock-up approval; Part 4a): Manual credit-line entry — the gate panel's "Add confirmed credit line" (facility, undrawn amount, maturity, the balance sheet it was stated for, source sentence or URL) writes `credit_line` with the owner as confirmer (origin `owner`, status `confirmed`, grade A with a filing source, else B) and the gate recomputes. A line counts when confirmed, stated for the gate's balance sheet (within 45 days before it) and maturing more than 12 months after it; a newer 10-Q or 10-K needs a new confirmation (pack S4.2). Part 4b's finder proposes lines into the same table (origin `finder`, status `proposed`, verified passage, `m04_credit_line` item). Rows are withdrawn, never deleted.
+- D-M04-87 (2026-10-13, Part 4a build; S4.4, D-M04-31): `distress_score` warns on the Z (SIC 2000–3999) or Z'' zone only; for a manufacturer Z'' is shown beside Z; Ohlson O (Model 1, assets in dollars, GNP deflator 1968 = 100 for the prior year, OCF as the FUTL proxy) is information beside its 0.038 cut-off, missing for years whose deflator is not in the table (2020, 2021, 2025 read by the review). Market value = class-summed cover count × the latest close (within 5 days), its date in the method; the row is updated in place by the logon pass.
+- D-M04-88 (2026-10-13, Part 4a build; D-M04-71): Part 4a items open on a turn — `m04_gate_fail` when the gate turns fail or incomplete (a first run that finds one queues it), `m04_runway` when a capex-funded runway turns below 6 quarters, `m04_score_gap` when the score turns distress while the gate passes — remembered in `refresh_state` (`m04_gate:<cik>`), so a state that holds opens nothing new; an unanswered item whose condition ends is withdrawn. `m04_gate_input` is one item per company and input (capex, cash, OCF), withdrawn when the input appears; Map tag stores an owner tag for the input, Not reported keeps the labelled fallback.
+- D-M04-89 (2026-10-13, Part 4a build; D-M04-37, -21): The gate's 8-K triggers are items 1.03, 2.04 and 3.01 in their Part 3 state (fail or warn); other open events (4.01, 2.06, NT, 1.02) are listed beside the gate and are not triggers; an open 4.02 marks the inputs "under non-reliance" and warns. Tagged undrawn capacity without a maturity is never counted as liquidity.
 - Build-part suggestions SB.1–SB.18 accepted (docs/m04_review/BP_brief.md); B.5, B.8 settled by D-M04-11, D-M04-2.
 
 ## Decisions carried from DESIGN.md
@@ -540,7 +552,7 @@ No decision in this review overrode a research recommendation. These rows cover 
 
 ## Open questions
 Design points the review left open. The doc follows the reading shown until the owner answers; answers become D-M04-76 onward. Build-level points (R1 depth, `evidence_grade` on missing rows, label-file location, RIVN tier, recounts) are in M04_BUILD_LOG.md "Open points for the build".
-- **Liquidity-only and trust-only gates:** named for `asset_treasury`, `reit` and `spac_shell` (D-M04-8) but not defined. Does liquidity-only use only the runway and the maturity wall, and do the text and 8-K triggers apply to either?
+- **Liquidity-only and trust-only gates:** named for `asset_treasury`, `reit` and `spac_shell` (D-M04-8) but not defined. Does liquidity-only use only the runway and the maturity wall, and do the text and 8-K triggers apply to either? *Part 4a builds the conservative reading (Survival gate, "Built"): liquidity-only tests the 12-month wall (fail and warn), 8-K triggers and filing status, the runway shown only; trust only reads the trust account (pass when stated) plus 8-K triggers and filing status. Open for the owner.*
 - **D13 weight of "burning with falling units" (D-M04-47):** a young-firm flag that counts now (D-M04-45), or part of the Red Flag 1 row, unweighted until ≥ 20 labels (D-M04-60)? Shown as "disputed".
 - **Unsourced thresholds that count now:** D-M04-45 counts R12 (3 pp) and the young per-unit flags although their thresholds are unsourced; the other unsourced Round 5 thresholds (inventory 15 pp, credit share 50%, production gap 10%, SG&A 4 quarters) stay information until calibration. Confirm.
 - **CYCLE_PLUS_DAMAGE and M01 rule 4 — closed:** an exit warning. M01 rule 4 (owner-reviewed 2026-10-07) already lists CvD moving to CYCLE_PLUS_DAMAGE or STRUCTURAL_DECLINE, and the pack's M01 table accepted through S6.14 gives "Yes"; the grid's "review" is the `m04_cvd` item (How M01 reads M04).

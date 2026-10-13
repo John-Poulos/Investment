@@ -1,6 +1,6 @@
 # M01 — Timeframe profiles
 
-Status: reviewed 2026-10-07 (D27) · Updated: 2026-10-07 · Outline headings: Type of investing by time frame · Depends on: M00, M04 (CvD), M11 · Sources: S12, S19, S26, S28–S31
+Status: reviewed 2026-10-07 (D27) · Updated: 2026-10-13 · Outline headings: Type of investing by time frame · Depends on: M00, M04 (CvD), M11 · Sources: S12, S19, S26, S28–S31
 
 ## Purpose
 Defines the parameter profile each timeframe applies across all modules. Profiles change weights and recommendations, never visibility (D10). Profiles and bar sizes can be switched on the fly (D12). MY first; PT and ST later.
@@ -13,7 +13,7 @@ A holding = core lots under one primary profile + optional overlays (M12 options
 |---|---|---|---|
 | Daily prices (weekly derived) | Free market data; source TBD at M02 | A | Daily |
 | 10-Q, 10-K, 8-K, Form 4 | SEC EDGAR | A | On filing |
-| CvD state, survival gate | M04 | Per input | On filing and on each refresh (due dates, D-M04-61) |
+| CvD state, survival gate (`survival_gate`, `runway_q`; built M04 Part 4a) | M04 | Per input (weakest deciding input; B when an owner-entered credit line counts) | On filing and on each refresh (due dates, D-M04-61) |
 | Tax lots (date, qty, cost) | User entry or broker export | A | On trade |
 | Available funds, conviction (1–5) | User settings | — | On change |
 | CPI, M2 | FRED | A | Monthly |
@@ -50,6 +50,8 @@ A holding = core lots under one primary profile + optional overlays (M12 options
 5. Thesis review after each 10-Q/10-K; on-track milestones with a flat price → "early," hold (R4).
 6. Event alerts (8-K, opportunistic Form 4, guidance change, killswitch) surface immediately (R16).
 7. Band depth is reported as σ below the 20-week mean with no cap. Beyond 2σ grades as a stronger signal only when CvD = CYCLICAL_TROUGH and the survival gate passes (gauge shown, not required, D-M04-62; read per D-M01-5); in any other state the depth is shown as a warning with no added strength (D27).
+
+**Reading M04's gate (built M04 Part 4a, D-M04-31, -35, -38, -61).** The `survival_gate` signal's `value_text` is one of pass, warn, fail, incomplete, not_applicable; `method` names the trigger or the missing inputs. Rules 1, 3 and 7 read pass and warn as a pass; fail, incomplete and not_applicable as not-pass (incomplete = a required input missing, an overdue filing, a foreign filer's inputs older than 16 months, or inputs withheld as inconsistent; not applicable = `fund`, `financial`, untagged FF12 group 11). Rule 4's exit warning fires on fail and on an overdue filing (the gate `method` lists "exit warning: …"). A capex-funded name below 6 quarters reads warn with an open `m04_runway` review: rule-3 adds allowed, rule-7 strength blocked while it is open (the `runway_q` method says "capex-funded review open" and, once answered, the owner's choice). `distress_score`, `fcf_burn`, the debt rows and `negative_equity` are warnings or information and never gate inputs (D-M04-31, -21, -60).
 
 ## Failure modes
 | Input or indicator | How it can mislead | Guard |

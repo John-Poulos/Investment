@@ -79,6 +79,8 @@ Updated: 2026-10-12 · Read at the start of every module build. One line each, w
 - Mock up each screen with real stored data before building it (D-UI-4).
 - Regex and `\n` edits through shell (sed, heredoc Python) lose their backslashes — hit twice more in part 5b; use the Edit tool for any string with a backslash.
 - Windows PowerShell 5.1 `Set-Content -Encoding utf8` adds a BOM and mangles non-ASCII read through the console code page (part 6, twice); edit with the Edit tool or a Python script file, never PowerShell text cmdlets.
+- Python's `Path.write_text` on Windows writes CRLF (text mode translates `\n`); a scripted edit then turns an LF file into CRLF. Pass `newline="\n"` (M04 Part 4a).
+- Quarter fixtures must be entered as filed: 10-Q cash flows are year-to-date, and the engine derives Q4 as fiscal year − nine months; discrete 3-month facts for Q2–Q3 leave Q4 and TTM underivable (M04 Part 4a).
 - A scheduled job's lock needs an owner and a heartbeat, not an age: a task killed at its limit leaves the file behind (D-M02-51, -53).
 - Owner runs live tests and sends a short log; keep live output to summaries (context cost).
 - An owner confirmation that later work builds on (peer sets) must stay editable and allow "none": reopen it as a new review item rather than editing in place, so history is kept, and let an empty answer read "missing: none confirmed", not as a statistics fallback (M04 Part 2, D-UI-25).

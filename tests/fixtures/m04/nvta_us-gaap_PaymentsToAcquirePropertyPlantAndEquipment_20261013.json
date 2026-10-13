@@ -1,0 +1,7 @@
+{"cik":1501134,"taxonomy":"us-gaap","tag":"PaymentsToAcquirePropertyPlantAndEquipment","label":"PaymentsToAcquirePropertyPlantAndEquipment","description":"Hand-built companyconcept fixture (see README, Part 4a): Invitae FY2021 gate inputs","entityName":"INVITAE CORP","units":{"USD":[
+{"start":"2020-01-01","end":"2020-12-31","val":40000000,"accn":"0001501134-21-900010","fy":2020,"fp":"FY","form":"10-K","filed":"2021-03-01"},
+{"start":"2021-01-01","end":"2021-03-31","val":10000000,"accn":"0001501134-21-900021","fy":2021,"fp":"Q1","form":"10-Q","filed":"2021-05-06"},
+{"start":"2021-01-01","end":"2021-06-30","val":22000000,"accn":"0001501134-21-900031","fy":2021,"fp":"Q2","form":"10-Q","filed":"2021-08-09"},
+{"start":"2021-01-01","end":"2021-09-30","val":37000000,"accn":"0001501134-21-900041","fy":2021,"fp":"Q3","form":"10-Q","filed":"2021-11-09"},
+{"start":"2021-01-01","end":"2021-12-31","val":55000000,"accn":"0001501134-22-900010","fy":2021,"fp":"FY","form":"10-K","filed":"2022-03-01"}
+]}}
