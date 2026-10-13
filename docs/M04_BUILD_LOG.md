@@ -1,6 +1,6 @@
 # M04 — Build log (running)
 
-Updated: 2026-10-12 · Companion to M04_FINANCIALS.md (decisions D-M04-1…75 live there; this file holds what each build conversation needs) · Cross-module lessons: LESSONS.md · Outputs are research signals, not advice.
+Updated: 2026-10-13 · Companion to M04_FINANCIALS.md (decisions D-M04-1…75 live there; this file holds what each build conversation needs) · Cross-module lessons: LESSONS.md · Outputs are research signals, not advice.
 
 ## How to use
 - A build conversation reads M04_FINANCIALS.md, then its part below, then LESSONS.md. The round briefs (`docs/m04_review/R1…R6_brief.md`, `BP_brief.md`) hold the full texts of the accepted suggestions S1.x–S6.x and SB.x; `PROBE_RESULTS.md` holds the measured figures. Read the pack (`M04_DESIGN_PACK.md`) only for a section a part names.
@@ -24,15 +24,28 @@ From Part 3 on, parts whose dependencies allow it are built two at a time ("wave
 | Wave | Parts | Status |
 |---|---|---|
 | A | 3 + 7a | merged (PRs #37, #38) |
-| B | **4a** (gate numbers) + **6** (earnings quality) | next — both need only 3 |
-| C | **4b** (gate text) + **7b** (margins, customers) | after B (4b needs 4a; 7b needs 4a, 6, 7a) |
-| D | **5** (dilution) | after C (needs 4a, 4b) |
-| E | **8a**, then **8b** | after D |
+| B | **4a** (gate numbers) + **6** (earnings quality) | merged (PRs #40, #41) |
+| C | **4b** (gate text) + **7b** (margins, customers) | superseded by the MVP path: 4b-lite next, 7b deferred |
+| D | **5** (dilution) | deferred (MVP path) |
+| E | **8a**, then **8b** | 8a after 4b-lite (MVP core); 8b deferred |
 How a wave runs (lessons from wave A):
 - One combined mock-up page for both parts → owner approves → two build agents: one in the main checkout on its branch, the other in a git worktree (`isolation: worktree`; rename its branch to `m04-part<n>`). Neither edits DESIGN.md "Resume here" (the coordinator does after merge); each touches only its own sections of shared files (`run_financials.py` subcommand, its own tab include, its build-log notes, its review-kind branches).
 - **Migrations are numbered 1..n with no gaps** (`store/db.py` refuses gaps and applies by max version). Give the part that merges first the next number (0036 for wave B's first) and the second the one after; whichever merges second is renumbered at merge if the order changes. Decision IDs (D-SEC, D-STO, D-UI) likewise: pre-assign distinct numbers per part.
 - Live checks one at a time: the first part's check → fixes → PR → owner merges → the coordinator rebases the second branch on main (expect conflicts in `run_financials.py` BUILT/dispatch, `queue.py` kind lists, `review_item.html`, `tabs/financials.html` includes, `app.py` ctx, M00 docs decision lists — keep both sides) → move it into the main checkout (`git worktree remove`, `git switch`) → its live check → PR → merge.
 - Tests must never run a built subcommand's `main()` against real data (the conftest guard blocks network and `data\`; inject connections). The terminal shows only the summary; the full detail is in the log.
+
+## MVP path (owner, 2026-10-13; DESIGN D31)
+The owner chose to build every module at a basic level first and tune after using the engine. For M04 this means:
+- **Done:** Parts 0, 1a, 1b, 1c, 2, 3, 4a, 6, 7a (PRs #32–#41; migrations to 0037).
+- **MVP core still to build:**
+  - **4b-lite**: going-concern and covenant text classes (D-M04-34) on stored 10-K/10-Q/6-K text with verified quotes, `spac_shell` periods excluded, fail-class text opening `m04_gate_fail`; `gc_language` and `covenant_status` signals; `m04_gc_text` / `m04_covenant` review kinds. **Left out:** the 25-year EFTS history pass (S4.7) and the undrawn-credit finder (the manual credit-line entry of D-M04-86 covers it).
+  - **8a**: CvD grid and classification, F-quality health vote, overreaction gauge as information, M01 reading, the M04 tab. Rows from deferred parts read "missing: deferred (MVP)", which leaves the denominator (D-M04-56).
+- **Deferred to the tuning phase:**
+  - Part 5 (dilution; M02's allocation block and the gate's raised-in-4-quarters share cover the basics).
+  - Part 7b (R12, unit flags, customer row).
+  - Part 8b (calibration; needs the owner's labels, which are being filled in).
+  - 4b's EFTS history and credit finder.
+- **Migrations:** 4b-lite takes 0038 and 8a takes 0039, in merge order.
 
 ## Logon-refresh constraints (D-M02-12, D-M04-70)
 - The owner's PC is never on overnight. Every scheduled run is the logon catch-up, in the background of the owner's session, killed at 3 hours. Recent refreshes took 1.5–6.7 minutes.
@@ -79,14 +92,14 @@ One round per section; the owner chose the recommended option everywhere. Texts:
 | Setup | owner confirms 15 stages and the peer shortlists | D-M04-12, -71 | 1c | — | — |
 | 2 Peers | trimmed peer companyfacts, offsets, small-n statistics, peer z | D-M04-3, -5, -52, -75 | 1c + setup | `peers` (40–50 companyfacts, ~1 min) | built 2026-10-12; live check pending |
 | 3 Restatements, events | 8-K triggers and sub-classes, walk, dei flag, old filings, prior 10-Ks, non-reliance, ratings, label template | D-M04-15…17, -21, -37, -71, -73 | 1a + setup | `flags` (~97, 1–2 min) | built 2026-10-12; live check pending |
-| 4a Gate numbers | runway, wall, `distress_score`, gate states and scope, input age, debt and FCF rows | D-M04-8, -13, -29, -31…33, -35, -36, -38, -39, -61 | 1b, 1c, 3 | `gate` (~24, < 1 min) | — |
-| 4b Gate text | going-concern and covenant classes, EFTS baseline, undrawn-credit finder | D-M04-34, -71 | 4a | `gate-text` (~200, 2–3 min) | — |
-| 5 Dilution | issuance, bands, 424B fee exhibits, `financing_pressure`, overhang, lock-ups | D-M04-13, -22…28 | 1c, 4a, 4b | `issuance` (~260, 1–2 min) | — |
+| 4a Gate numbers | runway, wall, `distress_score`, gate states and scope, input age, debt and FCF rows | D-M04-8, -13, -29, -31…33, -35, -36, -38, -39, -61 | 1b, 1c, 3 | `gate` (~24, < 1 min) | merged (PR #40) |
+| 4b Gate text | going-concern and covenant classes, EFTS baseline, undrawn-credit finder | D-M04-34, -71 | 4a | `gate-text` (~200, 2–3 min) | MVP: 4b-lite next (no EFTS pass) |
+| 5 Dilution | issuance, bands, 424B fee exhibits, `financing_pressure`, overhang, lock-ups | D-M04-13, -22…28 | 1c, 4a, 4b | `issuance` (~260, 1–2 min) | deferred (MVP) |
 | 6 Earnings quality | `eq_cash`, M-score, misstatement score, estimate bands, `special_items`, contract gaps | D-M04-14, -17…20, -90…93 | 1c, 3 | `quality` (~6–10, < 1 min) | built 2026-10-13 on `m04-part6` (worktree); live check after 4a merges |
 | 7a Units data | `fact_dim`, Tesla DS2 extractor, EX-99.2, RIVN by UI promotion (D-M04-81), Invitae EX-99.1 | D-M04-42 | 1a | `units` (~300, ~0.5 GB downloaded, 2–3 min) | built 2026-10-12 on `m04-part7a`; live check pending |
-| 7b R12, customers | R12 trigger, cause finder, unit flags, customer row, RPO | D-M04-40, -41, -43…50 | 4a, 6, 7a | `margins` (~6–8, < 1 min) | — |
+| 7b R12, customers | R12 trigger, cause finder, unit flags, customer row, RPO | D-M04-40, -41, -43…50 | 4a, 6, 7a | `margins` (~6–8, < 1 min) | deferred (MVP) |
 | 8a CvD, tab | grid, classification, health vote, gauge, Red Flag 1 row, market share, M01 reading, M04 tab | D-M04-1, -30, -52…68 | 1a–7b | `cvd --no-sec` (0 SEC, < 1 min) | — |
-| 8b Calibration | episode facts and prices, backtest on owner labels, red-flag label report | D-M04-51, -72, -73, -75 | 8a + labels | `backtest` (~71 SEC + ≤ 40 Tiingo, ~3 min) | — |
+| 8b Calibration | episode facts and prices, backtest on owner labels, red-flag label report | D-M04-51, -72, -73, -75 | 8a + labels | `backtest` (~71 SEC + ≤ 40 Tiingo, ~3 min) | deferred (MVP) |
 
 Order: 0 → 1a → 1b → 1c → setup batch → 2 → 3 → 4a → 4b → 5 → 6 → 7a → 7b → 8a → 8b → High review. 7a reads only Part 1a and may move earlier if a later part stalls. One-off SEC requests ≈ 1,170 in all (B.9a plan, D-M04-75).
 
