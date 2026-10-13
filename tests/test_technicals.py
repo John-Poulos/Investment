@@ -134,8 +134,9 @@ def run_pass(engine, companies, *, mf=NO_MODELS, now=NOW):
     return step.technicals_pass(engine, companies, now, params=P, mf=mf)
 
 
-def uptrend(n, start=100.0, g=1.01):
-    return [start * g**k for k in range(n)]
+def uptrend(n, start=100.0, g=1.01, wiggle=0.01):
+    """A steady trend with a small deterministic wiggle (real returns are never constant)."""
+    return [start * g**k * (1 + wiggle * math.sin(k)) for k in range(n)]
 
 
 # --- parameters ----------------------------------------------------------------------------
@@ -273,6 +274,13 @@ def test_band_matches_an_independent_computation_and_history():
     assert b.z == pytest.approx((logs[-1] - statistics.fmean(logs)) / statistics.pstdev(logs))
     hist = bands.band_history(closes)
     assert hist[18] is None and hist[-1] == b
+
+
+def test_constant_returns_give_no_return_z():
+    closes = [100 * 1.01**k for k in range(40)]  # σ of returns is rounding noise only
+    b = bands.band_at(closes)
+    assert b.z is not None and b.pullback_sigma is None and b.sigma_w is None
+    assert signals.rev_at(closes, P) is None
 
 
 def test_zone_edges_and_flat_prices():

@@ -120,7 +120,7 @@ def rev_at(closes: Sequence[float], p: Params) -> Reversal | None:
     ret = math.log(closes[t] / closes[t - p.rev_weeks])
     seg = closes[t - p.rev_weeks - p.rev_sigma_weeks : t - p.rev_weeks + 1]
     _, sw = bands.mean_sd(bands.log_returns(seg))
-    if sw == 0:
+    if sw <= bands.EPS:
         return None
     return Reversal(ret / (math.sqrt(p.rev_weeks) * sw), ret, sw)
 

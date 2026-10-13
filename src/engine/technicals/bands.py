@@ -18,6 +18,8 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+EPS = 1e-9  # a σ this small is rounding noise (constant prices or constant returns): no z
+
 
 def mean_sd(xs: Sequence[float]) -> tuple[float, float]:
     n = len(xs)
@@ -74,16 +76,16 @@ def band_at(
     ml, sl = mean_sd(logs)
     mp, sp = mean_sd(win)
     c = closes[i]
-    z = (math.log(c) - ml) / sl if sl > 0 else None
-    zp = (c - mp) / sp if sp > 0 else None
+    z = (math.log(c) - ml) / sl if sl > EPS else None
+    zp = (c - mp) / sp if sp > EPS * mp else None
     high = max(win)
     pb = sw = None
     if i >= returns:
         seg = closes[i - returns : i + 1]
         if all(x > 0 for x in seg):
             _, sw = mean_sd(log_returns(seg))
-            pb = math.log(c / high) / sw if sw > 0 else None
-            if sw == 0:
+            pb = math.log(c / high) / sw if sw > EPS else None
+            if sw <= EPS:
                 sw = None
     return Band(window, c, z, ml, sl, mp, sp, zp, high, pb, sw)
 
