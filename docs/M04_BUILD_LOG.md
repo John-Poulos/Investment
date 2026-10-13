@@ -19,6 +19,21 @@ Updated: 2026-10-12 · Companion to M04_FINANCIALS.md (decisions D-M04-1…75 li
 - **Packages:** none expected. EdgarTools is not adopted (D-M04-42 chose instance reads); any `uv add` needs owner approval (D24).
 - **Every part also:** adds its rows to the Financials tab (a row a rule does not use shows its reason and is never hidden, D10); adds its signals to "Signals out" in M04_FINANCIALS.md, whose MY/PT/ST columns carry the timeframe weights (SB.3); adds its per-new-filing work to `financials_step` (below); adds review-guide rows with a worked example for each new `m04_` kind (D-UI-15, as M02 does, e.g. D-M02-53); updates this file, LESSONS.md when a lesson generalises, and DESIGN.md "Resume here".
 
+## Parallel waves (owner, 2026-10-13)
+From Part 3 on, parts whose dependencies allow it are built two at a time ("waves"), each in its own branch; the owner still approves the mock-ups and runs one live check at a time.
+| Wave | Parts | Status |
+|---|---|---|
+| A | 3 + 7a | merged (PRs #37, #38) |
+| B | **4a** (gate numbers) + **6** (earnings quality) | next — both need only 3 |
+| C | **4b** (gate text) + **7b** (margins, customers) | after B (4b needs 4a; 7b needs 4a, 6, 7a) |
+| D | **5** (dilution) | after C (needs 4a, 4b) |
+| E | **8a**, then **8b** | after D |
+How a wave runs (lessons from wave A):
+- One combined mock-up page for both parts → owner approves → two build agents: one in the main checkout on its branch, the other in a git worktree (`isolation: worktree`; rename its branch to `m04-part<n>`). Neither edits DESIGN.md "Resume here" (the coordinator does after merge); each touches only its own sections of shared files (`run_financials.py` subcommand, its own tab include, its build-log notes, its review-kind branches).
+- **Migrations are numbered 1..n with no gaps** (`store/db.py` refuses gaps and applies by max version). Give the part that merges first the next number (0036 for wave B's first) and the second the one after; whichever merges second is renumbered at merge if the order changes. Decision IDs (D-SEC, D-STO, D-UI) likewise: pre-assign distinct numbers per part.
+- Live checks one at a time: the first part's check → fixes → PR → owner merges → the coordinator rebases the second branch on main (expect conflicts in `run_financials.py` BUILT/dispatch, `queue.py` kind lists, `review_item.html`, `tabs/financials.html` includes, `app.py` ctx, M00 docs decision lists — keep both sides) → move it into the main checkout (`git worktree remove`, `git switch`) → its live check → PR → merge.
+- Tests must never run a built subcommand's `main()` against real data (the conftest guard blocks network and `data\`; inject connections). The terminal shows only the summary; the full detail is in the log.
+
 ## Logon-refresh constraints (D-M02-12, D-M04-70)
 - The owner's PC is never on overnight. Every scheduled run is the logon catch-up, in the background of the owner's session, killed at 3 hours. Recent refreshes took 1.5–6.7 minutes.
 - `financials_step` has two hooks in `scripts/run_refresh.py` (order today: calls → money → supply → financing → news → official → seasonal → prices), both inside the refresh lock and timed in the run report (SB.5):
