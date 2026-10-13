@@ -1,5 +1,10 @@
 # MVP plan (cross-module)
-Updated 2026-10-13 · Basis: DESIGN D31, the nine briefs in `docs/mvp/` (M03, M05–M12), M04_BUILD_LOG "MVP path" and "Parallel waves", the M00 decision lists, migrations 0001–0037 and `scripts/run_refresh.py` · Status: for owner decision (plan questions QP.1–QP.3 at the start of sitting 1). Research signals, not advice.
+Updated 2026-10-13 · Basis: DESIGN D31, the nine briefs in `docs/mvp/` (M03, M05–M12), M04_BUILD_LOG "MVP path" and "Parallel waves", the M00 decision lists, migrations 0001–0037 and `scripts/run_refresh.py` · Status: plan questions and sitting 1 answered 2026-10-13 (see "Sitting 1 answers"); sittings 2–6 open. Research signals, not advice.
+
+## Sitting 1 answers (owner, 2026-10-13)
+- **QP.1a** (sittings and waves as below; M04 4b-lite + 8a built first, now in W1) · **QP.2a** (thin M02 money-flow D13 writer in W10, designed at the M11 sitting) · **QP.3 yes** → Q07.8a.
+- **M07** → D-M07-1…8 in `docs/M07_OWNERSHIP.md`: every recommended option (Q07.1a–Q07.8a). Vote line confirmed as item 2 below: `insider_buy` opportunistic +1, no qualifying buy = missing, never 0. Followed managers start with Duquesne Family Office and Berkshire Hathaway; "CEO of equity" not identified (DESIGN Q3 stays open). Short interest deferred, DS18 registered, one Massive probe in M07 Part 1's live check.
+- **M09** → D-M09-1…8 in `docs/M09_TECHNICALS.md`: every recommended option (Q09.1a–Q09.8a), DESIGN Q2 settled for the MVP (D-M09-8). **Q09.2 owner amendment:** the D27 trigger stays z of ln(close) vs the 20-week mean of ln(close) with `pullback_sigma` beside it, and M09 Part 1 also computes and stores price-level σ bands (20-week mean of the close ± 1σ / ± 2σ, info row `price_band`) for the chart overlay; M09 Part 2's Technicals tab shows them as an overlay. Display only, not a second trigger, so M12's add zone (item 9) is unchanged.
 
 ## Summary
 One row per module. "Questions" counts the brief's questions; "+1" is a question this plan restores. Request costs are from the briefs; "SEC" requests are owner-run (Claude cannot call SEC).
@@ -8,7 +13,7 @@ One row per module. "Questions" counts the brief's questions; "+1" is a question
 |---|---|---|---|---|---|
 | M04 core (decided) | 4b-lite: `gc_language`, `covenant_status`. 8a: `cvd_state` (+ confidence, coverage), `f_quality`, `market_share_chg_pp` (gauge `normalized_ep_*` / `overreaction_gap` and Red Flag 1 `burn_no_share_gain` deferred, owner 2026-10-13) | 0 | 2 | None (stored text and facts; owner share entries, DS16) | 4a (built) |
 | M07 Ownership | `insider_buy`, `insider_sale`, `insider_net_flow`, `followed_manager_13f` | 7 +1 (Q07.8) | 2 (1 if Q07.6d; 3 if Q07.6c) | SEC: Form 4 4th year, a few hundred requests once (Q07.1a); 13F about 25–40 per manager once, about 4 per new 13F | M04 1a |
-| M09 Technicals | `band_z`, `trend_state`, `mom_12_1`, `rev_1m` | 8 | 2 | Tiingo: SPY, 1 full-history request then 1 a day (Q09.6a) | M04 4a; 8a soft |
+| M09 Technicals | `band_z`, `trend_state`, `mom_12_1`, `rev_1m` (+ info `price_band` for the overlay, D-M09-2) | 8 | 2 | Tiingo: SPY, 1 full-history request then 1 a day (Q09.6a) | M04 4a; 8a soft |
 | M08 Valuation | `valuation_multiple`, `valuation_pctile`, `peg`, `est_revision` | 7 | 2 | Alpha Vantage `EARNINGS_ESTIMATES` about 16 a week (≤ 3 a day); optional Tiingo peer prices (Q08.2b) | M04 1a–4a, stage confirmations; 8a NEP soft |
 | M05 Capex | `capex_demand`, `growth_capex_roic`, `bookings_cover`, `commitment_cover` | 8 | 2 | None (stored facts and text) | M04 1b; 8a CvD soft |
 | M03 Leaders | `curve_type.*`, `curve_stage.*`, `leader_rank.*`, `growth_runs.*` | 8 | 2 | SEC: CY frames 2019–23, about 10–15 requests once | M04 1c, 7a; 8a share soft |
@@ -52,7 +57,7 @@ Resolution first, then the reason. The top three are marked ★.
 9. **Consistent, no action:** market share is M04 8a's (`market_share`, D-M04-68); M03 and M06 only read it. M05's AHEAD_OF_DEMAND is the D-M04-64 test, not a second one. M06 `moat_gate` blocks a first MY entry in M11's `size_cap` (R1). M09 Q09.3a and Q09.2a are compatible with every Q12.5/Q12.6 option, so M12's sitting can wait; only Q09.2b (switch to `pullback_sigma`) would change M12's add zone.
 10. **Numbers left "TBD" in every brief** (migrations, DS entries; M03, M06 and M10 note collisions with DS12–DS17). Pre-assigned below.
 
-## Plan questions (answer at the start of sitting 1)
+## Plan questions (answered 2026-10-13: QP.1a, QP.2a, QP.3 yes)
 **QP.1 Order**
 - a) *Recommended.* Sittings and waves as below: M04 4b-lite + 8a build first, during sitting 1. Why: 8a is a hard dependency of M06 Part 2 and M11 Part 2, and a soft one for M03, M05, M08, M09 and M12; with it merged, later live checks read real CvD states instead of "missing: CvD not built".
 - b) DESIGN's sitting order with 8a built after the first module waves.
@@ -68,7 +73,7 @@ Resolution first, then the reason. The top three are marked ★.
 
 | Sitting | Modules | Questions | Why this pairing and place |
 |---|---|---|---|
-| 1 | M07 + M09 (+ QP.1–3) | 16 + 3 | No 8a dependency and no setup data; both are market-data modules (Form 4, prices). Q09.6 settles SPY for M10 and M11; Q07.8 closes the short-interest gap |
+| 1 (answered 2026-10-13: D-M07-1…8, D-M09-1…8) | M07 + M09 (+ QP.1–3) | 16 + 3 | No 8a dependency and no setup data; both are market-data modules (Form 4, prices). Q09.6 settles SPY for M10 and M11; Q07.8 closes the short-interest gap |
 | 2 | M08 + M05 | 15 | Both are fundamentals on stored facts that read 8a (NEP, CvD); both touch `xbrl_facts` extra concepts; settles the cyclical flag (item 5), the Alpha Vantage split (item 6) and M05's M01 rule-4 amendment |
 | 3 | M03 + M06 | 16 | The outline's chain "space → leader → financials → moat"; both read 8a market share, peers and confirmed stages; Q03.8's tier and M06's verdict feed the vote map |
 | 4 | M10 | 8 | Distinct topic; feeds M11's policy trigger (Q11.6) and the hurdle inputs |
@@ -111,7 +116,7 @@ Rules: migration numbers are 1..n with no gaps (`store/db.py`). A part marked "n
 | W2 | M07 Part 1 (`m07-part1`) | 0040_m07_insiders | 27 (form4-2, `form4_years`) | 30 | 32 (Insiders tab cards) | 18 (short interest, if Q07.8a) | D-M07-1…8 from sitting 1, parts from 9 |
 | W2 | M09 Part 1 (`m09-part1`) | none expected | — | — | 33 (SPY benchmark symbol) | — (DS8 row) | D-M09-1…8, parts from 9 |
 | W3 | M07 Part 2 (`m07-part2`) | none expected | 28 (manager filing sync, 13F keep-filter) | — | 34 (followed-managers panel) | — (DS11 row) | next free |
-| W3 | M09 Part 2 (`m09-part2`) | none | — | — | 35 (Technicals tab, overlays) | — | next free |
+| W3 | M09 Part 2 (`m09-part2`) | none | — | — | 35 (Technicals tab, overlays incl. price-level σ bands) | — | next free |
 | W4 | M08 Part 1 (`m08-part1`) | none expected | 29 (`MinorityInterest`) | — | 36 (Valuation tab) | — | D-M08-1…7, parts from 8 |
 | W4 | M05 Part 1 (`m05-part1`) | none expected | 30 (contract liabilities, total and noncurrent) | — | 37 (Future spend section) | — | D-M05-1…8, parts from 9 |
 | W5 | M08 Part 2 (`m08-part2`) | 0041_m08_estimates | — | 31 | 38 (Estimates block) | 19 (analyst estimates) | next free |
