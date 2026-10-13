@@ -44,6 +44,7 @@ import statistics
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
+from engine import m01_rules
 from engine.financials import capex as capex_mod
 from engine.financials import gate, health, market_share, peer_facts, peer_z, peers, restate, trends
 from engine.financials import models as models_mod
@@ -1252,6 +1253,30 @@ def _latest_text(engine, cik, name, as_of) -> sqlite3.Row | None:
         "AND timeframe = 'MY' AND as_of <= ? ORDER BY as_of DESC LIMIT 1",
         (cik, name, as_of),
     ).fetchone()
+
+
+def m04_rows(engine, c: CvD) -> m01_rules.M04Rows:
+    """The live CvD as the M04 rows M01 reads (`m01_rules`, the single M01 reader; M09 Part 2,
+    D-M09-15): gate state, filing status, the effective state (an owner answer named in the
+    method, as `cvd_step` writes it), the open runway review and guidance removed as of
+    `c.as_of`."""
+    rows = m01_rules.M04Rows(c.cik)
+    if c.gate is not None:
+        rows.gate = m01_rules.Row(c.gate.state, c.as_of, "gate")
+        if c.gate.runway_review:
+            rows.runway = m01_rules.Row(None, c.as_of, "capex-funded review open (m04_runway)")
+    if c.status in ("current", "stale", "overdue"):
+        rows.filing = m01_rules.Row(c.status, c.as_of, "status")
+    if c.state is not None:
+        if c.state == INSUFFICIENT:
+            method = f"missing: {INSUFFICIENT_WHY}"
+        elif c.answer:
+            method = f"owner answer {c.state} (computed {c.raw_state})"
+        else:
+            method = "computed"
+        rows.cvd = m01_rules.Row(c.state, c.as_of, method)
+    rows.guidance_removed = m01_rules.guidance_removed(engine, c.cik, c.as_of)
+    return rows
 
 
 def m01_reading(engine, c: CvD) -> M01:
