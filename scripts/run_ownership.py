@@ -17,7 +17,9 @@ Subcommands: insiders (Part 1) · managers (Part 2, not built yet).
    written). The owner runs this before the first logon refresh on the new setting (else the
    refresh fetches the gap itself).
 3. The M07 local pass for every company (0 requests): 4/A links, CMP classes, `insider_buy`,
-   `insider_sale`, `insider_net_flow`, alerts (a company's first pass is a baseline).
+   `insider_sale`, `insider_net_flow`, alerts (a company's first pass is a baseline; a buy
+   alerts only when filed within 30 days of the run and ≥ the $ floor, D-M07-17; stored alerts
+   on older filings are converted to baseline).
 4. The short-interest line (missing, D-M07-8) and, unless `--no-sec` or `--no-probe`, one
    Massive short-interest probe request (DS18).
 5. Reference cards: Huang (NVDA 0001045810-25-000143), Musk (TSLA 0001104659-25-089693), Tan
@@ -56,7 +58,8 @@ REFERENCE = (
      "0.012% of stake before (9 lines; 0.13% on the direct line alone); ≈ 0.0004% of cover"),
     ("Musk", "TSLA", "0001318605", "0001104659-25-089693",
      "buy: 25 P rows 2,568,732 sh ≈ $999.96M; 0.50% of stake after (509,362,808); 0.080% of "
-     "cover 3,225,448,889 (2025-07-17); class from P/S in 2022–2024, else unclassified + alert"),
+     "cover 3,225,448,889 (2025-07-17); class from P/S in 2022–2024, else unclassified; "
+     "filed 2025-09-15: baseline, not alerted (older filing, D-M07-17)"),
     ("Tan", "INTC", "0000050863", "0001127602-25-010360",
      "purchase_from_issuer: code A 1,043,406 sh at $23.96 ≈ $25.0M, offer-letter footnote; "
      "not scored, not in net flow"),
@@ -310,6 +313,7 @@ def insiders_run(
 
     # 3. local pass
     t2 = time.monotonic()
+    floor = step.load_floor()
     op = step.local_pass(engine, comps, now, force=True)
     log(f"3. M07 local pass (0 requests, {time.monotonic() - t2:.1f} s)")
     for t, c in sorted(op.companies.items()):
@@ -342,6 +346,12 @@ def insiders_run(
             log(f"    alert: {a}")
         for a in c.baseline:
             log(f"    baseline (first pass, not alerted): {a}")
+        for a in c.older:
+            log(f"    baseline (older filing, not alerted): {a}")
+        for a in c.below_floor:
+            log(f"    baseline (below the {step.money(floor)} floor, not alerted): {a}")
+        for a in c.converted:
+            log(f"    converted to baseline (older filing, D-M07-17): {a}")
     log("")
     result["pass"] = op
 
@@ -396,7 +406,11 @@ def insiders_run(
             f"{c.classes.get('unclassified', 0)}" for c in cs if c.classes) + " (r/o/u)",
         f"Buy days {sum(len(c.buys) for c in cs)}, sale days {sum(len(c.sales) for c in cs)}, "
         f"sale warnings {sum(1 for c in cs for d in c.sales if 'warning:' in d.method)}, new "
-        f"alerts {len(op.alerts)}, baseline buys {sum(len(c.baseline) for c in cs)}",
+        f"alerts {len(op.alerts)}, baseline buys "
+        f"{sum(len(c.baseline) + len(c.older) + len(c.below_floor) for c in cs)} (first pass "
+        f"{sum(len(c.baseline) for c in cs)}, older filing {sum(len(c.older) for c in cs)}, "
+        f"below the {step.money(floor)} floor {sum(len(c.below_floor) for c in cs)}), stored "
+        f"alerts converted to baseline {len(op.converted)} (D-M07-17)",
         "Net flow MY: " + ", ".join(
             f"{c.ticker} {(c.net.get('MY').text if c.net.get('MY') else None) or 'missing'}"
             for c in cs),

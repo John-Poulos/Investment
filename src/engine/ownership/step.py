@@ -25,16 +25,24 @@ Signal rules (M07_OWNERSHIP.md "Signals out", D-M07-2, -3, -5; D-M04-9, -74):
   unclassified sales of ≥ 10%† of stake (D-M07-3); otherwise info;
 - `insider_net_flow` is info everywhere (D-M07-5).
 Alerts (M01 rule 6): an opportunistic or unclassified open-market buy alerts once per company
-and filing day, in the end-of-run box; a company's first pass is a baseline (LESSONS).
+and filing day, in the end-of-run box; a company's first pass is a baseline (LESSONS). Alerts
+are for new information (D-M07-17, amends D-M07-2): a buy alerts only when its filing day is
+inside the ST window (30 days) of the run's market date and its priced $ is at least the
+floor (`config/ownership.toml`, $10,000†); an older filing (a history fetch, a re-parse, a
+late backfill) or a smaller buy is recorded as baseline, never alerted. A stored alert whose
+filing day was already outside that window when it was recorded is converted to baseline on
+the next pass.
 """
 
 from __future__ import annotations
 
 import json
 import sqlite3
+import tomllib
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 from engine.ownership import classes as cls_mod
 from engine.ownership import rows as rows_mod
@@ -54,6 +62,29 @@ CLUSTER_DAYS = 90  # MY cluster window
 CLUSTER_MIN = 3  # † distinct opportunistic buyers
 WINDOWS = (("MY", "12 months"), ("PT", "3 months"), ("ST", "30 days"))
 NET_TEXTS = ("net_buy", "net_sell", "plan_only", "none")
+CONFIG = Path(__file__).resolve().parents[3] / "config" / "ownership.toml"
+BUY_FLOOR_USD = 10_000.0  # † D-M07-17: buys under this priced $ are recorded, not alerted
+# refresh_state `m07_alert:<cik>:<day>` details: an alert, or a baseline with its reason
+BASE_FIRST = "baseline: "  # a company's first pass (D-M07-12)
+BASE_OLDER = "baseline (older filing): "  # filed outside the ST window of the run (D-M07-17)
+BASE_FLOOR = "baseline (below floor): "  # priced $ under the floor (D-M07-17)
+
+
+def load_floor(path: Path = CONFIG) -> float:
+    """`[alerts] buy_floor_usd`; a missing or broken file gives the built-in $10,000†."""
+    try:
+        with path.open("rb") as fh:
+            value = tomllib.load(fh).get("alerts", {}).get("buy_floor_usd", BUY_FLOOR_USD)
+        if isinstance(value, bool) or not isinstance(value, int | float) or value < 0:
+            return BUY_FLOOR_USD
+        return float(value)
+    except OSError, tomllib.TOMLDecodeError:
+        return BUY_FLOOR_USD
+
+
+def recent_filing(day: str, today: date) -> bool:
+    """D-M07-17: the filing day is inside the ST window (30 days) ending `today`."""
+    return day > window_start(today, "ST").isoformat()
 
 
 def window_start(end: date, tf: str) -> date:
@@ -102,6 +133,7 @@ class DayRow:
     sources: list[Source]
     info: tuple[str, ...]
     alert: str | None = None  # alert line for an opportunistic / unclassified buy
+    below_floor: bool = False  # priced $ under the alert floor: recorded, not alerted
 
 
 def _sources(rows: Iterable[Row]) -> list[Source]:
@@ -147,7 +179,7 @@ def _cluster(eff: list[Row], verdicts, day: str) -> int:
 
 
 def buy_days(ticker: str, issuer: Issuer, cards: dict[str, Card], verdicts, market: Market | None,
-             ) -> list[DayRow]:  # fmt: skip
+             floor: float = BUY_FLOOR_USD) -> list[DayRow]:  # fmt: skip
     eff = issuer.effective()
     days: dict[str, list[Row]] = {}
     for r in eff:
@@ -205,16 +237,26 @@ def buy_days(ticker: str, issuer: Issuer, cards: dict[str, Card], verdicts, mark
         vote = text == "opportunistic"
         parts.append("vote: opportunistic +1 in MY (D-M07-2)" if vote else
                      "no vote (D-M07-2: only opportunistic buys vote)")  # fmt: skip
-        alert = None
+        alert, below = None, False
         if present & set(ALERT_CLASSES) and open_rows:
             who = ", ".join(dict.fromkeys(r.owner_name or r.owner_cik or "?" for r in open_rows))
             alert = (
                 f"{ticker} {day}: insider buy {money(value)} by {who} "
                 f"({'/'.join(c for c in BUY_ORDER if c in present)})"
             )
-            parts.append("alert (M01 rule 6)")
+            below = value is not None and value < floor
+            if below:
+                parts.append(f"below the {money(floor)}† alert floor: recorded, not alerted "
+                             "(D-M07-17)")  # fmt: skip
+            else:
+                parts.append(
+                    f"alert (M01 rule 6) when filed within 30 days of the run, ≥ {money(floor)}† "
+                    + ("(no priced row: the floor cannot be tested) " if value is None else "")
+                    + "(D-M07-17)"
+                )
         out.append(DayRow("insider_buy", day, text, value, "; ".join(parts), _sources(rows),
-                          ("PT", "ST") if vote else ("MY", "PT", "ST"), alert))  # fmt: skip
+                          ("PT", "ST") if vote else ("MY", "PT", "ST"), alert,
+                          below))  # fmt: skip
     return out
 
 
@@ -410,6 +452,9 @@ class CompanyPass:
     net: dict[str, NetFlow] = field(default_factory=dict)
     alerts: list[str] = field(default_factory=list)  # new this pass
     baseline: list[str] = field(default_factory=list)  # first pass: recorded, not shown
+    older: list[str] = field(default_factory=list)  # filed outside the ST window (D-M07-17)
+    below_floor: list[str] = field(default_factory=list)  # under the $ floor (D-M07-17)
+    converted: list[str] = field(default_factory=list)  # stored alerts made baseline (D-M07-17)
     signals: int = 0
     cards: list[Card] = field(default_factory=list)
     error: str = ""
@@ -422,6 +467,10 @@ class OwnershipPass:
     @property
     def alerts(self) -> list[str]:
         return [a for c in self.companies.values() for a in c.alerts]
+
+    @property
+    def converted(self) -> list[str]:
+        return [a for c in self.companies.values() for a in c.converted]
 
 
 def _state(engine: sqlite3.Connection, name: str) -> str | None:
@@ -436,6 +485,31 @@ def _put_state(engine: sqlite3.Connection, name: str, detail: str, now: datetime
         "detail = excluded.detail",
         (name, iso(now), detail),
     )
+
+
+def convert_stale_alerts(engine: sqlite3.Connection, cik: str) -> list[str]:
+    """D-M07-17: a stored alert whose filing day was already outside the ST window (30 days)
+    of the day it was recorded becomes a baseline (the history-fetch case); `fetched_at` is
+    kept. Alerts that were recent when recorded stay alerts. Caller owns the transaction."""
+    from engine.refresh import market_date
+
+    out = []
+    for name, fetched_at, detail in engine.execute(
+        "SELECT name, fetched_at, detail FROM refresh_state WHERE name LIKE ? AND "
+        "detail NOT LIKE 'baseline%' ORDER BY name",
+        (f"m07_alert:{cik}:%",),
+    ).fetchall():
+        day = name.rsplit(":", 1)[1]
+        try:
+            recorded = datetime.fromisoformat(fetched_at)
+        except TypeError, ValueError:
+            continue
+        if recent_filing(day, market_date(recorded)):
+            continue
+        engine.execute("UPDATE refresh_state SET detail = ? WHERE name = ?",
+                       (BASE_OLDER + (detail or ""), name))  # fmt: skip
+        out.append(detail or name)
+    return out
 
 
 def _fingerprint(engine: sqlite3.Connection, cik: str, year: int) -> str:
@@ -544,8 +618,10 @@ def company_pass(
     today: date,
     force: bool = False,
     with_market: bool = True,
+    floor: float | None = None,
 ) -> CompanyPass:
     """One company's M07 pass. Each write is one short transaction."""
+    floor = load_floor() if floor is None else floor
     cik = normalize_cik(cik) or cik
     cp = CompanyPass(ticker, cik)
     cp.history_start = coverage_start(engine, cik)
@@ -575,10 +651,11 @@ def company_pass(
 
     engine.execute("BEGIN")
     try:
+        cp.converted = convert_stale_alerts(engine, cik)  # every pass (D-M07-17)
         if due:
             cp.recomputed = True
             cls_mod.store(engine, cik, verdicts, now)
-            cp.buys = buy_days(ticker, issuer, by_acc, verdicts, market)
+            cp.buys = buy_days(ticker, issuer, by_acc, verdicts, market, floor)
             cp.sales = sale_days(issuer, by_acc, market)
             for sig, rows in (("insider_buy", cp.buys), ("insider_sale", cp.sales)):
                 keep = [d.day for d in rows]
@@ -594,11 +671,22 @@ def company_pass(
                 if d.alert is None:
                     continue
                 key = f"m07_alert:{cik}:{d.day}"
-                if _state(engine, key) is not None:
+                stored = _state(engine, key)
+                recent = recent_filing(d.day, today)
+                # a below-floor day that a later same-day form lifts over the floor alerts
+                if stored is not None and not (
+                    stored.startswith(BASE_FLOOR) and recent and not d.below_floor and not first
+                ):
                     continue  # one alert per company and filing day (a 4/A keeps the day)
                 if first:
-                    _put_state(engine, key, f"baseline: {d.alert}", now)
+                    _put_state(engine, key, BASE_FIRST + d.alert, now)
                     cp.baseline.append(d.alert)
+                elif not recent:  # a history fetch, a re-parse or a late backfill (D-M07-17)
+                    _put_state(engine, key, BASE_OLDER + d.alert, now)
+                    cp.older.append(d.alert)
+                elif d.below_floor:
+                    _put_state(engine, key, BASE_FLOOR + d.alert, now)
+                    cp.below_floor.append(d.alert)
                 else:
                     _put_state(engine, key, d.alert, now)
                     cp.alerts.append(d.alert)
@@ -662,9 +750,13 @@ def run_local_part(engine: sqlite3.Connection, comps: dict[str, str], now: datet
     lines = [
         f"M07 insiders — local pass (0 SEC requests): {len(cs)} companies; recomputed after "
         f"new Form 4s: {', '.join(recomputed) or 'none'}; signals written "
-        f"{sum(c.signals for c in cs)}; new alerts {len(op.alerts)}"
+        f"{sum(c.signals for c in cs)}; new alerts {len(op.alerts)}; baseline buys "
+        f"{sum(len(c.baseline) + len(c.older) + len(c.below_floor) for c in cs)} (older filing "
+        f"{sum(len(c.older) for c in cs)}, below the floor {sum(len(c.below_floor) for c in cs)})"
+        + (f"; stored alerts converted to baseline {len(op.converted)}" if op.converted else "")
     ]
     lines += [f"  alert: {a}" for a in op.alerts]
+    lines += [f"  converted to baseline (older filing, D-M07-17): {a}" for a in op.converted]
     lines += [f"  {c.ticker}: {x}" for c in cs if c.recomputed for x in c.link_log]  # D-M07-15
     lines += [f"  {c.ticker}: error — {c.error}" for c in cs if c.error]
     return lines
@@ -677,7 +769,7 @@ def recent_alerts(engine: sqlite3.Connection, now: datetime, hours: int = 24) ->
         r[0]
         for r in engine.execute(
             "SELECT detail FROM refresh_state WHERE name LIKE 'm07_alert:%' AND fetched_at >= ? "
-            "AND detail NOT LIKE 'baseline:%' ORDER BY fetched_at, name",
+            "AND detail NOT LIKE 'baseline%' ORDER BY fetched_at, name",
             (since,),
         )
     ]

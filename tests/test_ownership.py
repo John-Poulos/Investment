@@ -386,9 +386,13 @@ def test_musk_buy_unclassified_alert_and_cover(dbs):
     [buy] = signals(engine, TSLA, "insider_buy")
     assert buy["value_text"] == "unclassified" and buy["as_of"] == "2025-09-15"
     assert buy["method"].endswith("info (weight 0)")  # unclassified: alert, no score (D-M07-2)
-    assert "history starts 2023-10-01" in buy["method"] and "alert (M01 rule 6)" in buy["method"]
-    assert len(cp.alerts) == 1 and cp.alerts[0].startswith(
-        "TSLA 2025-09-15: insider buy $999.96M by Musk Elon"
+    assert "history starts 2023-10-01" in buy["method"]
+    assert "alert (M01 rule 6) when filed within 30 days of the run, ≥ $10,000" in buy["method"]
+    # filed 2025-09-15, more than 30 days before the run: baseline, not alerted (D-M07-17)
+    assert (
+        cp.alerts == []
+        and len(cp.older) == 1
+        and cp.older[0].startswith("TSLA 2025-09-15: insider buy $999.96M by Musk Elon")
     )
     assert buy["cik"] == TSLA and buy["ticker"] == "TSLA"  # keyed by CIK (D-M04-74)
 
@@ -729,7 +733,7 @@ def test_refresh_hook_recomputes_only_after_new_form4s(dbs):
     assert "recomputed after new Form 4s: XSEM" in first[0]
     again = step.run_local_part(engine, comps, NOW)
     assert "recomputed after new Form 4s: none" in again[0]
-    trade(engine, XSEM, "0000000902", "Buyer 2", "2026-10-05", "P", 10, 50, filed="2026-10-06")
+    trade(engine, XSEM, "0000000902", "Buyer 2", "2026-10-05", "P", 1000, 50, filed="2026-10-06")
     later = step.run_local_part(engine, comps, NOW + timedelta(minutes=5))
     assert "recomputed after new Form 4s: XSEM" in later[0] and "new alerts 1" in later[0]
     assert any("Buyer 2" in x for x in later)
@@ -749,6 +753,126 @@ def test_waiting_summary_lists_insider_buy_alerts(dbs, monkeypatch):
     )
     text = run_refresh.waiting_summary(engine)
     assert "M07 insider buys (alerts):\n  XSEM 2026-10-06: insider buy $500" in text
+
+
+# --- D-M07-17: alerts are for new filings, with a $ floor -------------------------------------
+
+
+def alert_state(engine, day):
+    row = engine.execute("SELECT detail FROM refresh_state WHERE name = ?",
+                         (f"m07_alert:{XSEM}:{day}",)).fetchone()  # fmt: skip
+    return row[0] if row else None
+
+
+def test_history_fetch_buys_are_baseline_not_alerts(dbs):
+    """The live-check finding: a 4th-year history fetch parses old Form 4s after the first
+    pass; their buys are recorded as baseline (older filing), never alerted."""
+    engine, _ = dbs
+    record_coverage(engine, XSEM, "2023-10-01", NOW)
+    trade(engine, XSEM, "0000000951", "Gelsinger", "2024-02-02", "P", 1000, 40)
+    first = run_pass(engine, XSEM)
+    assert first.baseline and first.alerts == []
+    # the history fetch: old forms, filed 2022-11-08 and 2023-05-26 (outside the ST window)
+    trade(engine, XSEM, "0000000952", "Mollenkopf", "2022-11-04", "P", 20_000, 208.5,
+          filed="2022-11-08")  # fmt: skip
+    trade(engine, XSEM, "0000000953", "Bezos", "2023-05-24", "P", 1, 115, filed="2023-05-26")
+    # a fresh filing two days ago: the only alert
+    trade(engine, XSEM, "0000000954", "New Buyer", "2026-10-02", "P", 1000, 25,
+          filed="2026-10-05")  # fmt: skip
+    record_coverage(engine, XSEM, "2022-10-01", NOW)
+    cp = run_pass(engine, XSEM)
+    assert cp.alerts == ["XSEM 2026-10-05: insider buy $25,000 by New Buyer (unclassified)"]
+    assert [a.split(":")[0] for a in cp.older] == ["XSEM 2022-11-08", "XSEM 2023-05-26"]
+    assert alert_state(engine, "2022-11-08").startswith("baseline (older filing): XSEM")
+    assert step.recent_alerts(engine, NOW + timedelta(hours=1)) == cp.alerts
+    # the stored buy rows are kept (recorded, not alerted)
+    days = [b["as_of"] for b in signals(engine, XSEM, "insider_buy")]
+    assert {"2022-11-08", "2023-05-26", "2026-10-05"} <= set(days)
+    # a re-run alerts nothing again
+    assert run_pass(engine, XSEM).alerts == []
+
+
+def test_filing_date_not_trade_date_decides(dbs):
+    """A trade from 2026-08 filed late (2026-10-01) is new information: it alerts."""
+    engine, _ = dbs
+    record_coverage(engine, XSEM, "2022-10-01", NOW)
+    run_pass(engine, XSEM)  # baseline
+    trade(engine, XSEM, "0000000961", "Late Filer", "2026-08-01", "P", 1000, 30,
+          filed="2026-10-01")  # fmt: skip
+    trade(engine, XSEM, "0000000962", "Edge", "2026-09-07", "P", 1000, 30, filed="2026-09-07")
+    cp = run_pass(engine, XSEM)
+    assert [a.split(":")[0] for a in cp.alerts] == ["XSEM 2026-10-01"]
+    assert [a.split(":")[0] for a in cp.older] == ["XSEM 2026-09-07"]  # day 30: outside
+
+
+def test_buys_under_the_floor_are_recorded_not_alerted(dbs, tmp_path):
+    engine, _ = dbs
+    record_coverage(engine, XSEM, "2022-10-01", NOW)
+    run_pass(engine, XSEM)  # baseline
+    trade(engine, XSEM, "0000000971", "Small Buyer", "2026-10-01", "P", 1, 115,
+          filed="2026-10-02")  # fmt: skip
+    cp = run_pass(engine, XSEM)
+    assert cp.alerts == [] and cp.below_floor == [
+        "XSEM 2026-10-02: insider buy $115 by Small Buyer (unclassified)"
+    ]
+    assert alert_state(engine, "2026-10-02").startswith("baseline (below floor): ")
+    [buy] = [b for b in signals(engine, XSEM, "insider_buy") if b["as_of"] == "2026-10-02"]
+    assert float(buy["value"]) == 115  # recorded
+    assert "below the $10,000† alert floor: recorded, not alerted (D-M07-17)" in buy["method"]
+    assert step.recent_alerts(engine, NOW + timedelta(hours=1)) == []
+    # a second form on the same filing day lifts the day over the floor: it alerts once
+    trade(engine, XSEM, "0000000972", "Big Buyer", "2026-10-01", "P", 1000, 20,
+          filed="2026-10-02")  # fmt: skip
+    cp = run_pass(engine, XSEM)
+    assert len(cp.alerts) == 1 and "$20,115" in cp.alerts[0]
+    assert run_pass(engine, XSEM).alerts == []
+    # the floor comes from config; a lower floor alerts the small buy
+    trade(engine, XSEM, "0000000973", "Tiny", "2026-10-05", "P", 1, 115, filed="2026-10-06")
+    assert len(step.company_pass(engine, "XSEM", XSEM, NOW, today=TODAY, force=True,
+                                 floor=100).alerts) == 1  # fmt: skip
+
+
+def test_stored_alerts_on_old_filings_convert_to_baseline(dbs):
+    """The 13 alerts the history run stored become baseline on the next pass, also when no
+    Form 4 changed (the refresh's local step); alerts that were recent when stored stay."""
+    engine, _ = dbs
+    trade(engine, XSEM, "0000000981", "Buyer", "2026-09-20", "P", 1000, 50)
+    record_coverage(engine, XSEM, "2022-10-01", NOW)
+    run_pass(engine, XSEM)  # baseline
+    recorded = iso(NOW - timedelta(hours=2))
+    for day, detail in (("2022-11-02", "XSEM 2022-11-02: insider buy $248,647 by G"),
+                        ("2026-10-06", "XSEM 2026-10-06: insider buy $50,000 by H")):  # fmt: skip
+        engine.execute(
+            "INSERT INTO refresh_state (name, source_ref, fetched_at, detail) VALUES "
+            "(?, 'M07', ?, ?)",
+            (f"m07_alert:{XSEM}:{day}", recorded, detail),
+        )
+    assert len(step.recent_alerts(engine, NOW)) == 2
+    lines = step.run_local_part(engine, {"XSEM": XSEM}, NOW)  # nothing recomputed
+    assert "recomputed after new Form 4s: none" in lines[0]
+    assert "stored alerts converted to baseline 1" in lines[0]
+    assert "  converted to baseline (older filing, D-M07-17): XSEM 2022-11-02: insider buy " \
+        "$248,647 by G" in lines  # fmt: skip
+    assert alert_state(engine, "2022-11-02") == (
+        "baseline (older filing): XSEM 2022-11-02: insider buy $248,647 by G"
+    )
+    assert step.recent_alerts(engine, NOW) == ["XSEM 2026-10-06: insider buy $50,000 by H"]
+    # a recent alert that later ages out of the window stays an alert (it was new when stored)
+    later = step.local_pass(engine, {"XSEM": XSEM}, NOW + timedelta(days=60))
+    assert later.converted == []
+    assert alert_state(engine, "2026-10-06") == "XSEM 2026-10-06: insider buy $50,000 by H"
+
+
+def test_alert_floor_config_matches_default_and_falls_back(tmp_path):
+    assert step.load_floor() == step.BUY_FLOOR_USD == 10_000
+    bad = tmp_path / "ownership.toml"
+    bad.write_text("[alerts]\nbuy_floor_usd = 'ten'\n", encoding="utf-8")
+    assert step.load_floor(bad) == step.BUY_FLOOR_USD
+    bad.write_text("not toml [", encoding="utf-8")
+    assert step.load_floor(bad) == step.BUY_FLOOR_USD
+    assert step.load_floor(tmp_path / "missing.toml") == step.BUY_FLOOR_USD
+    bad.write_text("[alerts]\nbuy_floor_usd = 25000\n", encoding="utf-8")
+    assert step.load_floor(bad) == 25_000
 
 
 # --- owner script (injected connections; never the real data folder) -------------------------

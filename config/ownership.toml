@@ -1,0 +1,9 @@
+# M07 Ownership parameters (docs/M07_OWNERSHIP.md). Values marked † are starting values,
+# calibrated at tuning. A missing or broken file falls back to the built-in defaults (equal
+# to this file; a test checks it).
+
+[alerts]
+# D-M07-17 (amends D-M07-2): an open-market buy alerts only when its Form 4 was filed within
+# the ST window (30 days) of the run and its priced $ is at least this floor; smaller buys are
+# recorded (signal row, Insiders tab) but not alerted.
+buy_floor_usd = 10000  # †
