@@ -17,6 +17,7 @@
     uv run python scripts/run_financials.py quality --no-sec # local re-run, 0 SEC requests
     uv run python scripts/run_financials.py units            # Part 7a live check
     uv run python scripts/run_financials.py units --no-sec   # local re-run, 0 SEC requests
+    uv run python scripts/run_financials.py cvd --no-sec     # Part 8a live check, 0 SEC requests
     uv run python scripts/run_financials.py --list           # the subcommand table
 
 Subcommands: data (1a) · capex (1b) · profile (1c) · peers (2) · flags (3) · gate (4a) ·
@@ -92,6 +93,11 @@ stored periodic text (10-K, 10-Q, 20-F, 40-F, 6-K and their EX-10 / EX-99), clas
 D-M04-34 with verified quotes; `gc_language` / `covenant_status`; text alerts and reviews;
 then the survival gate again with the text classes. 0 SEC requests (`--no-sec` is accepted
 and changes nothing).
+`cvd` (Part 8a): 0 SEC requests (`--no-sec` is accepted and changes nothing): the CvD grid
+for every covered company from stored facts as of today (activation, Q1 and Q2 rows,
+classification, confidence, coverage, health scores, the M01 reading), the Part 8a
+signals, `m04_cvd` items (group 2, capped), one grid per company, the regression cases
+(MU, INTC, NVDA, Invitae) against their expected values, rows added and engine.db size.
 
 Takes data/refresh.lock (one SEC process at a time). Writes
 logs/financials_<subcommand>_<YYYYMMDD-HHMMSS>.txt as it goes, with requests, MB and
@@ -128,7 +134,9 @@ SUBCOMMANDS = (
     ("cvd", "8a", "CvD assembly, health vote, M04 tab"),
     ("backtest", "8b", "calibration"),
 )
-BUILT = {"data", "capex", "profile", "peers", "flags", "gate", "gate-text", "units", "quality"}
+BUILT = {
+    "data", "capex", "profile", "peers", "flags", "gate", "gate-text", "units", "quality", "cvd",
+}  # fmt: skip
 NVDA_CIK = "0001045810"
 NVDA_YEARS = range(2013, 2022)  # FY2013–FY2021: capex only under the extension tag
 WDC_CIK = "0000106040"
@@ -2637,6 +2645,187 @@ def run_quality(args, log: Log, folder: Path) -> int:
     return 0
 
 
+# --- cvd (Part 8a) --------------------------------------------------------------------------
+
+CVD_TABLES = ("signal", "review_queue", "m04_proposal", "refresh_state", "market_share")
+CVD_CASES = (  # (label, cik, ticker, as of, expected) — M04_BUILD_LOG Part 8a fixtures
+    ("MU Q4 FY22 (10-K 2022-10-07)", "0000723125", "MU", "2022-10-07",
+     "active by D-M04-67: TTM +11.0%, latest quarter ≈ −19.7%"),
+    ("MU Q4 FY23 (after WDC's 10-Q of 2023-11-07)", "0000723125", "MU", "2023-11-10",
+     "CYCLICAL_TROUGH 1.00, Q2 on 3 of 7 rows; capex 1.30× intact (fixture: WDC the only "
+     "peer, stage confirmed; with today's logic/analog peer set and the stage unconfirmed "
+     "the rows below decide, live check 1)"),
+    ("INTC 2023 (10-K; peers filed)", "0000050863", "INTC", "2024-03-01",
+     "AMBIGUOUS 0.25 → m04_cvd; capex 1.75× into falling revenue → neutral (fixture: stage "
+     "confirmed, F-quality 3 neutral votes in Q2)"),
+    ("NVDA FY2023 (10-K 2023-02-24)", "0001045810", "NVDA", "2023-03-01",
+     "active on margin, not revenue (GM −8.0 pp, revenue +0.2%)"),
+    ("Invitae FY2021 (10-K)", "0001501134", "Invitae", "2022-03-01",
+     "gate fail overrides the grid (blocked + exit warning)"),
+)  # fmt: skip
+
+
+def cvd_counts(engine) -> dict[str, int]:
+    return {t: engine.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in CVD_TABLES}
+
+
+def cvd_regression(engine, log, mf=None) -> None:
+    """The Part 8a fixture cases on the stored data (as of the dates shown; calendar off)."""
+    from engine.financials import cvd, health
+
+    log("Regression cases (stored data as of the dates shown; filing status not tested):")
+    for label, cik, ticker, as_of, expect in CVD_CASES:
+        try:
+            c = cvd.evaluate(engine, cik, ticker, as_of, models=mf, calendar=False,
+                             use_answer=False)  # fmt: skip
+        except Exception as e:  # a case's data may be absent: report, never stop
+            log(f"  {label}: error — {type(e).__name__}: {e} | expected: {expect}")
+            continue
+        if c.excluded or c.missing:
+            log(f"  {label}: {c.excluded or 'missing: ' + c.missing} | expected: {expect}")
+            continue
+        conf = f"{c.confidence:.2f}" if c.confidence is not None else "—"
+        act = "; ".join(c.triggers) if c.active else "not active — " + "; ".join(c.tests)
+        gate_state = c.gate.state if c.gate else "—"
+        log(f"  {label}: {c.state} {conf} ({c.coverage_text()}) | expected: {expect}",
+            f"    activation: {act}",
+            f"    Q1 {c.q1.text() if c.q1 else '—'} · Q2 {c.q2.text() if c.q2 else '—'} · "
+            f"gate {gate_state} · M01 rule 3: {c.m01.rule3}",
+            f"    peers (today's confirmed set, read as of {as_of}): "
+            + (", ".join(c.peers) or "none"),
+            *cvd.row_lines(c, "    "))  # fmt: skip
+        fq = c.f_quality
+        if fq is not None and (fq.band is None or fq.note):
+            log(f"    F-quality {fq.label}: {fq.text()}")
+    try:
+        d = cvd.inventory_days(engine, "0000723125", "2023-11-10", "Q", "2023-03-02")
+        got = d if isinstance(d, str) else f"{d.reported:.1f} / {d.adjusted:.1f} days ({d.text})"
+        log(f"  MU inventory days Q2 FY23: {got} | expected: 153.1 / 235.0 (probe L9)")
+    except Exception as e:
+        log(f"  MU inventory days Q2 FY23: error — {e}")
+    for label, cik, as_of, expect in (
+        ("MU FY2016 F-quality", "0000723125", "2016-12-31", "3 → neutral (not weakening)"),
+        ("INTC 2024 F-quality", "0000050863", "2025-03-01", "equity point kept (+2.1%) → 4 intact"),
+    ):
+        try:
+            from engine.financials import stage as stage_mod
+
+            row = stage_mod.confirmed(engine, cik)
+            fq = health.f_quality(engine, cik, as_of, stage=row["confirmed"] if row else None)
+            log(f"  {label} ({fq.label}): {fq.known} of 5 → {fq.band or 'missing: ' + fq.missing}; "
+                f"{fq.text()} | expected: {expect}")  # fmt: skip
+            if fq.end and any(
+                p.value is None for p in fq.points if p.name in ("accruals", "cfo_positive")
+            ):
+                log(*cvd_fact_trace(engine, cik, fq.end, as_of))
+        except Exception as e:
+            log(f"  {label}: error — {e}")
+
+
+TRACE_TAGS = ("%OperatingActivities%", "NetIncomeLoss%", "ProfitLoss%")
+
+
+def cvd_fact_trace(engine, cik: str, end: str, as_of: str) -> list[str]:
+    """Stored net-income and operating-cash-flow facts ending within 20 days of `end`: tag,
+    period, form, filed (marked when after `as_of`) — why an F-quality input is missing
+    (Part 8a live check 1, MU FY2016)."""
+    from datetime import date as _date
+    from datetime import timedelta as _td
+
+    e = _date.fromisoformat(end)
+    lo, hi = (e - _td(days=20)).isoformat(), (e + _td(days=20)).isoformat()
+    like = " OR ".join("tag LIKE ?" for _ in TRACE_TAGS)
+    rows = engine.execute(
+        f"SELECT taxonomy, tag, period_start, period_end, value, form, filed FROM fact "
+        f"WHERE cik = ? AND period_end BETWEEN ? AND ? AND ({like}) "
+        "ORDER BY tag, period_start, filed",
+        (cik, lo, hi, *TRACE_TAGS),
+    ).fetchall()
+    fye = engine.execute("SELECT fiscal_year_end FROM entity WHERE cik = ?", (cik,)).fetchone()
+    out = [f"    stored facts ending {lo}…{hi} (fiscal year end on file "
+           f"{fye[0] if fye else '—'}; as of {as_of}): {len(rows)}"]  # fmt: skip
+    seen: dict[tuple, list[str]] = {}
+    for r in rows:
+        k = (f"{r['taxonomy']}:{r['tag']}", r["period_start"], r["period_end"])
+        late = " (after as-of)" if r["filed"] > as_of else ""
+        seen.setdefault(k, []).append(f"{r['form']} {r['filed']}{late} = {r['value'] / 1e6:,.0f}M")
+    for (tag, start, stop), vers in list(seen.items())[:20]:
+        out.append(f"      {tag} {start or '—'}…{stop}: " + "; ".join(vers[:4]))
+    if not rows:
+        out.append("      none: no net-income or operating-cash-flow tag stored for that period")
+    return out
+
+
+def cvd_summary(engine, cp, now) -> list[str]:
+    from engine.financials import cvd_step
+
+    out = [f"{SUMMARY_MARK} cvd (Part 8a) · {now:%Y-%m-%d %H:%M} UTC"]
+    states: dict[str, int] = {}
+    for c in cp.companies.values():
+        if c.c is not None:
+            k = c.c.state or ("excluded" if c.c.excluded else "missing")
+            states[k] = states.get(k, 0) + 1
+    out.append("CvD states: " + ", ".join(f"{k} {v}" for k, v in sorted(states.items())))
+    queued: dict[str, int] = {}
+    for c in cp.companies.values():
+        for k, v in c.queued.items():
+            v = "already proposed by an earlier run" if v == "suppressed" else v
+            queued[f"{k.split(':')[0]} {v}"] = queued.get(f"{k.split(':')[0]} {v}", 0) + 1
+    out.append("m04_cvd items this run: "
+               + (", ".join(f"{k} {v}" for k, v in sorted(queued.items())) or "none"))  # fmt: skip
+    withdrawn = sum(c.withdrawn for c in cp.companies.values())
+    if withdrawn:
+        out.append(f"Items withdrawn (no longer a review state): {withdrawn}")
+    items = cvd_step.open_items(engine)
+    out.append(f"Open m04_cvd items: {len(items)}")
+    out += [f"  {x}" for x in items]
+    out.append("One line per company:")
+    out += [f"  {cvd_step.company_line(c)}" for _, c in sorted(cp.companies.items())]
+    return out
+
+
+def cvd_run(engine, comps: dict[str, str], now, log, mf=None):
+    """The `cvd` work on an open connection (0 SEC requests; tests inject a scratch DB)."""
+    from engine.financials import cvd, cvd_step
+
+    t0 = time.monotonic()
+    cp = cvd_step.cvd_pass(engine, comps, now, mf=mf)
+    log(f"CvD grid recomputed for {len(cp.companies)} companies (0 requests, "
+        f"{time.monotonic() - t0:.1f} s)", "")  # fmt: skip
+    for _, c in sorted(cp.companies.items()):
+        if c.error:
+            log(f"{c.ticker}: error — {c.error}")
+            continue
+        log(*cvd.grid_lines(c.c))
+    log("")
+    cvd_regression(engine, log, mf)
+    log("")
+    log(*cvd_summary(engine, cp, now))
+    return cp
+
+
+def run_cvd(args, log: Log, folder: Path) -> int:
+    from engine.store.db import open_db
+
+    engine = open_db("engine", folder)
+    now = datetime.now(UTC)
+    mb_before, before = db_mb(folder), cvd_counts(engine)
+    comps = companies(engine)
+    if args.tickers:
+        wanted = {t.strip().upper() for t in args.tickers.split(",")}
+        comps = {t: c for t, c in comps.items() if t in wanted}
+    log(f"run_financials cvd · {now:%Y-%m-%d %H:%M} UTC · {len(comps)} companies · no SEC "
+        "(the cvd subcommand makes no requests; --no-sec is accepted)",
+        f"engine.db before: {mb_before:,.1f} MB", "")  # fmt: skip
+    cvd_run(engine, comps, now, log)
+    log("SEC requests: 0")
+    after = cvd_counts(engine)
+    log("Rows added per table: " + ", ".join(f"{t} {after[t] - before[t]:+,}" for t in CVD_TABLES))
+    log(f"engine.db: {mb_before:,.1f} MB → {db_mb(folder):,.1f} MB")
+    engine.close()
+    return 0
+
+
 def _main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("subcommand", nargs="?", choices=[s for s, _, _ in SUBCOMMANDS])
@@ -2678,6 +2867,8 @@ def _main() -> int:
             return run_gate(args, log, data_dir())
         if args.subcommand == "gate-text":
             return run_gate_text(args, log, data_dir())
+        if args.subcommand == "cvd":
+            return run_cvd(args, log, data_dir())
         return run_data(args, log, data_dir())
     except Exception:
         log("FAILED with a traceback:", traceback.format_exc())

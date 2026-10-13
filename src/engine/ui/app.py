@@ -89,6 +89,7 @@ TABS = (
     ("guidance", "Guidance", True),
     ("money", "Money flow", True),  # M02 part 3
     ("financials", "Financials", True),
+    ("m04", "M04", True),  # M04 Part 8a: Cycle vs Decline (D-UI-31)
     ("insiders", "Insiders", True),
     ("events", "Events and filings", True),
     ("news", "News", True),  # M02 part 7a
@@ -250,6 +251,14 @@ def create_app(settings: UiSettings) -> FastAPI:
             ctx["m04_gate"] = m04_gate_view.company_view(
                 engine, cik, ticker, datetime.now(UTC).date(), m04_companies(engine)
             )
+        elif tab == "m04":  # M04 Part 8a (D-UI-31)
+            from engine.financials import cvd_view
+
+            ctx["m04_cvd"] = cvd_view.company_view(
+                engine, cik, ticker, datetime.now(UTC).date(), m04_companies(engine)
+            )
+            ctx["questions"], ctx["readings"] = cvd_view.QUESTIONS, cvd_view.READING
+            ctx["links"] = cvd_view.LINKS
         elif tab == "insiders":
             ctx["txns"] = services.insider_txns(engine, cik)
         elif tab == "events":
@@ -926,6 +935,78 @@ def create_app(settings: UiSettings) -> FastAPI:
         if cik is None:
             raise HTTPException(404, f"Unknown ticker {ticker}.")
         return m04_gate_back(ticker, m04_gate_recompute(engine, ticker, cik))
+
+    # --- M04 CvD (Part 8a; D-UI-31, D-M04-68) ----------------------------------------------
+
+    @app.get("/m04", response_class=HTMLResponse)
+    def m04_cvd_page(request: Request, engine: Engine, viewer: ViewerDep):
+        """The watchlist summary: one CvD line per company from the last local pass."""
+        from engine.financials import cvd_step
+
+        items = [r[0] for r in engine.execute(
+            "SELECT item_id FROM review_queue WHERE kind = 'm04_cvd' AND resolved_at IS NULL "
+            "ORDER BY item_id")]  # fmt: skip
+        view = {"everyone": cvd_step.stored_lines(engine, m04_companies(engine))}
+        ctx = frame(engine) | {"viewer": viewer, "v": view, "items": items}
+        return templates.TemplateResponse(request, "m04_cvd.html", ctx)
+
+    def m04_cvd_back(ticker: str, msg: str = "", error: str = "") -> RedirectResponse:
+        q = f"&msg={quote(msg)}" if msg else f"&detail={quote(error)}"
+        return RedirectResponse(f"/c/{ticker}?tab=m04{q}#share", 303)
+
+    def m04_cvd_recompute(engine: sqlite3.Connection, ticker: str, cik: str) -> str:
+        from engine.financials import cvd_step, profile
+
+        scope = set(profile.full_scope(engine, m04_companies(engine)).values())
+        cc = cvd_step.company_cvd(engine, ticker, cik, datetime.now(UTC),
+                                  queue_items=cik in scope)  # fmt: skip
+        return f"CvD recomputed: {cc.c.state or cc.c.excluded or cc.c.missing}"
+
+    @app.post("/m04/share/{ticker}")
+    def m04_share_add(
+        ticker: str,
+        engine: Engine,
+        owner: OwnerDep,
+        period_end: Annotated[str, Form()] = "",
+        share_pct: Annotated[str, Form()] = "",
+        market: Annotated[str, Form()] = "",
+        source: Annotated[str, Form()] = "",
+        market_size: Annotated[str, Form()] = "",
+        source_url: Annotated[str, Form()] = "",
+        kind: Annotated[str, Form()] = "third_party",
+        note: Annotated[str, Form()] = "",
+    ) -> RedirectResponse:
+        from engine.financials import cvd_view, market_share
+
+        ticker = ticker.upper()
+        cik = services.resolve_ticker(engine, ticker)
+        if cik is None:
+            raise HTTPException(404, f"Unknown ticker {ticker}.")
+        form = {"period_end": period_end, "share_pct": share_pct, "market": market,
+                "source": source, "market_size": market_size, "source_url": source_url,
+                "kind": kind, "note": note}  # fmt: skip
+        try:
+            sid = cvd_view.add_share(engine, cik, form, owner.id, datetime.now(UTC))
+        except market_share.ShareError as e:
+            return m04_cvd_back(ticker, error=str(e))
+        return m04_cvd_back(
+            ticker, f"market share {sid} added; {m04_cvd_recompute(engine, ticker, cik)}"
+        )
+
+    @app.post("/m04/share/{ticker}/{share_id}/withdraw")
+    def m04_share_withdraw(ticker: str, share_id: int, engine: Engine,
+                           owner: OwnerDep) -> RedirectResponse:  # fmt: skip
+        from engine.financials import cvd_view
+
+        ticker = ticker.upper()
+        cik = services.resolve_ticker(engine, ticker)
+        if cik is None:
+            raise HTTPException(404, f"Unknown ticker {ticker}.")
+        ok = cvd_view.withdraw_share(engine, cik, share_id, owner.id, datetime.now(UTC))
+        if not ok:
+            return m04_cvd_back(ticker, error=f"market share {share_id}: nothing to withdraw")
+        return m04_cvd_back(ticker, f"market share {share_id} withdrawn; "
+                            f"{m04_cvd_recompute(engine, ticker, cik)}")  # fmt: skip
 
     @app.get("/api/bars/{ticker}")
     def bars_api(ticker: str, engine: Engine, viewer: ViewerDep, bar: str = "D") -> JSONResponse:

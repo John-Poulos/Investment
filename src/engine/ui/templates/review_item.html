@@ -201,6 +201,20 @@
     {% if p.input %}<tr><th>Input</th><td>{{ p.input | replace('_', ' ') }} — {{ p.why }}</td></tr>{% endif %}
   </table>
   <p class="muted">{{ {'m04_gate_fail': 'An alert (uncapped, priority 1): the gate turned fail or incomplete. Noted keeps the state; Inputs wrong records what is wrong (fix the input, confirm a credit line or map a tag; the gate recomputes on the next refresh or with Recompute on the Financials tab). D-M04-31…37, -61, -71.', 'm04_runway': 'Capex-funded name below 6 quarters (D-M04-38): rule-3 adds stay allowed; rule-7 strength is blocked while this is open. Capex can be cut allows strength while the runway stays in this band; Keep blocked keeps it blocked until the runway is 6 quarters or more.', 'm04_gate_input': 'A non-financing gate input is missing or untagged (financing tags are mapped in M02, D-M02-31). Map tag adds a stored tag as this input for this company (taxonomy:Tag); Not reported keeps the labelled fallback (e.g. the OCF-only runway).', 'm04_score_gap': 'The distress score is in the distress zone while the gate passes (S4.8). The score is a warning only and never a gate input (D-M04-31). Noted or Look closer (note).'}[it.kind] }} See the <a href="/c/{{ it.ticker or p.ticker }}?tab=financials#gate">survival gate panel</a>.</p>
+  {% elif it.kind == 'm04_cvd' %}
+  {% set p = it.payload %}
+  <table class="data">
+    <tr><th>Computed state</th><td><b>{{ p.computed }}</b> · confidence {{ p.confidence if p.confidence is not none else '—' }} · coverage {{ p.coverage }} · {{ p.basis }} to {{ p.period_end }} (filed {{ p.filed }})</td></tr>
+    <tr><th>Activation</th><td>{{ p.activation or '—' }}</td></tr>
+    <tr><th>Q1 slump shared?</th><td>{{ p.q1 }}</td></tr>
+    <tr><th>Q2 franchise intact?</th><td>{{ p.q2 }}</td></tr>
+    <tr><th>Gate · M01</th><td>gate {{ p.gate }} · {{ p.m01 }}</td></tr>
+  </table>
+  <table class="data">
+    <tr><th>Q</th><th>Row</th><th>Reading</th><th>Value / why</th></tr>
+    {% for r in p.rows or [] %}<tr><td>{{ r.q }}</td><td>{{ r.label }}</td><td>{{ r.reading | replace('_', '-') }}</td><td>{{ r.value }}{% if r.why %}<br><span class="muted">{{ r.why }}</span>{% endif %}</td></tr>{% endfor %}
+  </table>
+  <p class="muted">The grid could not decide (AMBIGUOUS: no 2/3 majority), or it reads STUMBLE or CYCLE_PLUS_DAMAGE, which D-M04-1 sends to you. Your answer becomes the state (D-M04-56) while the computed state stays the same; tranches wait until you answer (D-M04-58). See the <a href="/c/{{ it.ticker or p.ticker }}?tab=m04">M04 tab</a>.</p>
   {% elif it.kind.startswith('m02_') %}
   {% if it.payload.earlier %}<div class="warnbox">Shown before and {{ it.payload.earlier.resolution }}ed{% if it.payload.earlier.note %} — your note: “{{ it.payload.earlier.note }}”{% endif %}. Back because it changed materially (distinct filers doubled or money-flow evidence appeared).</div>{% endif %}
   <table class="data">
@@ -270,6 +284,13 @@
   <form method="post" action="/review/{{ it.item_id }}/{{ a }}"><input name="note" size="40" placeholder="Note (optional)"><button class="btn" type="submit">{{ text }}</button></form>
   {% endfor %}
   </div>
+  {% elif it.kind == 'm04_cvd' %}
+  <h3 class="sub">Choose the state</h3>
+  <form method="post" action="/review/{{ it.item_id }}/set_state" class="entry">
+    <label>State <select name="target">{% for k, t in (('cyclical_trough', 'cyclical trough'), ('stumble', 'stumble'), ('cycle_plus_damage', 'cycle + damage'), ('structural_decline', 'structural decline')) %}<option value="{{ k }}">{{ t }}</option>{% endfor %}</select></label>
+    <label class="wide">Note (required) <input name="note" size="60" required placeholder="why: share data, moat, management's account"></label>
+    <button class="btn" type="submit">Set the state</button>
+  </form>
   {% elif it.kind in ('m04_stage', 'm04_peer') %}
   <h3 class="sub">Resolve</h3>
   <p><a class="btn" href="/m04/setup{{ '#stages' if it.kind == 'm04_stage' else '#peer-' ~ it.item_id }}">Open on the M04 setup page</a></p>
