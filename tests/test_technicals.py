@@ -707,6 +707,7 @@ def test_script_signals_no_fetch_on_injected_db(dbs, tmp_path, capsys):
     assert "MU 2026-03-27: pack band_z +0.32" in text
     assert "engine: no completed week of 2026-03-23 stored for MU" in text
     assert "SPY (benchmark, no rows) 2026-10-09" in text
+    assert text.count("SPY (benchmark, no rows)") == 1  # printed once (Part 2 cosmetic fix)
     out = capsys.readouterr().out
     assert "=== Summary" in out and "Per name" not in out  # console: summary only
 

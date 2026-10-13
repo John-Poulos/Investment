@@ -167,7 +167,7 @@ def run_signals(args, log: Log, folder: Path, engine=None, now: datetime | None 
     from engine.store.db import open_db
     from engine.technicals import params as params_mod
     from engine.technicals import signals as sig
-    from engine.technicals.step import spy_line, summary_lines, technicals_pass
+    from engine.technicals.step import summary_lines, technicals_pass
 
     own = engine is None
     engine = engine if engine is not None else open_db("engine", folder)
@@ -213,7 +213,6 @@ def run_signals(args, log: Log, folder: Path, engine=None, now: datetime | None 
     log(f"Tiingo requests: {req} · SEC requests: 0 · {time.monotonic() - t_start:.1f} s")
     log("Rows added per table: " + ", ".join(f"{t} {after[t] - before[t]:+,}" for t in after))
     log(f"engine.db: {mb_before:,.1f} MB → {db_mb(folder):,.1f} MB")
-    log(spy_line(tp, p))
     if own:
         engine.close()
     return 0
