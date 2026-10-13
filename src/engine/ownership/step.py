@@ -67,12 +67,12 @@ def window_start(end: date, tf: str) -> date:
 def money(v: float | None) -> str:
     if v is None:
         return "n/a"
-    a = abs(v)
+    sign, a = ("−" if v < 0 else ""), abs(v)
     if a >= 1e9:
-        return f"${v / 1e9:,.2f}B"
+        return f"{sign}${a / 1e9:,.2f}B"
     if a >= 1e6:
-        return f"${v / 1e6:,.2f}M"
-    return f"${v:,.0f}"
+        return f"{sign}${a / 1e6:,.2f}M"
+    return f"{sign}${a:,.0f}"
 
 
 def pct(v: float | None, digits: int = 3) -> str:

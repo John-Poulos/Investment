@@ -7,7 +7,7 @@
   <tr><th>Window</th><th>Reading</th><th class="num">Net $</th><th class="num">Open-market P</th><th class="num">Non-plan S</th><th class="num">Plan S</th><th class="num">Plan n/a S</th><th class="num">Gross S</th><th class="num">Insiders</th></tr>
   {% for n in m.net %}
   <tr>
-    <td>{{ n.tf }} <span class="muted">{{ n.start }} → {{ n.end }}</span></td>
+    <td>{{ n.tf }}<br><span class="muted" style="white-space:nowrap">{{ n.start }} → {{ n.end }}</span></td>
     {% if n.missing %}
     <td colspan="8" class="muted">missing: {{ n.missing }}</td>
     {% else %}
