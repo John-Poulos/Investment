@@ -598,6 +598,8 @@ def test_special_items_stated_amount_counts_and_another_year_does_not(dbs):
     assert special.stated_amount("A one-time charge of $40 million in 2022.", "2024", M) is None
     assert special.stated_amount("A one-time charge of $40 million in 2024.", "2024", M) == 40 * M
     assert special.stated_amount("A one-time benefit of $0.12 per share.", "2024", M) is None
+    # MSTR re-run 2: a stated $0 (or under $1M) is no charge
+    assert special.stated_amount("A one-time charge of $0 million in 2024.", "2024", M) is None
 
 
 def test_special_items_wording_only_years_never_warn(dbs):

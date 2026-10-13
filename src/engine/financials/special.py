@@ -108,6 +108,8 @@ def stated_amount(sentence: str, year: str | None, scale: float) -> float | None
             continue
         if PER_SHARE.match(sentence[n.end : n.end + 20]):
             continue
+        if not n.value or abs(n.value) < 1e6:  # zero or below $1M: no charge stated
+            continue
         d = abs(n.start - at)
         if best is None or d < best[0]:
             best = (d, n.value)
