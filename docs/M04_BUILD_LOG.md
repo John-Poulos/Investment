@@ -621,6 +621,8 @@ Do the bookkeeping once, before any code cites it (SB.1, S1.8, S1.9). No code, n
   - **RIVN ChaseBank 36%:** the build cannot see the stored axes; the next re-run's breakdown line shows its benchmark / type, so the owner can judge whether it is a revenue-concentration disclosure.
   - **Console:** `run_financials.py` prints only a start line, the "=== Summary" block onward, failures and the log path; the log file is unchanged (all subcommands, shared `Log`).
   - **Label test:** after the owner's labels (2b6c12d), the template test checks structure and label words only. `labels.read` reports a missing `label_date` on all 28 episodes and 10 red-flag rows for the owner.
+- Re-run 2 (2026-10-13, `logs/financials_units_20261013-002902.txt`, 0 requests): NVIDIA FY2025 3 at 34% and FY2026 2 at 36% ≈ $77.7B back (its customer facts carry the Compute & Networking segment axis; receivables-benchmark facts left out); INTC 3 at 43%; MRVL 2 at 51%; MU 1 at 17%; RIVN "ChaseBank 36%" has benchmark revenue and type customer concentration, so it stays (a real disclosure); AAPL 0 (only receivables benchmarks). BA was left out as "risk type USGovernmentContractsMember" (35% of revenue): fixed in the same branch — a government-contracts type counts as a customer concentration; its aggregate member amounts stay left out. Console prints only the summary.
+
 ### Part 7b — R12, unit economics and customers
 ### Part 8a — CvD assembly, health vote and the M04 tab
 ### Part 8b — Calibration
