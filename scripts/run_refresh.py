@@ -24,11 +24,26 @@ ROOT = Path(__file__).resolve().parent.parent
 SCHEDULED_AT = time(2, 0)  # local time of the nightly task
 
 
+def price_symbols(engine, report) -> tuple[dict[str, str | None], dict[str, str], list[str]]:
+    """(symbols to fetch today, tracked names, tracked over the soft cap): core + promoted,
+    then the benchmark SPY with no CIK (D-UI-33), then today's share of the tracked tier."""
+    from engine.prices.store import tracked_rotation, with_benchmark
+
+    symbols: dict[str, str | None] = {}
+    for ticker, label in report.watchlist.items():
+        cik = label.rsplit("(", 1)[-1].rstrip(")") if label.endswith(")") else None
+        symbols[ticker] = cik if cik and len(cik) == 10 else None
+    symbols = with_benchmark(symbols)
+    tracked = {t: c for t, c in report.tracked.items() if t not in symbols}
+    today, over = tracked_rotation(engine, tracked)
+    return symbols | today, tracked, over
+
+
 def prices_step(engine, report) -> str:
-    """Daily prices after the SEC step (D-UI-2): core + promoted every run, tracked names in
-    a 3-day rotation; at most 40 requests/hour so the app keeps 8 (D-M02-12). Never fails
-    the run."""
-    from engine.prices.store import refresh_prices, tracked_rotation
+    """Daily prices after the SEC step (D-UI-2): core + promoted and the benchmark SPY every
+    run (D-UI-33), tracked names in a 3-day rotation; at most 40 requests/hour so the app
+    keeps 8 (D-M02-12). Never fails the run."""
+    from engine.prices.store import refresh_prices
     from engine.prices.tiingo import (
         BATCH_HOURLY_BUDGET,
         BATCH_MIN_INTERVAL_S,
@@ -42,13 +57,8 @@ def prices_step(engine, report) -> str:
                               min_interval_s=BATCH_MIN_INTERVAL_S)  # fmt: skip
     except MissingKey as e:
         return f"\nPrices (Tiingo): skipped — {e}\n"
-    symbols: dict[str, str | None] = {}
-    for ticker, label in report.watchlist.items():
-        cik = label.rsplit("(", 1)[-1].rstrip(")") if label.endswith(")") else None
-        symbols[ticker] = cik if cik and len(cik) == 10 else None
-    tracked = {t: c for t, c in report.tracked.items() if t not in symbols}
-    today, over = tracked_rotation(engine, tracked)
-    symbols |= today
+    symbols, tracked, over = price_symbols(engine, report)
+    today = {s: c for s, c in symbols.items() if s in tracked}
     try:
         res = refresh_prices(engine, client, symbols, datetime.now(UTC))
     except Exception as e:  # prices must not break the SEC run report
@@ -244,6 +254,22 @@ def financials_cvd_local_step(engine, report) -> str:
         lines = run_local_part(engine, companies, datetime.now(UTC))
     except Exception as e:  # must not break the run report
         lines = [f"M04 CvD — local pass (Part 8a): error — {type(e).__name__}: {e}"]
+    return "\n" + "\n".join(lines) + "\n"
+
+
+def technicals_local_step(engine, report) -> str:
+    """M09 Part 1 local pass (0 requests beyond SPY's daily price in `prices_step`), after
+    the M04 local passes so the gate, filing status and CvD are current: band_z, price_band,
+    trend_state, mom_12_1 and rev_1m for every covered name (D-M09-1…9). Never fails."""
+    from engine.technicals.params import load_safe
+    from engine.technicals.step import run_local_part
+
+    try:
+        params, note = load_safe(ROOT / "config" / "technicals.toml")
+        lines = run_local_part(engine, companies_of(report), datetime.now(UTC), params=params,
+                               params_note=note)  # fmt: skip
+    except Exception as e:  # must not break the run report
+        lines = [f"M09 technicals — local pass: error — {type(e).__name__}: {e}"]
     return "\n" + "\n".join(lines) + "\n"
 
 
@@ -512,6 +538,7 @@ def _run(args, engine, folder):
     prices += financials_gate_local_step(engine, report)
     prices += financials_quality_local_step(engine, corpus, report)
     prices += financials_cvd_local_step(engine, report)
+    prices += technicals_local_step(engine, report)
     text = format_report(report) + calls + prices
     logs = ROOT / "logs"
     logs.mkdir(exist_ok=True)
