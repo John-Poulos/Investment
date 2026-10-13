@@ -516,6 +516,10 @@ def capex_summary(ticker: str, got) -> list[str]:
         out.append(
             f"      {o.outcome}: {o.metric} {o.period} (release {o.release_filed}; {o.state}){why}"
         )
+    approx = [o for o in rec.outcomes if o.kind == "score" and o.outcome == "unscored"
+              and o.state.startswith("capex recipe approximate")]  # fmt: skip
+    for o in approx[-2:]:
+        out.append(f"      unscored: capex {o.period} guide {o.guide_text}: {o.state}")
     misses = [o for o in rec.outcomes if o.kind == "score" and o.outcome == "miss"]
     for o in misses[-4:]:
         out.append(
@@ -555,7 +559,14 @@ def run_capex(args, log: Log, folder: Path) -> int:
         nvda_instances(client, engine, corpus, log, clog, now)
         log("")
     else:
-        log("SEC skipped (--no-sec): NVIDIA instances not read", "")
+        log("SEC skipped (--no-sec): NVIDIA instances not read; stored facts used")
+        if NVDA_CIK in comps.values():
+            from engine.sec.xbrl_facts import rebuild_series
+
+            b, r = rebuild_series(engine, NVDA_CIK)
+            log(f"  NVIDIA series rebuilt from stored facts (0 requests): {b} concept series, "
+                f"{r} rows")  # fmt: skip
+        log("")
 
     t0 = time.monotonic()
     results = {}
@@ -587,6 +598,8 @@ def run_capex(args, log: Log, folder: Path) -> int:
         log("  " + (shown or "none stored"))
     if clog is not None:
         log(*clog.lines())
+    else:
+        log("SEC requests: 0 (--no-sec)")
     after = counts(engine)
     log(
         "Rows added per table: "

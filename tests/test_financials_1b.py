@@ -771,3 +771,167 @@ def test_fixture_tests_cannot_open_the_owner_data_folder():
 
     with pytest.raises(AssertionError, match="owner's data folder"):
         open_db("engine", data_dir())
+
+
+# --- Part 1b live check 1 fixes (D-M04-3, -84, -85) --------------------------------------------
+
+
+def test_amzn_window_definition_beats_older_ppe_years(dbs):
+    """The definition covering the displayed window wins, not the one with more years over
+    the whole history (live check 1: Amazon's PP&E tag runs back further)."""
+    engine, _ = dbs
+    load(engine, AMZN, "amzn_companyfacts_trimmed_20261012.json", "1231")
+    for y in range(2004, 2015):  # older PP&E-tag years: 12 PP&E years vs 11 productive
+        fact(engine, AMZN, "PaymentsToAcquirePropertyPlantAndEquipment", f"{y}-01-01",
+             f"{y}-12-31", (100 + y - 2004) * M, f"{y + 1}-02-01")  # fmt: skip
+    for y in range(2018, 2026):
+        fact(engine, AMZN, "PaymentsToAcquireProductiveAssets", f"{y}-01-01", f"{y}-12-31",
+             (12_000 + 1_000 * (y - 2018)) * M, f"{y + 1}-02-01")  # fmt: skip
+    for y in range(2015, 2026):
+        fact(engine, AMZN, "Revenues", f"{y}-01-01", f"{y}-12-31", (100_000 + 10_000 * (y - 2015)) * M,
+             f"{y + 1}-02-01")  # fmt: skip
+        fact(engine, AMZN, "NetCashProvidedByUsedInOperatingActivities", f"{y}-01-01",
+             f"{y}-12-31", (20_000 + 3_000 * (y - 2015)) * M, f"{y + 1}-02-01")  # fmt: skip
+    tot = {t.label: t for t in capex.total_capex(engine, AMZN, AS_OF)}
+    window = [f"FY{y}" for y in range(2018, 2026)]
+    assert all(tot[k].definition == "productive" and not tot[k].definition_changed for k in window)
+    assert tot["FY2016"].definition == "productive" and not tot["FY2016"].definition_changed
+    # Years outside the window filled from the PP&E tag are still marked.
+    assert tot["FY2014"].definition_changed and tot["FY2004"].definition_changed
+    assert tot["FY2014"].note == "definition changed: PP&E payments this year (not scored)"
+    cv = capex.capex_view(engine, AMZN, AS_OF)
+    assert cv.definition == "productive assets (broader)" and cv.changed_years == []
+    assert [y.label for y in cv.years] == window
+    g = {r.key: r for r in trends.trends_view(engine, AMZN, AS_OF, cv).rows}["fcf_growth"].cells
+    ocf25, ocf24 = 50_000 * M, 47_000 * M
+    assert g["FY2025"].value == pytest.approx((ocf25 - 19_000 * M) / (ocf24 - 18_000 * M) - 1)
+    # A tie in the window goes to the PP&E tag.
+    for y in range(2018, 2026):
+        fact(engine, AMZN, "PaymentsToAcquirePropertyPlantAndEquipment", f"{y}-01-01",
+             f"{y}-12-31", (11_000 + 1_000 * (y - 2018)) * M, f"{y + 1}-02-01")  # fmt: skip
+    tot = {t.label: t for t in capex.total_capex(engine, AMZN, AS_OF)}
+    assert tot["FY2025"].definition == "ppe" and tot["FY2025"].value == 18_000 * M
+    assert tot["FY2015"].definition_changed  # productive-only year, now outside the series
+
+
+def test_capex_guide_scored_only_on_an_exact_recipe(dbs):
+    """MSFT FY2026: guide >= $40B with an unmapped clause, PP&E-only actual $35.8B: unscored."""
+    engine, _ = dbs
+    cik = "0000000047"
+    entity(engine, cik, "Illustrative", "0630")
+    fact(engine, cik, "PaymentsToAcquirePropertyPlantAndEquipment", "2025-07-01", "2026-06-30",
+         35_802 * M, "2026-07-30")  # fmt: skip
+    fact(engine, cik, "PaymentsToAcquirePropertyPlantAndEquipment", "2024-07-01", "2025-06-30",
+         30_000 * M, "2025-07-30")  # fmt: skip
+    acc = "0000000047-25-000001"
+    release(engine, cik, acc, "2025-04-30")
+    clause = "including the lease reclassification impact from the useful life update"
+    guide(engine, cik, acc, "2025-10-29", "capex", "FY2026", "point", 40e9, 40e9, bound="floor",
+          clause=clause)  # fmt: skip
+    guide(engine, cik, acc, "2025-01-29", "capex", "FY2025", "point", 32e9, 32e9, bound="floor")
+    rec = record.record_for(engine, None, cik, date(2026, 10, 12))
+    got = {o.period: o for o in rec.outcomes if o.kind == "score"}
+    assert (got["FY2026"].outcome, got["FY2026"].state) == (
+        "unscored", f"capex recipe approximate ({clause})")  # fmt: skip
+    assert got["FY2026"].actual == 35_802 * M  # still shown
+    assert (got["FY2025"].outcome, got["FY2025"].state) == ("miss", "below the floor")  # exact
+    assert (rec.hits, rec.misses) == (0, 1)
+
+
+def _row(metric, kind, low, high, bound=None):
+    return {"metric": metric, "kind": kind, "low": low, "high": high, "bound": bound,
+            "flag": None, "flag_reason": None}  # fmt: skip
+
+
+def test_direction_aware_scoring_cost_and_not_a_target():
+    act = record.ActualValue
+    s = record._score_one
+    # Performance metrics miss below the low end.
+    assert s(_row("revenue", "range", 10, 12), act(9.0)) == ("miss", "below the low end")
+    assert s(_row("operating_income", "range", 10, 12), act(13.0)) == ("hit", "above the range")
+    # Cost metrics miss above the high end.
+    assert s(_row("operating_expenses", "range", 10, 12), act(13.0)) == (
+        "miss", "above the high end")  # fmt: skip
+    assert s(_row("operating_expenses", "range", 10, 12), act(9.0)) == ("hit", "below the range")
+    assert s(_row("total_expenses", "range", 10, 12), act(11.0)) == ("hit", "within the range")
+    assert s(_row("operating_expenses", "point", 12, 12, "ceiling"), act(12.5)) == (
+        "miss", "above the ceiling")  # fmt: skip
+    assert s(_row("operating_expenses", "point", 10, 10, "floor"), act(9.0))[0] == "unscored"
+    assert s(_row("operating_expenses", "range", 10, 12), act(None, why="no actual"))[0] == (
+        "missing")  # fmt: skip
+    # Tax rate and other income are not performance targets (NVDA, META rows).
+    for m in ("tax_rate", "other_income"):
+        assert s(_row(m, "range", 15.5, 17.5), act(12.4)) == (
+            "unscored", "not a performance target (D-M04-84)")  # fmt: skip
+
+
+def test_tax_rate_rows_unscored_in_the_record(dbs):
+    engine, _ = dbs
+    cik = "0000000048"
+    entity(engine, cik, "Illustrative", "1231")
+    acc = "0000000048-25-000001"
+    release(engine, cik, acc, "2025-04-30")
+    guide(engine, cik, acc, "2025-04-30", "tax_rate", "FY2025", "range", 12.0, 15.0, unit="%",
+          basis="unspecified")  # fmt: skip
+    rec = record.record_for(engine, None, cik, date(2026, 10, 12))
+    o = next(o for o in rec.outcomes if o.kind == "score")
+    assert (o.outcome, o.state) == ("unscored", "not a performance target (D-M04-84)")
+    assert rec.scored == 0 and rec.missing == "no scored guide yet (unscored 1)"
+
+
+def test_only_core_families_count_as_removed(dbs):
+    engine, corpus = dbs
+    entity(engine, INTC, "Intel Corp", "1231")
+    a = intel_releases(engine)
+    guide(
+        engine, INTC, a["apr22"], "2022-04-28", "operating_expenses", "FY2022", "approx", 2e10, 2e10
+    )
+    guide(
+        engine, INTC, a["apr22"], "2022-04-28", "tax_rate", "FY2022", "approx", 13.0, 13.0, unit="%"
+    )
+    rec = record.record_for(engine, corpus, INTC, date(2023, 5, 20))
+    rem = {o.metric: o for o in rec.outcomes if o.kind == "removal"}
+    assert {m: o.outcome for m, o in rem.items()} == {
+        "revenue": "removed", "eps_diluted": "removed", "capex": "removed",
+        "operating_expenses": "dropped", "tax_rate": "dropped"}  # fmt: skip
+    assert rem["tax_rate"].state.startswith("dropped (information): removed; not restated")
+    engine.execute("BEGIN")
+    record.write_signals(engine, rec, "INTC", date(2023, 5, 20))
+    record.store(engine, rec, "n")
+    engine.execute("COMMIT")
+    sig = engine.execute(
+        "SELECT method FROM signal WHERE signal = 'guidance_removed' AND timeframe = 'MY'"
+    ).fetchall()
+    assert len(sig) == 1 and "tax_rate" not in sig[0][0] and "operating_expenses" not in sig[0][0]
+    stored = engine.execute(
+        "SELECT outcome FROM guidance_outcome WHERE kind = 'removal' AND metric = 'tax_rate'"
+    ).fetchone()
+    assert stored[0] == "dropped"
+    # Once the period has ended, a non-core removal is still "dropped", not "expired".
+    rec = record.record_for(engine, corpus, INTC, date(2024, 2, 1))
+    got = {o.metric: o.outcome for o in rec.outcomes if o.kind == "removal"}
+    assert got["tax_rate"] == "dropped" and got["revenue"] == "expired"
+
+
+def test_capex_no_sec_recomputes_locally_and_prints_the_summary(tmp_path):
+    """`run_financials.py capex --no-sec`: 0 requests, NVIDIA series rebuilt, same summary."""
+    import argparse
+
+    from engine.store.db import open_db
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import run_financials as rf
+
+    data = tmp_path / "data"
+    engine = open_db("engine", data)
+    open_db("corpus", data).close()
+    nvda_setup(engine)
+    engine.close()
+    lines: list[str] = []
+    args = argparse.Namespace(no_sec=True, tickers="NVDA")
+    assert rf.run_capex(args, lambda *ls: lines.extend(ls), data) == 0
+    text = "\n".join(lines)
+    for want in ("SEC skipped (--no-sec)", "NVIDIA series rebuilt from stored facts (0 requests)",
+                 "=== Summary (what the owner looks for) ===", "  NVDA: total capex = ",
+                 "NVIDIA pre-FY2022 capex", "SEC requests: 0 (--no-sec)"):  # fmt: skip
+        assert want in text, want

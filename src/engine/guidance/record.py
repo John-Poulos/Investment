@@ -11,7 +11,13 @@ local pass of every refresh (0 SEC requests).
   ceilings, direction-only, point and "approximately" guides are **unscored** (no
   tolerance yet); rows flagged `not_meaningful` or with an open `guidance_implausible` /
   `guidance_conflict` item are unscored until resolved (D-M04-79);
-- **miss** = actual below the low end, else **hit**; the actual is on the guide's own
+- direction (D-M04-84): revenue, margin, EPS, income and capex **miss** when below the low
+  end (or floor); cost metrics (operating expenses, total expenses, cost of revenue) miss
+  when **above** the high end (a ceiling is their high end, a floor is unscored); tax rate
+  and other income are **unscored: not a performance target** (still shown);
+- capex is scored only on an exact M02 recipe; an approximate recipe or an unmapped clause
+  reads **unscored: capex recipe approximate (<clause>)** (Microsoft FY2026 Q4);
+- otherwise **hit**; the actual is on the guide's own
   basis: GAAP (and "unspecified", labelled) from first-filed facts via `facts_as_of`;
   non-GAAP needs the stated reconciliation, not stored yet → missing; capex from M02's
   `moneyflow/guided.py` path (`actual_for`, recipe of the guide's clause, shown-actual
@@ -28,7 +34,10 @@ stored call both silent) can be a removal; "call not stored yet", "call unavaila
 checked" and "latest results not read yet" give **missing** with that state. A stated
 reason (a "no outlook" refusal stored in `guidance_skip`, or a withdrawal sentence in this
 or the prior release and call) makes it **unscored: reason stated**, with the quote. A
-removal whose period has ended reads **expired**.
+removal whose period has ended reads **expired**. Only the core families (revenue, gross
+margin, EPS, operating income, net income, capex, FCF) count as removed or expired and
+feed `guidance_removed` / M01 rule 4; any other family's is **dropped** ("dropped
+(information)"), stored and shown, never in the signal (D-M04-85).
 
 `guidance_hit_rate` = hits ÷ scored guides; "repeated" = 2† misses in the last 4 guided
 quarters. A company whose scanned releases (and stored calls) never guide reads "missing
@@ -46,7 +55,7 @@ from datetime import date
 from engine.calls.transcripts import last_quarter
 from engine.guidance.changes import changes_for
 from engine.guidance.parse import CAPEX_WORDS
-from engine.moneyflow.actuals import Book, actual_for, overrides_by_cik
+from engine.moneyflow.actuals import Book, actual_for, overrides_by_cik, recipe_for
 from engine.moneyflow.guided import NO_OUTLOOK, RESULTS_MIN_DAYS, freshness
 from engine.moneyflow.periods import fiscal_year_end, span_of
 from engine.moneyflow.stated import stated_for
@@ -72,6 +81,14 @@ RATIOS = {
     "operating_margin": ("operating_income", "revenue"),
     "tax_rate": ("income_tax", "pretax_income"),
 }
+# Direction of a miss (D-M04-84): performance metrics miss below the low end, cost metrics
+# above the high end; a tax rate or other income is not a performance target (unscored).
+COST = frozenset({"operating_expenses", "total_expenses", "cost_of_revenue"})
+NOT_TARGET = frozenset({"tax_rate", "other_income"})
+# Removals that count (D-M04-85): only these families feed `guidance_removed` / M01 rule 4;
+# any other family's removal is stored and shown as "dropped (information)".
+CORE = frozenset({"revenue", "gross_margin", "eps_diluted", "operating_income", "net_income",
+                  "capex", "fcf"})  # fmt: skip
 # Withdrawal wording that states why a guide was dropped (reason search, S1.7).
 _DROP_REASON = re.compile(
     r"\b(?:(?:not|no longer|won't|will not|do not|don't|are not)\s+(?:be\s+)?"
@@ -305,7 +322,21 @@ def gaap_actual(
 
 
 def capex_actual(book: Book, period: str, clause, override, stated) -> ActualValue:
+    """M02's guided-vs-actual capex; scored only when the recipe is exact (D-M04-3): an
+    approximate recipe or an unmapped clause gives "capex recipe approximate (<clause>)"."""
+    recipe = recipe_for(clause, override)
     a = actual_for(book, period, clause, override, stated)
+    rv = a.recipe
+    if recipe.approximate or (rv is not None and rv.approximate):
+        what = clause or recipe.label
+        if rv is not None and rv.note and not recipe.approximate:
+            what = rv.note.removeprefix("approximate: ")
+        return ActualValue(
+            float(a.shown) if a.shown is not None else None,
+            f"{a.label} (M02 guided-vs-actual)",
+            "",
+            f"capex recipe approximate ({what})",
+        )
     if a.shown is None:
         return ActualValue(None, why="no capex actual for the period yet (M02 recipe)")
     ref = a.recipe.how if a.recipe and a.source == "recipe" else (
@@ -330,11 +361,17 @@ def _latest_before(rows: list[sqlite3.Row], end: date) -> sqlite3.Row | None:
 
 
 def _score_one(r: sqlite3.Row, actual: ActualValue) -> tuple[str, str]:
-    """(outcome, state) for a guide row whose period has ended."""
+    """(outcome, state) for a guide row whose period has ended (direction per D-M04-84)."""
     if r["flag"]:
         return "unscored", f"flagged {r['flag']}: {r['flag_reason'] or ''}".strip()
+    if r["metric"] in NOT_TARGET:
+        return "unscored", "not a performance target (D-M04-84)"
     if r["kind"] == "direction":
         return "unscored", "direction only"
+    if actual.why.startswith("capex recipe approximate"):
+        return "unscored", actual.why
+    if r["metric"] in COST:
+        return _score_cost(r, actual)
     if r["bound"] == "ceiling":
         return "unscored", "ceiling (not scored, D-M04-79)"
     if r["bound"] != "floor" and r["kind"] in ("point", "approx"):
@@ -347,6 +384,22 @@ def _score_one(r: sqlite3.Row, actual: ActualValue) -> tuple[str, str]:
     if r["bound"] != "floor" and actual.value > float(r["high"]):
         return "hit", "above the range"
     return "hit", "at or above the floor" if r["bound"] == "floor" else "within the range"
+
+
+def _score_cost(r: sqlite3.Row, actual: ActualValue) -> tuple[str, str]:
+    """A cost metric misses above the high end; a ceiling is its high end, a floor is not
+    scored (the mirror of D-M04-79; D-M04-84)."""
+    if r["bound"] == "floor":
+        return "unscored", "floor on a cost metric (not scored, D-M04-84)"
+    if r["bound"] != "ceiling" and r["kind"] in ("point", "approx"):
+        return "unscored", f"{r['kind']} guide: no tolerance yet (D-M04-10)"
+    if actual.value is None:
+        return "missing", actual.why
+    if actual.value > float(r["high"]):
+        return "miss", "above the ceiling" if r["bound"] == "ceiling" else "above the high end"
+    if r["bound"] != "ceiling" and actual.value < float(r["low"]):
+        return "hit", "below the range"
+    return "hit", "at or below the ceiling" if r["bound"] == "ceiling" else "within the range"
 
 
 def score(
@@ -509,7 +562,7 @@ def removals(
                     "expired",
                     f"period ended {span.end}; not guided at {cur.filed}",
                 )
-                out.append(o)
+                out.append(_information(o))
                 continue
             st = freshness(engine, cik, expected, today, corpus, metric=metric, event=cur.event)
             if st.state == "company gives no outlook yet":
@@ -528,14 +581,23 @@ def removals(
                     o.state = "not restated: release and call silent, no reason stated"
                     if corpus is None:
                         o.note = "reason not searched (no corpus)"
-            out.append(o)
+            out.append(_information(o))
     return out
+
+
+def _information(o: Outcome) -> Outcome:
+    """A removal (or expiry) outside the core families is "dropped (information)", never in
+    the `guidance_removed` signal (D-M04-85)."""
+    if o.outcome in ("removed", "expired") and o.metric not in CORE:
+        o.state = f"dropped (information): {o.outcome}; {o.state}"
+        o.outcome = "dropped"
+    return o
 
 
 # --- Record, storage, signals --------------------------------------------------------------
 
 
-_RANK = {"removed": 0, "expired": 0, "unscored": 1, "missing": 2}
+_RANK = {"removed": 0, "expired": 0, "dropped": 0, "unscored": 1, "missing": 2}
 
 
 def _first_findings(found: list[Outcome]) -> list[Outcome]:

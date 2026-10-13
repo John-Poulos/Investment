@@ -5,12 +5,14 @@ Three definitions, one per use (D-M04-3, D-M04-78):
 - **Company definition (display):** M02's recipe from `moneyflow/actuals.py` (clause-derived,
   `config/capex_definitions.toml` overrides, approximate label and shown-actual rule;
   D-M02-29, -32, -34), so the Money flow and Financials tabs show one value.
-- **Total capex (own history):** the longest consistent tag series. Tags fall in two
+- **Total capex (own history):** one consistent tag series. Tags fall in two
   definitions: PP&E payments (`PaymentsToAcquirePropertyPlantAndEquipment`, the IFRS
   equivalent) and the broader productive-assets tag (`PaymentsToAcquireProductiveAssets`,
   NVIDIA's extension `nvda:PurchasesOfPropertyAndEquipmentAndIntangibleAssets` for
-  FY2013–21 — same caption, so one definition across the switch). The definition with the
-  most fiscal years is the series; a year filled from the other one reads "definition
+  FY2013–21 — same caption, so one definition across the switch). The definition that
+  covers more of the displayed window (the last 8 fiscal years with capex) is the series,
+  tie → PP&E tag (Part 1b live check 1: Amazon's older PP&E-tag years must not push the
+  window off the broader tag); a year filled from the other one reads "definition
   changed" and is not scored. A broader tag carries the marker "broader tag: <what it
   adds>" (and its gap to the PP&E tag where both exist: Amazon FY2016 +15.8%), worded
   apart from M02's "≈, gap X%". Consumers (FCF, runway, Q2 capex row) use this series.
@@ -175,20 +177,29 @@ def _per_definition(
     return out
 
 
-def total_capex(engine: sqlite3.Connection, cik: str, as_of: str) -> list[TotalCapex]:
-    """Fiscal-year total capex on the longest consistent definition, oldest first."""
+def total_capex(
+    engine: sqlite3.Connection, cik: str, as_of: str, window: int = WINDOW
+) -> list[TotalCapex]:
+    """Fiscal-year total capex, oldest first, on the definition that covers the displayed
+    window (the last `window` fiscal years with capex) in more years; tie → PP&E tag."""
     ppe_def, prod_def = definitions(cik)
     series = {
         "ppe": _per_definition(engine, cik, ppe_def, as_of),
         "productive": _per_definition(engine, cik, prod_def, as_of),
     }
     labels = {"ppe": ppe_def.label, "productive": prod_def.label}
-    main = "productive" if len(series["productive"]) > len(series["ppe"]) else "ppe"
-    other = "ppe" if main == "productive" else "productive"
-    ends = sorted(series[main])
-    for end in series[other]:
+    ends: list[str] = []
+    for end in sorted(set(series["ppe"]) | set(series["productive"])):
         if not any(near(end, e) for e in ends):
             ends.append(end)
+    shown = ends[-window:]
+
+    def covered(key: str) -> int:
+        pts = {e: v[0] for e, v in series[key].items()}
+        return sum(1 for e in shown if at(pts, e) is not None)
+
+    main = "productive" if covered("productive") > covered("ppe") else "ppe"
+    other = "ppe" if main == "productive" else "productive"
     out = []
     for end in sorted(ends):
         hit = at({e: v[0] for e, v in series[main].items()}, end)
