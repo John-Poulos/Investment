@@ -19,7 +19,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import date, datetime
 
-from engine.financials import debt, distress, gate, gate_step
+from engine.financials import debt, distress, gate, gate_step, gate_text
 from engine.financials import models as models_mod
 from engine.financials.queue import QueueError
 from engine.sec.client import iso
@@ -57,6 +57,9 @@ class GateView:
     items: list[tuple[int, str]]
     everyone: list[dict] = field(default_factory=list)
     note: str = ""
+    text_rows: list = field(default_factory=list)  # Part 4b-lite: the Gate text block
+    text_more: int = 0
+    text_classes: list = field(default_factory=list)  # the class-rule table
 
 
 def _items(engine: sqlite3.Connection, cik: str) -> list[tuple[int, str]]:
@@ -64,7 +67,8 @@ def _items(engine: sqlite3.Connection, cik: str) -> list[tuple[int, str]]:
         (r["item_id"], r["kind"])
         for r in engine.execute(
             "SELECT item_id, kind FROM review_queue WHERE cik = ? AND kind IN ('m04_gate_fail', "
-            "'m04_runway', 'm04_gate_input', 'm04_score_gap', 'm04_credit_line') "
+            "'m04_runway', 'm04_gate_input', 'm04_score_gap', 'm04_credit_line', "
+            "'m04_gc_text', 'm04_covenant') "
             "AND resolved_at IS NULL ORDER BY item_id",
             (cik,),
         )
@@ -221,6 +225,16 @@ def _rows(g: gate.Gate) -> list[Row]:
     )
     rows.append(
         Row(
+            "Going-concern and covenant text (Part 4b)",
+            g.text_summary or "—",
+            (f"current report {g.text_report}" if g.text_report else "no stored periodic text")
+            + (f"; {g.text_note}" if g.text_note else ""),
+            "fail class → trigger; warn class → warns + review; hypothetical → review only "
+            "below 8 quarters; spac_shell periods excluded (D-M04-34, -96)",
+        )
+    )
+    rows.append(
+        Row(
             "Filing status",
             g.filing_status or "—",
             "Part 1a",
@@ -340,6 +354,8 @@ def company_view(
         cg.neg = debt.negative_equity(engine, norm, t)
         g.raised = gate.raised_share(engine, g)
     items = _items(engine, norm)
+    review_hypo, _ = gate_text.runway_reviews(g.runway, g.tier, g.scope)
+    text_rows, more, _cur = gate_text.view_rows(engine, norm, t, review_hypo)
     return GateView(
         ticker,
         g,
@@ -352,7 +368,45 @@ def company_view(
         badge(g, items),
         items,
         everyone(engine, companies) if companies else [],
+        text_rows=text_rows,
+        text_more=more,
+        text_classes=CLASS_RULES,
     )
+
+
+# The class-rule table under the Gate text block (D-M04-34; owner's mock-up 2026-10-13)
+CLASS_RULES = (
+    (
+        "Auditor going-concern paragraph; management “substantial doubt exists”; IFRS “a "
+        "material uncertainty exists”; a breach or default the company states under its own "
+        "debt, not waived; forbearance; covenant-driven debt reclassification; acceleration; "
+        "delisting",
+        "fail + alert (m04_gate_fail)",
+        "Fisker FY2023; Invitae Q3 2023; Proterra FY2022",
+    ),
+    (
+        "Doubt alleviated; audit-matter only; IFRS “material uncertainty” not stated as "
+        "existing; a past breach or default waived or cured; covenant relief; listing "
+        "deficiency",
+        "warn + m04_gc_text / m04_covenant review",
+        "Microvast “alleviate”; UTI waiver; Albemarle relief period",
+    ),
+    (
+        "Hypothetical (“could raise substantial doubt”)",
+        "review only when runway < 8 q; else information",
+        "Riot FY2025",
+    ),
+    (
+        "“in compliance with … covenants”; ASC 205-40 evaluation; going-concern basis; negated",
+        "no trigger",
+        "Boeing FY2023; Invitae Q2 2023",
+    ),
+    (
+        "spac_shell periods (keyed on period end; untagged: the 8-K 2.01 close)",
+        "excluded",
+        "INFQ FY2025 10-K “alleviated” (shell year)",
+    ),
+)
 
 
 # --- Owner credit-line entry (D-M04-86) -----------------------------------------------------

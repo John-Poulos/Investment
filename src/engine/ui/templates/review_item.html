@@ -177,6 +177,16 @@
   </table>
   <h3 class="sub">Deciding sentence <span class="muted">({{ p.doc }})</span></h3><div class="quote">“{{ p.quote }}”</div>
   <p class="muted">Check that the amount and its sign are what the sentence says and that it is the company's whole effect for that year (D-M04-17, -18). <b>Explained</b>: an ordinary re-estimate (useful lives after a study, a contract closing out); <b>Concern</b>: profit leans on re-estimates (the GE pattern). The answer is stored on the sentence; the band stays as computed.</p>
+  {% elif it.kind in ('m04_gc_text', 'm04_covenant') or (it.kind == 'm04_gate_fail' and it.payload.gate_text) %}
+  {% set p = it.payload %}
+  <table class="data">
+    <tr><th>Filing</th><td>{{ p.form }} {{ p.accession }} filed {{ p.filed }} · period {{ p.period_end or '—' }}{% if p.current %} · <b>current report</b>{% else %} · history (a later report is current){% endif %}</td></tr>
+    <tr><th>Class</th><td><b>{{ p.class_label }}</b> <span class="muted">({{ p.classes | join(', ') if p.classes else p['class'] }}; effect {{ p.effect }})</span></td></tr>
+    {% if p.runway %}<tr><th>Runway</th><td>{{ p.runway }}</td></tr>{% endif %}
+    {% if p.note %}<tr><th>Note</th><td>{{ p.note }}</td></tr>{% endif %}
+  </table>
+  <h3 class="sub">Deciding sentence <span class="muted">({{ p.doc }}{% if p.passage_id %}, passage {{ p.passage_id }}{% endif %})</span></h3><div class="quote">“{{ p.quote }}”</div>
+  <p class="muted">{{ {'m04_gate_fail': 'A fail-class sentence (auditor going-concern paragraph, management "substantial doubt exists", IFRS "a material uncertainty exists", an asserted unwaived covenant breach or default, forbearance, covenant-driven reclassification, acceleration or delisting): the gate fails while this report is current (D-M04-34). Noted keeps it; Inputs wrong (note) records that the code misread the sentence, and it stops acting on the gate.', 'm04_gc_text': 'Going-concern wording that warns (alleviated doubt, a critical audit matter only, IFRS material uncertainty not stated as existing) or hypothetical wording while the runway is below 8 quarters (D-M04-34). Noted keeps the class; Treat as fail makes it a fail trigger while the report is current; Misread (note) removes its effect.', 'm04_covenant': 'A past breach or default that was waived or cured, covenant relief (a relief period, a raised limit, suspended covenants), or a listing-standard deficiency: the gate warns while this report is current (D-M04-34). Noted keeps the class; Treat as fail makes it a fail trigger while the report is current; Misread (note) removes its effect.'}[it.kind] }} See the <a href="/c/{{ it.ticker or p.ticker }}?tab=financials#gate-text">Gate text block</a>.</p>
   {% elif it.kind in ('m04_gate_fail', 'm04_runway', 'm04_gate_input', 'm04_score_gap') %}
   {% set p = it.payload %}
   <table class="data">
@@ -244,6 +254,13 @@
   {% set gate_actions = {'m04_gate_fail': (('noted', 'Noted'), ('inputs_wrong', 'Inputs wrong (note)')), 'm04_runway': (('allow_strength', 'Capex can be cut (allow strength)'), ('keep_blocked', 'Keep blocked')), 'm04_gate_input': (('map_tag', 'Map tag'), ('not_reported', 'Not reported')), 'm04_score_gap': (('noted', 'Noted'), ('look_closer', 'Look closer'))} %}
   {% for a, text in gate_actions[it.kind] %}
   <form method="post" action="/review/{{ it.item_id }}/{{ a }}">{% if a == 'map_tag' %}<input name="target" size="44" placeholder="us-gaap:PaymentsToAcquireProductiveAssets" required> {% endif %}<input name="note" size="36" placeholder="Note{{ '' if a == 'inputs_wrong' else ' (optional)' }}"{% if a == 'inputs_wrong' %} required{% endif %}><button class="btn" type="submit">{{ text }}</button></form>
+  {% endfor %}
+  </div>
+  {% elif it.kind in ('m04_gc_text', 'm04_covenant') %}
+  <h3 class="sub">Resolve</h3>
+  <div class="actions">
+  {% for a, text in (('noted', 'Noted — class right'), ('treat_as_fail', 'Treat as fail'), ('misread', 'Misread (note)')) %}
+  <form method="post" action="/review/{{ it.item_id }}/{{ a }}"><input name="note" size="36" placeholder="Note{{ '' if a == 'misread' else ' (optional)' }}"{% if a == 'misread' %} required{% endif %}><button class="btn" type="submit">{{ text }}</button></form>
   {% endfor %}
   </div>
   {% elif it.kind in ('m04_mscore', 'm04_estimate') %}

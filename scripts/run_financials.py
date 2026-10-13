@@ -12,6 +12,7 @@
     uv run python scripts/run_financials.py flags --no-sec   # local re-run, 0 SEC requests
     uv run python scripts/run_financials.py gate             # Part 4a live check
     uv run python scripts/run_financials.py gate --no-sec    # local re-run, 0 SEC requests
+    uv run python scripts/run_financials.py gate-text        # Part 4b-lite (0 SEC requests)
     uv run python scripts/run_financials.py quality          # Part 6 live check
     uv run python scripts/run_financials.py quality --no-sec # local re-run, 0 SEC requests
     uv run python scripts/run_financials.py units            # Part 7a live check
@@ -86,6 +87,12 @@ gate, distress score, debt, FCF-burn and negative-equity rows for every covered 
 from stored facts (0 requests), the Part 4a review items, one line per company and the
 regression cases. `--no-sec` recomputes from stored data only.
 
+`gate-text` (Part 4b-lite): going-concern and covenant sentences of every covered company's
+stored periodic text (10-K, 10-Q, 20-F, 40-F, 6-K and their EX-10 / EX-99), classed per
+D-M04-34 with verified quotes; `gc_language` / `covenant_status`; text alerts and reviews;
+then the survival gate again with the text classes. 0 SEC requests (`--no-sec` is accepted
+and changes nothing).
+
 Takes data/refresh.lock (one SEC process at a time). Writes
 logs/financials_<subcommand>_<YYYYMMDD-HHMMSS>.txt as it goes, with requests, MB and
 seconds per fetch type, rows added per table and engine.db size before and after; its own
@@ -121,7 +128,7 @@ SUBCOMMANDS = (
     ("cvd", "8a", "CvD assembly, health vote, M04 tab"),
     ("backtest", "8b", "calibration"),
 )
-BUILT = {"data", "capex", "profile", "peers", "flags", "gate", "units", "quality"}
+BUILT = {"data", "capex", "profile", "peers", "flags", "gate", "gate-text", "units", "quality"}
 NVDA_CIK = "0001045810"
 NVDA_YEARS = range(2013, 2022)  # FY2013–FY2021: capex only under the extension tag
 WDC_CIK = "0000106040"
@@ -2082,6 +2089,199 @@ def run_gate(args, log: Log, folder: Path) -> int:
     return 0
 
 
+# --- gate-text (Part 4b-lite) ----------------------------------------------------------------
+
+GATE_TEXT_TABLES = ("gate_text", "signal", "m04_proposal", "review_queue", "refresh_state")
+GATE_TEXT_SHOWN = 12  # "no trigger" rows printed per company (the rest counted)
+
+
+def gate_text_counts(engine) -> dict[str, int]:
+    return {t: engine.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in GATE_TEXT_TABLES}
+
+
+def _stored_gate_state(engine, cik: str) -> str:
+    r = engine.execute(
+        "SELECT value_text, method FROM signal WHERE cik = ? AND module_id = 'M04' AND "
+        "signal = 'survival_gate' AND timeframe = 'MY' ORDER BY as_of DESC LIMIT 1",
+        (cik,),
+    ).fetchone()
+    return (r["value_text"] or "missing") if r else "not computed"
+
+
+def gate_text_company_lines(engine, ct) -> list[str]:
+    """Per company: documents scanned, the current report, hits per class with quotes,
+    baseline rows, signals and items (M04_BUILD_LOG Part 4b "The owner looks for")."""
+    from engine.financials import gate_text
+
+    if ct.error:
+        return [f"{ct.ticker}: error — {ct.error}"]
+    s, tg = ct.scan, ct.tg
+    cur = tg.current
+    out = [
+        f"{ct.ticker}: documents scanned {s.docs_read} new, {s.docs_skipped} already scanned"
+        f"{' (first scan: baseline)' if s.first else ''}; {s.sentences} trigger sentence(s); "
+        f"covenant hypotheticals counted, not stored: {s.hypothetical_cov}; rows added "
+        f"{s.rows_new}" + (f"; kept (answered) {s.rows_kept}" if s.rows_kept else "")
+    ]
+    rep = cur.report if cur else None
+    out.append(
+        "    current report: "
+        + (
+            f"{rep['form']} {rep['accession']} filed {rep['filed']} (period "
+            f"{rep['period_end'] or '—'})"
+            if rep
+            else ("6-Ks of the last 400 days" if cur and cur.accessions else "none stored")
+        )
+        + (f" + {len(cur.accessions) - 1} later 6-K(s)" if rep and len(cur.accessions) > 1 else "")
+        + (f"; {cur.note}" if cur and cur.note else "")
+    )
+    if s.no_text:
+        out.append(f"    periodic filings without stored text: {len(s.no_text)} (newest: "
+                   f"{s.no_text[0]})")  # fmt: skip
+    rows = gate_text.rows_for(engine, ct.cik)
+    accs = cur.accessions if cur else set()
+    counts: dict[str, list[int]] = {}
+    for r in rows:
+        c = counts.setdefault(r["class"], [0, 0])
+        c[0] += 1
+        c[1] += int(r["accession"] in accs)
+    out.append(
+        "    hits per class: "
+        + (", ".join(f"{k} {v[0]} (current {v[1]})" for k, v in sorted(counts.items())) or "none")
+        + f"; baseline rows {sum(r['baseline'] for r in rows)}"
+    )
+    quiet = 0
+    for r in rows:
+        eff = gate_text.effective(r)
+        is_cur = r["accession"] in accs
+        if eff == "none" and (not is_cur or quiet >= GATE_TEXT_SHOWN):
+            continue
+        quiet += int(eff == "none")
+        q = r["quote"] if len(r["quote"]) <= 300 else r["quote"][:297] + "…"
+        out.append(
+            f"      [{'current' if is_cur else 'history'}] {r['class']} — {r['form']} "
+            f"{r['accession']} ({r['doc_type'] or r['form']}) filed {r['filed']}, period "
+            f"{r['period_end'] or '—'}: {gate_text.effect_text(r, is_cur, ct.review_hypo)}: “{q}”"
+            + (f" [{r['note']}]" if r["note"] else "")
+        )
+    out.append(
+        f"    signals: gc_language {ct.signals.get('gc_language', '—')}; covenant_status "
+        f"{ct.signals.get('covenant_status', '—')}; hypothetical review: "
+        f"{'yes' if ct.review_hypo else 'no'} ({ct.runway_why})"
+    )
+    if ct.queued:
+        out.append("    items: " + ", ".join(f"{k} {v}" for k, v in sorted(ct.queued.items())))
+    if ct.held:
+        out.append("    tracked, rows only (D-M04-80): would open " + ", ".join(ct.held))
+    return out
+
+
+def gate_text_summary(engine, corpus, tp, before, after, now) -> list[str]:
+    from engine.financials import gate_text, gate_text_step
+
+    out = [f"{SUMMARY_MARK} gate-text (Part 4b-lite) · {now:%Y-%m-%d %H:%M} UTC"]
+    comps = tp.companies.values()
+    read = sum(c.scan.docs_read for c in comps if c.scan)
+    skipped = sum(c.scan.docs_skipped for c in comps if c.scan)
+    out.append(f"Documents scanned: {read} new, {skipped} already scanned (classifier "
+               f"{gate_text.SCAN_VERSION}); SEC requests 0 (stored text only)")  # fmt: skip
+    rows = engine.execute("SELECT * FROM gate_text").fetchall()
+    ok, n = gate_text.verify_rows(corpus, rows)
+    out.append(f"Quotes verified against the stored documents: {ok} of {n} (D21)")
+    per: dict[str, int] = {}
+    for r in rows:
+        per[r["class"]] = per.get(r["class"], 0) + 1
+    out.append("Rows per class (all reports): "
+               + (", ".join(f"{k} {v}" for k, v in sorted(per.items())) or "none"))  # fmt: skip
+    out.append(f"Baseline rows (first scan): {sum(r['baseline'] for r in rows)}")
+    fails = [f"{c.ticker} ({'; '.join(sorted({x.split(' — ')[0] for x, _ in c.tg.fails}))})"
+             for c in comps if c.tg and c.tg.fails]  # fmt: skip
+    warns = [f"{c.ticker} ({'; '.join(sorted({x.split(' — ')[0] for x, _ in c.tg.warns}))})"
+             for c in comps if c.tg and c.tg.warns]  # fmt: skip
+    out.append("Current-report fail classes: " + (", ".join(fails) or "none"))
+    out.append("Current-report warn classes: " + (", ".join(warns) or "none"))
+    queued: dict[str, int] = {}
+    for c in comps:
+        for k, v in c.queued.items():
+            v = "already proposed by an earlier run" if v == "suppressed" else v
+            key = f"{k.split(':')[0]} {v}"
+            queued[key] = queued.get(key, 0) + 1
+    out.append("Part 4b items this run: "
+               + (", ".join(f"{k} {v}" for k, v in sorted(queued.items())) or "none"))  # fmt: skip
+    held = [f"{c.ticker} {k}" for c in comps for k in c.held]
+    if held:
+        out.append("Tracked names, rows only, no review items (D-M04-80): " + ", ".join(held))
+    withdrawn = sum(c.withdrawn for c in comps)
+    if withdrawn:
+        out.append(f"Items withdrawn (finding no longer holds): {withdrawn}")
+    items = gate_text_step.open_items(engine)
+    out.append(f"Open Part 4b items: {len(items)}")
+    out += [f"  {x}" for x in items]
+    out += [f"  alert: {a}" for a in tp.alerts]
+    changes = [f"{t}: {before.get(t, '—')} → {after[t]}" for t in sorted(after)
+               if before.get(t) != after[t]]  # fmt: skip
+    out.append("Gate changes after the text pass: " + (", ".join(changes) or "none"))
+    sig = [
+        f"{c.ticker} {c.signals.get('gc_language', '—')} / {c.signals.get('covenant_status', '—')}"
+        for c in comps
+    ]
+    out.append("gc_language / covenant_status: " + ", ".join(sig))
+    out.append("Deferred (MVP): EDGAR full-text history (S4.7), undrawn-credit finder, "
+               "m04_current_jump (D-M04-99)")  # fmt: skip
+    return out
+
+
+def gate_text_run(engine, corpus, comps: dict[str, str], now, log, mf=None):
+    """The `gate-text` work on open connections (0 SEC requests; tests inject scratch DBs)."""
+    from engine.financials import gate_step, gate_text_step
+
+    before = {t: _stored_gate_state(engine, c) for t, c in comps.items()}
+    t0 = time.monotonic()
+    tp = gate_text_step.text_pass(engine, corpus, comps, now, mf=mf)
+    log(f"Gate text scanned and classified for {len(tp.companies)} companies "
+        f"(0 requests, {time.monotonic() - t0:.1f} s)", "")  # fmt: skip
+    for _, c in sorted(tp.companies.items()):
+        log(*gate_text_company_lines(engine, c))
+    log("")
+    t1 = time.monotonic()
+    gp = gate_step.gate_pass(engine, comps, now, mf=mf)
+    after = {t: c.gate.state if c.gate else "error" for t, c in gp.companies.items()}
+    log(f"Survival gate recomputed with the text classes ({time.monotonic() - t1:.1f} s):")
+    for _, c in sorted(gp.companies.items()):
+        if c.gate is not None and (c.gate.text_summary or "").startswith(("fail", "warn")):
+            log(f"  {c.ticker}: {c.gate.state} — text {c.gate.text_summary}")
+    gw = sum(c.withdrawn for c in gp.companies.values())
+    if gw:
+        log(f"  Part 4a items withdrawn on the recompute (condition no longer holds): {gw}")
+    log("")
+    log(*gate_text_summary(engine, corpus, tp, before, after, now))
+    return tp, gp
+
+
+def run_gate_text(args, log: Log, folder: Path) -> int:
+    from engine.store.db import open_db
+
+    engine = open_db("engine", folder)
+    corpus = open_db("corpus", folder, check_same_thread=False)
+    now = datetime.now(UTC)
+    mb_before, before = db_mb(folder), gate_text_counts(engine)
+    comps = companies(engine)
+    if args.tickers:
+        wanted = {t.strip().upper() for t in args.tickers.split(",")}
+        comps = {t: c for t, c in comps.items() if t in wanted}
+    log(f"run_financials gate-text · {now:%Y-%m-%d %H:%M} UTC · {len(comps)} companies · "
+        "stored text only (0 SEC requests" + ("; --no-sec has no effect" if args.no_sec else "")
+        + ")", f"engine.db before: {mb_before:,.1f} MB", "")  # fmt: skip
+    gate_text_run(engine, corpus, comps, now, log)
+    log("SEC requests: 0 (stored text only)")
+    after = gate_text_counts(engine)
+    log("Rows added per table: " + ", ".join(f"{t} {after[t] - before[t]:+,}" for t in after))
+    log(f"engine.db: {mb_before:,.1f} MB → {db_mb(folder):,.1f} MB")
+    corpus.close()
+    engine.close()
+    return 0
+
+
 # --- quality (Part 6) ----------------------------------------------------------------------
 
 QUALITY_TABLES = ("estimate_change", "special_item", "signal", "m04_proposal", "review_queue",
@@ -2476,6 +2676,8 @@ def _main() -> int:
             return run_quality(args, log, data_dir())
         if args.subcommand == "gate":
             return run_gate(args, log, data_dir())
+        if args.subcommand == "gate-text":
+            return run_gate_text(args, log, data_dir())
         return run_data(args, log, data_dir())
     except Exception:
         log("FAILED with a traceback:", traceback.format_exc())

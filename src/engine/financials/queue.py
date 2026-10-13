@@ -71,6 +71,9 @@ KIND_LABELS = {
     "m04_runway": "M04: capex-funded runway below 6 quarters",  # Part 4a
     "m04_gate_input": "M04: survival-gate input to map",  # Part 4a
     "m04_score_gap": "M04: distress score in the distress zone while the gate passes",  # 4a
+    "m04_gc_text": "M04: going-concern wording to read (alleviated, audit matter, IFRS, "
+    "hypothetical)",  # Part 4b
+    "m04_covenant": "M04: covenant waived or reset, or a listing notice",  # Part 4b
 }
 ACTIONS = {
     "m04_stage": ("confirm",),  # target = the stage chosen (default: the computed stage)
@@ -86,6 +89,9 @@ ACTIONS = {
     "m04_runway": ("allow_strength", "keep_blocked"),
     "m04_gate_input": ("map_tag", "not_reported"),  # map_tag: target = taxonomy:tag
     "m04_score_gap": ("noted", "look_closer"),
+    # Part 4b (D-M04-34, -98): stored on the gate_text rows; the gate reads them
+    "m04_gc_text": ("noted", "treat_as_fail", "misread"),
+    "m04_covenant": ("noted", "treat_as_fail", "misread"),
 }
 
 
@@ -339,6 +345,12 @@ def apply(
         if action == "break_confirmed":
             return f"break_confirmed: {what} categories changed; earlier and later not compared"
         return f"same_scope: {what} renamed only; the owner reads the lines as one scope"
+    if kind in ("m04_gc_text", "m04_covenant") or (
+        kind == "m04_gate_fail" and payload.get("gate_text")
+    ):
+        from engine.financials import gate_text  # Part 4b (D-M04-98)
+
+        return gate_text.apply_action(engine, item_id, kind, action, payload, cik, now, note)
     if kind in ("m04_gate_fail", "m04_runway", "m04_score_gap", "m04_gate_input"):
         from engine.financials import gate_view
 

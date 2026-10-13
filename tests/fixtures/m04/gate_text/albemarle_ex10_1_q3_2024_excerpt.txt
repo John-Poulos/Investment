@@ -1,0 +1,9 @@
+SECOND AMENDMENT TO CREDIT AGREEMENT
+
+"Covenant Relief Period" means the period commencing on the Second Amendment Effective Date and ending on the date on which the Borrower delivers to the Administrative Agent a compliance certificate for the fiscal quarter ending June 30, 2026.
+
+(a) Maximum Leverage Ratio. Permit the Leverage Ratio as of the end of any fiscal quarter to exceed (i) 5.75 to 1.00 for the fiscal quarter ending June 30, 2025.
+
+During the Covenant Relief Period, the Borrower shall not make any Restricted Payment in respect of the repurchase of its Equity Interests, other than Permitted Common Dividend Payments.
+
+An Event of Default shall exist if the Borrower fails to observe any covenant contained in Section 7.11.
