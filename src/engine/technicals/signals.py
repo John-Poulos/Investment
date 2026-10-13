@@ -187,6 +187,7 @@ class NameResult:
     mom: float | None = None
     rev: Reversal | None = None
     news: list[Catalyst] = field(default_factory=list)
+    foreign: list[Catalyst] = field(default_factory=list)  # 6-Ks listed only (D-M09-16)
     qual: m01_rules.Reading | None = None
     m04: m01_rules.M04Rows | None = None
     missing: str = ""  # one reason for every row (stale, no prices)
@@ -362,7 +363,7 @@ def compute(
         rv = res.rev
         base = w.bars[-1 - p.rev_weeks].date
         news, foreign = find_news(base, as_of) if find_news else ([], [])
-        res.news = list(news)
+        res.news, res.foreign = list(news), list(foreign)
         if res.news:
             zn = "news_move"
         elif rv.z >= p.extended_z:
@@ -383,7 +384,7 @@ def compute(
             bits.append("6-K in the window (not classified; may be results): "
                         + "; ".join(c.text() for c in foreign))  # fmt: skip
         bits += [TURNOVER_NOTE, qual]
-        srcs = list(src) + [Source(c.accession, c.filed, "A", f"8-K item {c.item}")
+        srcs = list(src) + [Source(c.accession, c.filed, "A", c.what)
                             for c in res.news]  # fmt: skip
         add("rev_1m", "; ".join(bits) + tail, value=round(rv.z, 4), text=zn, sources=srcs)
     return res

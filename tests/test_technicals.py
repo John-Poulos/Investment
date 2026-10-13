@@ -689,7 +689,7 @@ def test_refresh_fetches_spy_without_a_cik_before_tracked_names(dbs):
     assert with_benchmark({"SPY": None}) == {"SPY": None}
     src = (ROOT / "scripts" / "run_refresh.py").read_text(encoding="utf-8")
     assert src.index("prices += financials_quality_local_step(engine, corpus, report)") < \
-        src.index("prices += technicals_local_step(engine, report)")  # fmt: skip
+        src.index("prices += technicals_local_step(engine, report, corpus)")  # fmt: skip
 
 
 def test_script_signals_no_fetch_on_injected_db(dbs, tmp_path, capsys):

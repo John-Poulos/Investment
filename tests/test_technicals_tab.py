@@ -7,7 +7,9 @@ from dataclasses import replace
 
 from engine import m01_rules
 from engine.financials import cvd
+from engine.technicals import earnings, step
 from tests import test_financials_8a as t8a
+from tests import test_technicals as tt
 
 # --- single M01 reader: m01_rules agrees with Part 8a's reading -------------------------------
 
@@ -169,3 +171,99 @@ def test_insufficient_data_reads_as_no_state_yet(dbs):
     assert q.state == "incomplete" and "cvd_state missing: insufficient_data" in q.text
     assert m01_rules.rule3(rows).state == "blocked"
     assert m01_rules.rule7(rows).state == "warning"
+
+
+# --- 6-K earnings releases count as news (open item 2, D-M09-16) ------------------------------
+
+GFS = "0001709048"
+
+
+def doc(corpus, accession, filename, text, doc_type="EX-99.1", description=None):
+    corpus.execute(
+        "INSERT INTO document (accession, cik, filename, doc_type, url, content_type, text, "
+        "sha256, fetched_at, description) VALUES (?, ?, ?, ?, ?, 'text/html', ?, 'x', 't', ?)",
+        (accession, GFS, filename, doc_type, f"https://example/{accession}/{filename}", text,
+         description),
+    )  # fmt: skip
+
+
+def six_k(engine, acc, filed, accepted=None):
+    tt.event(engine, GFS, filed, accepted, acc=acc, item="6-K", category="foreign_report",
+             form="6-K")  # fmt: skip
+
+
+RELEASE = (
+    "Exhibit 99.1 GlobalFoundries Reports Third Quarter 2026 Financial Results Revenue of "
+    "$1.69 billion ... The company will host a conference call later today."
+)
+
+
+def test_results_exhibit_reads_the_heading_name_and_description(dbs):
+    _, corpus = dbs
+    doc(corpus, "A-release", "gfs-ex991.htm", RELEASE)
+    doc(corpus, "B-notice", "gfs-ex991.htm",
+        "Exhibit 99.1 GlobalFoundries to Announce Third Quarter 2026 Financial Results on "
+        "November 4")  # fmt: skip
+    doc(corpus, "C-agm", "ex99.htm", "GlobalFoundries Announces Results of Annual General "
+        "Meeting of Shareholders", doc_type="EX-99")  # fmt: skip
+    doc(corpus, "D-named", "q3-2026-earnings.htm", "Tables follow.")
+    doc(corpus, "E-described", "ex991.htm", "Tables.", description="Press release: Q3 results")
+    doc(corpus, "F-other", "ex991.htm", "GlobalFoundries appoints a new Chief Financial Officer")
+    doc(corpus, "G-ex992", "ex992.htm", RELEASE, doc_type="EX-99.2")
+    got = earnings.results_exhibit(corpus, "A-release")
+    assert got.startswith("EX-99.1 gfs-ex991.htm") and "Reports Third Quarter 2026 Financial " \
+        "Results" in got  # fmt: skip
+    assert earnings.results_exhibit(corpus, "B-notice") is None  # a date notice
+    assert earnings.results_exhibit(corpus, "C-agm") is None  # meeting results
+    assert "named: q3-2026-earnings.htm" in earnings.results_exhibit(corpus, "D-named")
+    assert "Q3 results" in earnings.results_exhibit(corpus, "E-described")
+    assert earnings.results_exhibit(corpus, "F-other") is None
+    assert earnings.results_exhibit(corpus, "G-ex992") is None  # EX-99.1 / EX-99 only
+    assert earnings.results_exhibit(None, "A-release") is None  # no corpus: listed only
+
+
+def test_a_6k_release_sets_news_move_and_others_stay_listed(dbs):
+    engine, corpus = dbs
+    closes = [100.0] * 30 + tt.rev_closes()
+    tt.put_weeks(engine, "GFS", closes, cik=GFS)
+    six_k(engine, "0001709048-26-000040", "2026-09-29", "2026-09-29T07:00:00.000Z")
+    doc(corpus, "0001709048-26-000040", "gfs-ex991.htm", RELEASE)
+    six_k(engine, "0001709048-26-000041", "2026-10-01", "2026-10-01T07:00:00.000Z")
+    doc(corpus, "0001709048-26-000041", "ex991.htm", "GlobalFoundries appoints a director")
+    six_k(engine, "0001709048-26-000042", "2026-10-02")  # no exhibit stored
+    # without corpus.db (Part 1 behaviour): every 6-K listed, no news move
+    tp = step.technicals_pass(engine, {"GFS": GFS}, tt.NOW, params=tt.P, mf=tt.NO_MODELS)
+    r = tp.results["GFS"]
+    assert not r.news and len(r.foreign) == 3
+    assert next(o for o in r.rows if o.signal == "rev_1m").text == "extended_up"
+    tp = step.technicals_pass(engine, {"GFS": GFS}, tt.NOW, params=tt.P, mf=tt.NO_MODELS,
+                              corpus=corpus)  # fmt: skip
+    r = tp.results["GFS"]
+    assert [c.accession for c in r.news] == ["0001709048-26-000040"]
+    assert [c.accession for c in r.foreign] == ["0001709048-26-000041", "0001709048-26-000042"]
+    row = tt.rows(engine, GFS, "rev_1m")[0]
+    assert row["value_text"] == "news_move" and row["source_ref"].endswith("+1")
+    assert "6-K 0001709048-26-000040 filed 2026-09-29 07:00 ET, earnings-release exhibit " \
+        "EX-99.1 gfs-ex991.htm" in row["method"]  # fmt: skip
+    assert "6-K earnings release" in row["method"]  # the source line
+    assert "6-K in the window (not classified; may be results): 6-K item 6-K " \
+        "0001709048-26-000041" in row["method"]  # fmt: skip
+
+
+def test_script_lists_6k_news_and_listed_6ks(dbs, tmp_path):
+    import argparse
+
+    engine, corpus = dbs
+    rt = tt.load_script("run_technicals")
+    tt.put_weeks(engine, "GFS", [100.0] * 30 + tt.rev_closes(), cik=GFS)
+    six_k(engine, "0001709048-26-000040", "2026-09-29", "2026-09-29T07:00:00.000Z")
+    doc(corpus, "0001709048-26-000040", "gfs-ex991.htm", RELEASE)
+    six_k(engine, "0001709048-26-000041", "2026-10-01")
+    log = rt.Log(tmp_path / "logs" / "t.txt")
+    args = argparse.Namespace(no_fetch=True, tickers=None, companies={"GFS": GFS})
+    assert rt.run_signals(args, log, tmp_path, engine=engine, now=tt.NOW, corpus=corpus) == 0
+    log.close()
+    text = (tmp_path / "logs" / "t.txt").read_text(encoding="utf-8")
+    news = text.split("News moves", 1)[1].split("6-Ks in the rev_1m window", 1)
+    assert "GFS: 6-K 0001709048-26-000040" in news[0]
+    assert "GFS: 6-K item 6-K 0001709048-26-000041" in news[1].split("Pack checkpoints")[0]
