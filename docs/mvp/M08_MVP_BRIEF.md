@@ -1,4 +1,5 @@
 # M08 Sentiment & valuation — MVP brief
+**Decided 2026-10-13 → docs/M08_VALUATION.md** (D-M08-1…7; Q08.1a–Q08.7a, with Q08.3 changed to (b) — M08 computes normalized earnings power as the shared helper `financials/nep.py` — and the owner's standard-metrics amendment to Q08.1a, recorded as DESIGN D32). Kept as the sitting record.
 Updated 2026-10-13 · Source: docs/M08_DESIGN_PACK.md (research) · Status: for owner decision (one sitting)
 
 ## Purpose in one paragraph

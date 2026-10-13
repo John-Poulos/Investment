@@ -1,0 +1,133 @@
+# M05 — Capex & future spend
+
+Status: MVP design decided 2026-10-13 (sitting 2, D-M05-1…8; M01 rule-4 amendment D-M01-7; M02 capex weighting D-M02-62); Part 1 next (wave W4) · Updated: 2026-10-13 · Outline headings: CAPEX and Future Spend (items 1–5); Follow the money (item 1) · Depends on: M00 (`fact`, `fact_dim`, corpus `passage`, D13 writer), M04 Parts 1b, 7a, 8a (`capex_split`, `financials/capex.py`, `trends.roic`, `major_customers`, `guidance_outcome`, `cvd_state`, `runway_q`, `survival_gate`), M02 Part 3 (`views.rpo`, `actuals.actual_for`, `guided.py`, `allocation.Window.ocf_cover`), M01 (rule 4) · Sources: S71–S73, S79, S-new-M05-1…10 (provisional IDs from `docs/M05_DESIGN_PACK.md` "New sources"; numbered into SOURCES.md at Part 1)
+
+Research: `docs/M05_DESIGN_PACK.md`; MVP cut: `docs/mvp/M05_MVP_BRIEF.md`; cross-module plan: `docs/mvp/MVP_PLAN.md`. Thresholds marked † are sourced or labelled starting values, never tuned on the watchlist alone (D32), calibrated at tuning. Every signal is labelled "hypothesis, not backtested". Missing data stays missing (`method` = "missing: <reason>"), never zero (D-M04-9). Research signals, not advice; warnings only (D8, D16).
+
+## Purpose
+Is the company's capex going into real demand, is its growth capex earning a return, and what has it committed to spend — and its customers committed to it? Binding: R9 (fabless companies read on purchase obligations and prepayments; capex still monitored for new offerings — that monitor is deferred), A1 (RPO, purchase obligations and ≥ 10% customers lead), D-M04-6 (amends A2: M04 owns the capex split, depreciation rung by default; **M05 owns growth capex × ROIC**), D-M04-42, -43, -54, -64 (M04 owns the ≥ 10% customer store and the CvD capex rows; M05 is the D-M04-64 pointer's destination), D-M02-5 (capex guidance positive for spender and suppliers; weighting decided here, D-M05-7), D10, D13, D14, D16, D32.
+
+Against the pack (brief): the lead signal tests capex against demand (outline 2 "rising into a demand wave", outline 5 "without demand destroys value"); peak risk is deferred; growth capex is paired with ROIC (outline 3–4). Outline 1 (capex that builds a moat, with a track record) waits for M06; the MVP shows M04's capex guidance outcomes as the track record.
+
+## Inputs
+| Data | Source (stored in; code) | Grade | Refresh |
+|---|---|---|---|
+| Total capex, depreciation (or D&A) rung, growth share, marks (`definition_changed`, useful-life change) | `capex_split` (0030; last 8 FYs), `financials/capex.py` `total_capex(…, window=…)` for the 9-year window | A | Per new filing |
+| M02 own-definition capex (shown beside, not scored) | `moneyflow/actuals.py` `actual_for` | A | Same |
+| ROIC series, `rev_yoy` | `financials/trends.py` (`roic_inputs`, `invested_capital`, `roic`); the n-FY ROIC series helper is added there in Part 1 (MVP_PLAN item 3; reused by M06) | A | Same |
+| RPO and its YoY vs own median | `rpo` concept; `moneyflow/views.py` `rpo()` (extended with the cover) | A | Same |
+| Contract liabilities (deposits) | `contract_liabilities` (current; M04 Part 6) + two new concepts, total and noncurrent (Part 1, D-SEC-30) | A | Same |
+| Purchase obligations, XBRL | `fact` (all companyfacts tags; 7a instance reads keep extension facts); per-tag concepts (Part 2, D-SEC-31) | A | Same |
+| Purchase obligations, text | corpus `passage` (latest 10-K and 10-Q, new filings, 2 prior annual reports per DS7); `financials/text.py` helpers | A (verified quote) | Same |
+| ≥ 10% customers | `fact_dim` (0035), `units_view.major_customers` (M04 store, D-M04-42, -43) | A | Same |
+| Capex guidance and outcomes, OCF ÷ capex | `moneyflow/guided.py`, `guidance_outcome`, `allocation.Window.ocf_cover` (D-M02-31) | A / B | Per release |
+| CvD state, runway, gate | `signal` via `signals.latest_signal`: `cvd_state`, `runway_q`, `survival_gate` (M04 8a, 4a) | per M04 | Per M04 run |
+| Spend channel | `config/m05_channels.toml` (owner-edited; M04's loader ignores it) | Owner | On edit |
+| Model tags | `config/company_models.toml` (MSTR, ETV, INFQ shell years → not applicable) | Owner | On edit |
+
+No new fetches.
+
+## Signals out
+Every row: `cik` key (ticker for display, D-M04-74), `module_id = "M05"`, one row per timeframe, `value` for the number, `value_text` for the state, `as_of` = the newest input's filing date, `source_ref` = newest accession "+N", inputs in `method`, `evidence_grade` = the weakest deciding input (D-M04-9). Missing rows: "missing: RPO not tagged", "missing: not applicable (<tag>)", "missing: no depreciation or D&A (not split)", never 0. ✓ = may carry weight once D13 weights exist; info = weight 0.
+
+| Signal | value / value_text | Meaning | MY | PT | ST | Grade |
+|---|---|---|---|---|---|---|
+| `capex_demand` | capex ÷ depreciation; BUILD_INTO_DEMAND / AHEAD_OF_DEMAND / CUTTING / MAINTENANCE / STEADY / INSUFFICIENT_HISTORY | Capex into demand? (outline 2, 5). **M05's vote** (D-M05-7): positive only under rule 4; AHEAD_OF_DEMAND is an M01 rule-4 exit-warning reason (D-M05-4, D-M01-7) | ✓ (info for fabless / outsourced, R9) | ✓ (same) | info | weakest input (A) |
+| `growth_capex_roic` | ROIC; ACCRETIVE / DILUTING / MAINTENANCE_ONLY / `not_meaningful` / INSUFFICIENT_HISTORY | Growth capex earning its return? (outline 3–4; D-M04-6) | ✓ (info for fabless / outsourced) | info | info | A |
+| `bookings_cover` | RPO ÷ TTM revenue (years); RISING / FLAT / FALLING / `short_history` | "Follow the bookings" (outline 5, A1); deposits and ≥ 10% customers shown beside, never added | ✓ | ✓ | info | A |
+| `commitment_cover` | commitments ÷ TTM denominator (years); RISING / FLAT / FALLING / `short_history` | Committed future spend (R9, A1); Part 2 | ✓ fabless / outsourced, else info | same | info | A (tag or verified quote) |
+
+Lines shown with the signals (no D13 rows): the deposits line "repayable, not revenue" (D-M05-6), leases not yet commenced and post-period commitments (D-M05-3), M02's own-definition capex, the current-year capex guide (shown, not scored), M04's ≥ 10% customers and capex guidance outcomes.
+
+## Timeframe parameters
+One computation for every profile; profiles differ in weight (above). Fiscal years on the company's own labels.
+
+| Parameter | Value (MVP) |
+|---|---|
+| `capex_demand` median window | Prior 8 FYs of capex ÷ depreciation on one rung (9-year read) |
+| D-M04-64 test | capex ÷ revenue vs own 3-FY average, > 1.5× while revenue falls |
+| CUTTING / MAINTENANCE | capex YoY ≤ −20%† / ratio 0.8–1.2† |
+| Growth share for MAINTENANCE_ONLY | < 25%† |
+| ROIC comparison | now vs 3 FYs earlier; DILUTING when > 3 pp† lower |
+| Cover change | ±10%† YoY sets RISING / FALLING |
+| XBRL vs text mark | > 5%† apart |
+
+## Rules
+1. **`capex_demand`, first match wins (D-M05-4):**
+   1. AHEAD_OF_DEMAND: capex ÷ revenue > 1.5× its own 3-FY average while revenue falls (= D-M04-64, so M04's Q2 pointer lands here; needs 3 prior FYs only and runs first), or expanding while TTM revenue falls and no bookings line rises.
+   2. BUILD_INTO_DEMAND: expanding (capex ÷ depreciation above its own prior-8-FY median and capex YoY > 0) while revenue or a bookings line (RPO, deposits) rises.
+   3. CUTTING: capex YoY ≤ −20%†.
+   4. MAINTENANCE: ratio 0.8–1.2†.
+   5. STEADY: otherwise.
+   States 2–5 need 8 prior FYs on one rung, else INSUFFICIENT_HISTORY. A `definition_changed` year is not scored (D-M04-3). The rung never mixes inside the window (D&A rung marked). Current-year guidance (M02) goes in `method`, unscored.
+2. **AHEAD_OF_DEMAND is a warning (D16)**, listed among M01 rule 4's `exit_warning` reasons and never blocking (D-M01-7). PEAK_RISK is deferred.
+3. **`growth_capex_roic` (D-M05-5):** growth share = growth ÷ total from `capex_split`; < 25%† → MAINTENANCE_ONLY; else ACCRETIVE if ROIC ≥ its value 3 FYs earlier, DILUTING if more than 3 pp† lower, ACCRETIVE with a "flat" mark between. Invested capital ≤ 0 → `not_meaningful`; pretax ≤ 0 → NOPAT = operating income, labelled; an acquisition year → M04's acquisition flag in `method`.
+4. **When a capex rise is positive (D-M05-7, D-M02-62):** the `capex_demand` vote is positive only when all three hold: state BUILD_INTO_DEMAND; OCF ÷ capex ≥ 1 (D-M02-31); `cvd_state` present and not STRUCTURAL_DECLINE or CYCLE_PLUS_DAMAGE. Otherwise neutral with the reason in `method` ("vote: neutral — <reason>"); `cvd_state` missing or `insufficient_data` → neutral "CvD unresolved" (the conservative reading of D-M04-102). M04's `runway_q` and `survival_gate` are shown beside. M11 maps the vote to [−1, 1] in `config/confluence.toml`; it is the single capex vote (M02's own-definition capex shares the input family, M11 case 17).
+5. **Channel (D-M05-1):** fabless and outsourced → `commitment_cover` leads and the capex signals are info (R9); channel unset → every gauge shown, `commitment_cover` info only; `n/a` (MSTR, ETV) → missing "not applicable".
+6. **Covers (D-M05-2, -3, -6):** RPO, deposits and commitments are each against the company's own history only (practical expedients differ, S79). `bookings_cover` = RPO ÷ TTM revenue; deposits (contract liabilities: total, else current + noncurrent, labelled) are a separate "repayable, not revenue" line that counts as bookings evidence in rule 1, never added to RPO; a contract-liability jump with no deposit text → a mark only. `commitment_cover` numerator = the stated supply-and-capacity (fabless, outsourced) or PP&E (others) total; cloud, investment and other categories shown beside, never added; denominator TTM cost of revenue (fabless, outsourced) or TTM capex (others), both in `method`. Leases not yet commenced and commitments signed after the period: separate dated lines, never summed. No point a year earlier, or a different series a year earlier (NVDA's tag vs text) → `short_history`, the old series shown across a labelled break.
+7. **Commitment amounts (D-M05-2):** XBRL per tag, never merged across tags (Meta's `Unrecorded…` = leases not yet commenced), plus a narrow text finder on stored 10-K / 10-Q MD&A and notes: stated total, category, "cancelable / adjustable" wording (flag shown, amount "as stated") and a verified quote cut by offset (D21); XBRL and text more than 5%† apart → both shown with a mark. Text-only names with nothing found → missing.
+8. **Not applicable:** MSTR, ETV and INFQ shell years via the M04 tags; GFS (20-F) on IFRS tags, commitment taxonomy unchecked (named).
+
+## Failure modes
+| Input or indicator | How it can mislead | Guard |
+|---|---|---|
+| **Tech-heavy watchlist** | The channel set (fabless, fab_owner, hyperscaler) is semiconductor-shaped; the capex ÷ depreciation evidence is one memory cycle (MU) and one decliner (INTC); utilities, telecoms and REITs run capex above depreciation for decades (rate-base growth); asset-light software has tiny, noisy capex | Every state is against the company's own history; channel unset → every gauge shown; thresholds are labelled starting values (†), not fitted to the watchlist (D32); `financial` / `reit` routing per M04 (D-M04-8) |
+| Capex ÷ revenue | Price-driven revenue makes the trough look like a peak (MU FY2023 49.4%) | Capex ÷ depreciation leads; MU FY2023 reads CUTTING; intensity only in the D-M04-64 test |
+| Boom peak | MU FY2026 3.26× reads BUILD_INTO_DEMAND; a competitive-industry peak can destroy value (S-new-M05-4; weaker in oligopolies, R8) | PEAK_RISK deferred to tuning with peers and M06's oligopoly flag; "hypothesis, not backtested" |
+| Debt-funded capex; a decliner that keeps spending (INTC) | Reads as conviction | OCF ÷ capex and CvD in the vote (rule 4); AHEAD_OF_DEMAND warning |
+| Depreciation proxy | Low after asset lives shorten (INTC 2023 −29.5%), high for years after a wave; D&A rung includes acquired intangibles (AMD–Xilinx) | `capex_split` marks carried; rung named; acquisition flag |
+| Capex tag switch | A definition change reads as a jump | `definition_changed` year not scored (D-M04-3); MSFT's lease reclassification affects M02's own-definition capex only, labelled (D-M02-29) |
+| Short history | SPCX, INFQ after the de-SPAC, RIVN; MSFT lacks a long depreciation series | INSUFFICIENT_HISTORY, never filled |
+| ROIC | M04 S6.5 approximations (bounded tax, untagged debt as none); acquisition years inflate invested capital | Approximations named in `method`; `not_meaningful` on IC ≤ 0 |
+| RPO | Expedients differ across companies (S79); one counterparty dominates (MSFT / OpenAI, press only, grade B) | Own history only; ≥ 10% customers beside; counterparty share waits for M04 7b |
+| Deposits | Repayable, price-banded (MU $12.75B take-or-pay) read as revenue | Separate line, never RPO or revenue |
+| Commitments, XBRL | Tag stops (NVDA `PurchaseObligation` at $45.77B, 2025-07-27, ~6× low) | Text value used, series break labelled |
+| Commitments, text | Mixed scopes (cloud, investments), unstated overlaps (Meta), cancellable wording, new phrasings each log | Category numerator, separate lines, cancellable flag, verified quotes; expect a re-run (LESSONS) |
+| Backlog with cancellations (BA) | Overstates firm demand | RPO only in the MVP |
+| Capex signal as a return predictor | Heavy capex and asset growth preceded lower returns; capex-based factors lost pricing power (S71–S73) | Weighting gated (rule 4); labelled hypothesis |
+
+## Decisions
+- D-M05-1 (2026-10-13, sitting 2, Q05.1a): spend channel in an owner-edited `config/m05_channels.toml` that M04's loader ignores, pre-filled: NVDA, MRVL fabless; AAPL outsourced; MU, INTC, GFS fab_owner; META, MSFT, AMZN, GOOG hyperscaler; BA long_cycle; TSLA, RIVN, SPCX, INFQ manufacturer; MSTR, ETV n/a. A company not listed reads "channel unset" (every gauge shown, `commitment_cover` info). Why: a one-time edit with no review kind; M04's file takes only its six tags (D-M04-8); applies R9.
+- D-M05-2 (2026-10-13, Q05.2a): commitment amounts from XBRL per tag (never merged) plus a narrow text finder on stored 10-K / 10-Q MD&A and notes — stated total, category, cancellable wording and a verified quote — with 0 requests (rule 7). Why: NVDA's current figures are text-only and 6 names have no tag (S-new-M05-6, -7, -10); quotes verified per D21; applies R9, A1.
+- D-M05-3 (2026-10-13, Q05.3a): numerator = the stated supply-and-capacity (fabless, outsourced) or PP&E (others) total, other categories beside and never added (NVDA FY2026: cloud $27B, investments $11.4B, other $3.4B beside $95.2B); denominator = TTM cost of revenue (fabless, outsourced) or TTM capex (others); leases not yet commenced as a separate line, never summed. Why: the commitment substitutes for those costs, mixed scopes inflate the cover, and Meta does not state the overlap (S-new-M05-6, -8).
+- D-M05-4 (2026-10-13, Q05.4a; **approves the M01 rule-4 amendment, D-M01-7**): `capex_demand` leads on capex ÷ depreciation vs the company's own prior-8-FY median, read with demand evidence (rule 1); AHEAD_OF_DEMAND is a warning (D16) listed among M01 rule 4's `exit_warning` reasons, never blocking; PEAK_RISK waits for tuning. Why: the ratio tracks Micron's cycle where intensity does not (S-new-M05-10; pack Round 4); boom evidence is weak in oligopolies (S-new-M05-4, R8); the AHEAD_OF_DEMAND test is D-M04-64's, not a second one (MVP_PLAN item 9). D32: the ratio's evidence is one memory company; own-history states guard other industries.
+- D-M05-5 (2026-10-13, Q05.5a): `growth_capex_roic` = a state from the growth share and the 3-FY change in ROIC (rule 3). Why: uses only built rows, on the D-M04-6 default rung; M05 owns growth capex × ROIC (D-M04-6, amends A2). The ROIC series over n fiscal years is built in M04's `trends.py` in Part 1 and reused by M06 (MVP_PLAN item 3).
+- D-M05-6 (2026-10-13, Q05.6a): customer deposits (outline 4, "prepayments or LTAs") = contract liabilities (total, else current + noncurrent, labelled) as a separate "repayable, not revenue" line; they count as bookings evidence in `capex_demand` and are never added to RPO. Why: Micron's deposits are repayable and price-banded (S-new-M05-9); applies A1.
+- D-M05-7 (2026-10-13, Q05.7a + vote line; **answers M02's open item, D-M02-62**): a capex rise counts as positive only when `capex_demand` = BUILD_INTO_DEMAND, OCF ÷ capex ≥ 1 (D-M02-31) and CvD is not STRUCTURAL_DECLINE or CYCLE_PLUS_DAMAGE; otherwise neutral with the reason shown, M04's `runway_q` and `survival_gate` beside; M02's display is unchanged. **Vote line** (MVP_PLAN overlap 2, confirmed): `capex_demand` is M05's — and the engine's single — capex vote in M11's map. Why: Intel spent into falling revenue (S-new-M05-10); D-M02-5 itself separates "able and willing" from stretching; heavy capex preceded lower spender returns (S71–S73).
+- D-M05-8 (2026-10-13, Q05.8a): `commitment_risk` (pack S2.5) deferred, then proposed with sources as an M04 earnings-quality addition at tuning (D6). Why: it needs a provision series that is not stored (NVDA's $7.2B FY2026 provision is text-only, S-new-M05-6).
+
+## Deferred to tuning
+- Outline CAPEX 1 (capex that builds a moat, track record): M06; the MVP proxies are `growth_capex_roic` and M04's guidance outcomes.
+- PEAK_RISK and the industry wave (pack S4.1–4.2): confirmed peer sets and M06's oligopoly flag.
+- Counterparty share of RPO (MSFT / OpenAI): M04 7b's customer row or an owner entry (grade B).
+- Engine-proposed channel and an `m05_model` review (S1.2): the owner file stands in.
+- `commitment_risk` (D-M05-8); parsed schedules, `m05_commit_gap`, prepaid supply balances (S2.3, S2.6); M02 rung L4 order-flow matching (`future_commitment` is built for it).
+- `rpo_step` alert, 12-month RPO share, BA / AWS backlog text (S3.1, S3.3).
+- `capex_execution`, half-year and quarter guide periods (S5.1–5.2); `capex_new_offering` (S5.4, R9's monitor, grade-C review).
+- Micron incentive netting (S6.3, an M02 recipe change); prior-10-Q fetch for text history (about 50 requests, estimate: 16 companies × 3), decided after the first log.
+- Calibration of every † value (D32: not on the watchlist alone).
+
+## Build parts
+Pre-assigned in `docs/mvp/MVP_PLAN.md` (waves W4, W5; worktree side, rebased on main after M08's part merges); parts of one module never run in parallel. Part decisions continue at D-M05-9.
+
+**Part 1: Capex against demand (no new data)** — branch `m05-part1`, wave W4 (worktree), no migration expected (if one is needed it takes the next number at merge, MVP_PLAN rule), D-SEC-30 (contract liabilities, total and noncurrent), D-UI-37 (Future spend section); D-M05-1…8 from sitting 2, parts from 9 (+ next free D-M04 for the ROIC-series helper in `trends.py`, MVP_PLAN item 3).
+- Signals: `capex_demand`, `growth_capex_roic`, `bookings_cover`, plus the deposits line and the channel file.
+- Code: package `src/engine/capex/` (name confirmed at build): `channels.py`, `demand.py`, `views.py`, `step.py` (local pass after `financials_local_step`, before M06 and M03; MVP_PLAN local-step order); two contract-liability concepts in `EXTRA_CONCEPTS` (total and noncurrent, each its own concept; the current-only `contract_liabilities` M04 Part 6 reads stays unchanged); `views.rpo` extended with the cover; the ROIC series helper in `financials/trends.py`; the vote reading of rule 4; `config/m05_channels.toml`; owner script `scripts/run_m05.py demand [--no-sec]` (name confirmed at build; D-M04-69 pattern). M01 rule-4 reasons gain AHEAD_OF_DEMAND in `src/engine/m01_rules.py` (one place, MVP_PLAN item 3).
+- Tables and reviews: none beyond `signal`. Review kinds: none.
+- UI: "Future spend (M05)" section on the Money flow tab: the signal rows, an 8-FY capex ÷ depreciation strip, the deposits line, M04's ≥ 10% customers and M04's capex guidance outcomes. Mock-up first on MU and INTC (D-UI-4, port 8799).
+- Fixtures: the MU trimmed companyfacts (capex and `Depreciation` FY2012–26: FY2022 1.72 BUILD_INTO_DEMAND, FY2023 1.00 CUTTING with capex ÷ revenue 1.30× of its 3-yr average, FY2024 1.09 MAINTENANCE, FY2025 1.92 and FY2026 3.26 BUILD_INTO_DEMAND; prior-8-FY medians 1.61 (FY2022), 1.68 (FY2024), 1.56 (FY2025), 1.68 (FY2026)); INTC (capex FY2022–25) and MSFT (FY2025–26) are too short for the 8-FY median and INTC's 2023 test, and MU's has no `ContractWithCustomerLiability`: filled by an owner-run export of those tags from stored `fact` (0 requests; Claude cannot read `data\`), else synthetic cases; plus D32 synthetic cases (a utility with capex above depreciation for 10 years, an asset-light company with tiny capex).
+
+**Part 2: Commitments** — branch `m05-part2`, wave W5, migration `0042_m05_commitments`, D-SEC-31 (purchase-obligation concepts per tag), D-STO-32, D-UI-39 (commitment lines), DS20 (commitments beyond XBRL, prior 10-Q text).
+- Signal: `commitment_cover`, plus the lease and post-period lines.
+- Code: per-tag concepts; `capex/commitments.py`, a text finder over stored passages (`financials/text.py` helpers; quotes cut by offset and verified, D21); the XBRL / text mark.
+- Table: `future_commitment` (cik, as_of, category, amount, tag or quote, accession, offsets, scope label, cancellable flag, after-period flag, grade). Review kinds: none.
+- Fixtures: trimmed excerpts exported from stored text by an owner-run step: NVDA FY2026 10-K Note 12 and the Q2 FY2027 10-Q ($95.2B → 1.52 years on $62.48B; $279B → 3.64 years `short_history` on $76.73B); Meta Q2 2026 10-Q; MU FY2026 10-K deposits.
+
+## Live checks (owner runs, sends the log)
+- Part 1: `uv run python scripts/run_m05.py demand --no-sec`: 0 requests, under a minute. Compare MU, INTC and MSFT with the brief's worked example (MU states above; INTC 2023 AHEAD_OF_DEMAND at about 1.75× if its history is stored; MSFT `bookings_cover` 1.33 → 2.06 RISING, `capex_demand` possibly INSUFFICIENT_HISTORY); every name gets four rows or missing rows with reasons.
+- Part 2: `uv run python scripts/run_m05.py commitments --no-sec`: 0 requests, about a minute. The log lists the tags found and the sentences taken or set aside, with reasons.
+
+## Open questions
+- `cvd_state` missing or `insufficient_data` in the vote (rule 4) reads neutral "CvD unresolved" (conservative); the owner may overrule at the Part 1 live check.
+- New gaps for DATA_SOURCES at build (DS20 at Part 2; further numbers assigned then): NVDA prepaid supply balances and MU's incentive tag (check `fact` first, 0 requests), AWS backlog wording, Meta's lease / commitment overlap, SPCX and GFS commitment taxonomies, ASC 440 (login-gated).
+- Every † value: calibration at tuning, not on the watchlist alone (D32).
