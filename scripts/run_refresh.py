@@ -257,6 +257,21 @@ def financials_cvd_local_step(engine, report) -> str:
     return "\n" + "\n".join(lines) + "\n"
 
 
+def ownership_local_step(engine, report) -> str:
+    """M07 Part 1 local pass after the M04 local steps (0 SEC requests; MVP_PLAN refresh
+    order): 4/A links, CMP classes and the per-day buy / sale rows for companies with newly
+    stored Form 4s (or on 1 January), net flow for every core and promoted company, insider-buy
+    alerts (D-M07-2). The Form 4s themselves arrive in the SEC step. Never fails the run."""
+    from engine.ownership.step import run_local_part
+
+    try:
+        comps = {t: c for c, t in core_promoted(report).items()}
+        lines = run_local_part(engine, comps, datetime.now(UTC))
+    except Exception as e:  # must not break the run report
+        lines = [f"M07 insiders — local pass: error — {type(e).__name__}: {e}"]
+    return "\n" + "\n".join(lines) + "\n"
+
+
 def technicals_local_step(engine, report) -> str:
     """M09 Part 1 local pass (0 requests beyond SPY's daily price in `prices_step`), after
     the M04 local passes so the gate, filing status and CvD are current: band_z, price_band,
@@ -412,6 +427,17 @@ def m04_gate_alerts(engine) -> list[str]:
         return []
 
 
+def m07_buy_alerts(engine) -> list[str]:
+    """Opportunistic and unclassified insider buys first seen in the last 24 hours (M01 rule
+    6, D-M07-2). Never fails."""
+    try:
+        from engine.ownership.step import recent_alerts
+
+        return recent_alerts(engine, datetime.now(UTC))
+    except Exception:
+        return []
+
+
 def waiting_summary(engine) -> str | None:
     """What waits for the owner after a run (D-M02-12): review items, downloads, overflow."""
     from engine.themes.proposals import overflow
@@ -422,9 +448,14 @@ def waiting_summary(engine) -> str | None:
     downloads, reviews, waiting = rows.get(1, 0), rows.get(0, 0), len(overflow(engine))
     alerts = m04_event_alerts(engine)
     gate_alerts = m04_gate_alerts(engine)
-    if not (downloads or reviews or waiting or alerts or gate_alerts):
+    buys = m07_buy_alerts(engine)
+    if not (downloads or reviews or waiting or alerts or gate_alerts or buys):
         return None
     parts = []
+    if buys:  # M07 (M01 rule 6): every opportunistic / unclassified buy, uncapped
+        parts.append("M07 insider buys (alerts):\n" + "\n".join(f"  {a}" for a in buys[:8])
+                     + (f"\n  … {len(buys) - 8} more on the Insiders tab"
+                        if len(buys) > 8 else ""))  # fmt: skip
     if gate_alerts:  # D-M04-71: survival-gate fails and incompletes, uncapped
         parts.append("M04 survival gate (alerts):\n" + "\n".join(f"  {a}" for a in gate_alerts[:8])
                      + (f"\n  … {len(gate_alerts) - 8} more on the Financials tab"
@@ -538,6 +569,7 @@ def _run(args, engine, folder):
     prices += financials_gate_local_step(engine, report)
     prices += financials_quality_local_step(engine, corpus, report)
     prices += financials_cvd_local_step(engine, report)
+    prices += ownership_local_step(engine, report)  # M07 after the M04 local steps
     prices += technicals_local_step(engine, report)
     text = format_report(report) + calls + prices
     logs = ROOT / "logs"

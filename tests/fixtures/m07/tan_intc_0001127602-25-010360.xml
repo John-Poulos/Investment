@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+    <schemaVersion>X0508</schemaVersion>
+    <documentType>4</documentType>
+    <periodOfReport>2025-03-21</periodOfReport>
+    <aff10b5One>0</aff10b5One>
+    <issuer><issuerCik>0000050863</issuerCik><issuerName>INTEL CORP</issuerName><issuerTradingSymbol>INTC</issuerTradingSymbol></issuer>
+    <reportingOwner>
+        <reportingOwnerId><rptOwnerCik>0002061366</rptOwnerCik><rptOwnerName>Tan Lip-Bu</rptOwnerName></reportingOwnerId>
+        <reportingOwnerRelationship><isDirector>1</isDirector><isOfficer>1</isOfficer><officerTitle>Chief Executive Officer</officerTitle></reportingOwnerRelationship>
+    </reportingOwner>
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle><value>Common Stock</value></securityTitle>
+            <transactionDate><value>2025-03-21</value></transactionDate>
+            <transactionCoding><transactionFormType>4</transactionFormType><transactionCode>A</transactionCode><equitySwapInvolved>0</equitySwapInvolved><footnoteId id="F1"/></transactionCoding>
+            <transactionAmounts>
+                <transactionShares><value>1043406</value></transactionShares>
+                <transactionPricePerShare><value>23.96</value></transactionPricePerShare>
+                <transactionAcquiredDisposedCode><value>A</value></transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts><sharesOwnedFollowingTransaction><value>1043406</value></sharesOwnedFollowingTransaction></postTransactionAmounts>
+            <ownershipNature><directOrIndirectOwnership><value>I</value></directOrIndirectOwnership><natureOfOwnership><value>By Family Trust</value></natureOfOwnership></ownershipNature>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+    <footnotes>
+        <footnote id="F1">Represents shares purchased from the Issuer at the closing price on March 20, 2025, pursuant to the terms of the reporting person's offer letter, as disclosed in the Issuer's Current Report on Form 8-K filed on March 12, 2025.</footnote>
+    </footnotes>
+</ownershipDocument>

@@ -222,6 +222,9 @@ def create_app(settings: UiSettings) -> FastAPI:
             "price_state": services.price_state(engine, ticker),
         }
         if tab == "overview":
+            from engine.ownership.views import overview_row  # M07 Part 1 (D-UI-32)
+
+            ctx["m07_overview"] = overview_row(engine, cik)
             ctx["filings"] = services.filings(engine, cik, limit=10)
             ctx["events"] = services.events(engine, cik, limit=8)
             ctx["readable"] = services.stored_accessions(
@@ -260,7 +263,10 @@ def create_app(settings: UiSettings) -> FastAPI:
             ctx["questions"], ctx["readings"] = cvd_view.QUESTIONS, cvd_view.READING
             ctx["links"] = cvd_view.LINKS
         elif tab == "insiders":
-            ctx["txns"] = services.insider_txns(engine, cik)
+            from engine.ownership import views as m07_views  # M07 Part 1 (D-UI-32)
+
+            ctx["m07"] = m07_views.company_view(engine, cik, datetime.now(UTC).date())
+            ctx["txns"] = ctx["m07"].txns
         elif tab == "events":
             ctx["events"] = services.events(engine, cik)
             ctx["filings"] = services.filings(engine, cik)

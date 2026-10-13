@@ -1,10 +1,83 @@
-<h2>Form 4 transactions</h2>
+{# M07 Part 1 (D-UI-32): built to the MVP brief's description; the owner reviews it at the live check. #}
+{% set m = m07 %}
+<h2>Insider net flow (M07)</h2>
+<p class="note">Net = open-market P − non-plan S, by trade date to today. Plan and plan n/a sales and gross sales are shown beside, never netted (D-M07-5). Information only in every timeframe. Form 4 history stored from {{ m.history_start or 'none' }}.</p>
+<div style="overflow-x:auto">
+<table class="data">
+  <tr><th>Window</th><th>Reading</th><th class="num">Net $</th><th class="num">Open-market P</th><th class="num">Non-plan S</th><th class="num">Plan S</th><th class="num">Plan n/a S</th><th class="num">Gross S</th><th class="num">Insiders</th></tr>
+  {% for n in m.net %}
+  <tr>
+    <td>{{ n.tf }} <span class="muted">{{ n.start }} → {{ n.end }}</span></td>
+    {% if n.missing %}
+    <td colspan="8" class="muted">missing: {{ n.missing }}</td>
+    {% else %}
+    <td class="{% if n.text == 'net_buy' %}buy{% elif n.text == 'net_sell' %}sell{% endif %}">{{ n.text }}</td>
+    <td class="num">{{ n.value | usd if n.value is not none else '—' }}</td>
+    <td class="num">{{ n.p_shares | num('shares_exact') }} sh · {{ n.p_usd | usd if n.p_usd is not none else '—' }}</td>
+    <td class="num">{{ n.np_shares | num('shares_exact') }} sh · {{ n.np_usd | usd if n.np_usd is not none else '—' }}</td>
+    <td class="num">{{ n.plan_shares | num('shares_exact') }} sh · {{ n.plan_usd | usd if n.plan_usd is not none else '—' }}</td>
+    <td class="num">{{ n.plan_na_shares | num('shares_exact') }} sh · {{ n.plan_na_usd | usd if n.plan_na_usd is not none else '—' }}</td>
+    <td class="num">{{ n.gross_shares | num('shares_exact') }} sh · {{ n.gross_usd | usd if n.gross_usd is not none else '—' }}</td>
+    <td class="num">{{ n.insiders }}</td>
+    {% endif %}
+  </tr>
+  {% endfor %}
+</table>
+</div>
+<p class="muted">Short interest: {{ m.short_interest }}</p>
+
+<h2 style="margin-top:16px">Buy and sale cards</h2>
+{% if m.cards %}
+<div style="overflow-x:auto">
+<table class="data">
+  <tr><th>Filed</th><th>Card</th><th>Owner</th><th>Class</th><th>Plan</th><th class="num">$</th><th class="num">Shares</th><th class="num">Avg price</th><th>Stake</th><th>Cover count</th><th>Implied float</th><th>20-day ADV</th><th>Form</th></tr>
+  {% for c in m.cards %}
+  <tr>
+    <td>{{ c.filed }}{% if c.doc_type == '4/A' %} <span class="muted">4/A</span>{% endif %}</td>
+    <td class="{% if c.kind == 'buy' %}buy{% elif c.kind == 'sale' %}sell{% endif %}">{{ {'buy': 'Buy', 'sale': 'Sale', 'issuer': 'From issuer'}[c.kind] }}{% if c.warning %} <strong title="{{ c.warning }}">warning</strong>{% endif %}</td>
+    <td>{{ c.owner }}<br><span class="muted">{{ c.role }}</span></td>
+    <td title="{{ c.class_reason }}">{{ c.class_text }}</td>
+    <td title="plan basis: {{ c.plan_basis }}">{{ c.plan }}</td>
+    <td class="num">{{ c.usd }}</td>
+    <td class="num">{{ c.shares }}</td>
+    <td class="num">{{ c.avg_price }}</td>
+    <td title="{{ c.stake_note }}">{{ c.stake }}</td>
+    <td class="muted">{{ c.cover }}</td>
+    <td class="muted">{{ c.float_ }}</td>
+    <td class="muted">{{ c.adv }}</td>
+    <td><a href="{{ sec_filing_url(cik, c.accession) }}" target="_blank" rel="noopener">{{ c.accession }}</a></td>
+  </tr>
+  {% if c.not_in_total or c.notes or c.warning %}
+  <tr><td></td><td colspan="12" class="muted">
+    {% if c.warning %}Warning: {{ c.warning }}. {% endif %}
+    {% for x in c.not_in_total %}{{ x }}{% if not loop.last %}; {% endif %}{% endfor %}
+    {% for x in c.notes %} {{ x }}.{% endfor %}
+  </td></tr>
+  {% endif %}
+  {% endfor %}
+</table>
+</div>
+{% if m.more_cards %}<p class="note">{{ m.more_cards }} older cards not shown.</p>{% endif %}
+{% else %}<p class="empty">No open-market buy, sale or purchase from the issuer stored.</p>{% endif %}
+<p class="note">Buy class (Cohen-Malloy-Pomorski, per owner and year from the 3 prior calendar years): routine, opportunistic, unclassified (never defaulted); only opportunistic buys vote (+1 in MY, D-M07-2); opportunistic and unclassified buys alert. Sales: plan (row footnote), plan n/a (form checkbox, row not identified), or non-plan with the seller's class; warning for non-plan opportunistic, and non-plan unclassified at ≥ 10% of stake (D-M07-3). Stake = all non-derivative lines on the form (D-M07-4). Cover count and implied float from M04 (D-M04-2); F, M, A, G and other codes are never in $ totals (R22).</p>
+
+{% if m.classes %}
+<h2 style="margin-top:16px">Insider classes this year</h2>
+<table class="data">
+  <tr><th>Owner</th><th>Class</th><th>Years used</th><th>Months with P/S</th><th>Why</th></tr>
+  {% for k in m.classes %}
+  <tr><td>{{ k.owner }}</td><td>{{ k['class'] }}</td><td>{{ k.years }}</td><td class="muted">{{ k.months }}</td><td class="muted">{{ k.reason }}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+<h2 style="margin-top:16px">Form 4 transactions</h2>
 {% if txns %}
 <div style="overflow-x:auto">
 <table class="data">
-  <tr><th>Date</th><th>Owner</th><th>Role</th><th>Code</th><th class="num">Shares</th><th class="num">Price</th><th class="num">Owned after</th><th>10b5-1</th><th>Form</th></tr>
+  <tr><th>Date</th><th>Owner</th><th>Role</th><th>Code</th><th class="num">Shares</th><th class="num">Price</th><th class="num">Owned after</th><th>Class</th><th>Plan</th><th>Form</th></tr>
   {% for t in txns %}
-  <tr>
+  <tr{% if t.replaced_by %} class="muted" title="replaced by Form 4/A {{ t.replaced_by }}"{% endif %}>
     <td>{{ t.txn_date or '—' }}</td>
     <td>{{ t.owner_name or '—' }}</td>
     <td class="muted">{{ t.role or '' }}</td>
@@ -12,11 +85,12 @@
     <td class="num">{{ t.shares | num('shares_exact') if t.shares is not none else '—' }}</td>
     <td class="num">{{ '%.2f' | format(t.price) if t.price is not none else '—' }}</td>
     <td class="num">{{ t.shares_after | num('shares_exact') if t.shares_after is not none else '—' }}</td>
-    <td>{% if t.is_10b5_1 is none %}<span class="muted">n/d</span>{% elif t.is_10b5_1 %}yes{% else %}no{% endif %}</td>
-    <td><a href="{{ t.url }}" target="_blank" rel="noopener">filing</a></td>
+    <td>{{ t['class'] }}</td>
+    <td title="plan basis: {{ t.plan_basis }}">{{ t.plan }}</td>
+    <td><a href="{{ sec_filing_url(cik, t.accession) }}" target="_blank" rel="noopener">filing</a>{% if t.replaced_by %} <span class="muted">replaced</span>{% endif %}</td>
   </tr>
   {% endfor %}
 </table>
 </div>
 {% else %}<p class="empty">No Form 4 transactions stored.</p>{% endif %}
-<p class="note">Codes: P open-market buy, S sale, A grant, M option exercise, F tax withholding, G gift. Classification (routine vs opportunistic) arrives with M07. "n/d" = 10b5-1 not disclosed.</p>
+<p class="note">Codes: P open-market buy, S sale, A grant, M option exercise, F tax withholding, G gift. "not in total" = a code that never enters $ totals or classes (R22). Plan "n/a" = the form's 10b5-1 box is ticked but the row is not identified.</p>
