@@ -205,6 +205,19 @@ def financials_gate_local_step(engine, report) -> str:
     return "\n" + "\n".join(lines) + "\n"
 
 
+def financials_quality_local_step(engine, corpus, report) -> str:
+    """M04 Part 6 local pass (0 SEC requests): earnings-quality scores, estimate changes and
+    recurring charges from stored facts and text; `m04_mscore` / `m04_estimate` items (group
+    7, capped). Never fails the run."""
+    from engine.financials.quality_step import run_local_part
+
+    try:
+        lines = run_local_part(engine, corpus, companies_of(report), datetime.now(UTC))
+    except Exception as e:  # must not break the run report
+        lines = [f"M04 earnings quality — local pass: error — {type(e).__name__}: {e}"]
+    return "\n" + "\n".join(lines) + "\n"
+
+
 def seasonal_step(engine, corpus, report, background: bool):
     """D-M02-51: a due seasonal pass is mined here, locally (no SEC), and a background run
     then asks Yes/No after releasing the lock. Manual runs and a pass declined today get
@@ -467,6 +480,7 @@ def _run(args, engine, folder):
     prices += financials_local_step(engine, corpus, report)
     prices += financials_units_local_step(engine, corpus, report)
     prices += financials_gate_local_step(engine, report)
+    prices += financials_quality_local_step(engine, corpus, report)
     text = format_report(report) + calls + prices
     logs = ROOT / "logs"
     logs.mkdir(exist_ok=True)

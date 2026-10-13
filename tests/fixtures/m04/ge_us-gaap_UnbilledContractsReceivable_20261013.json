@@ -1,0 +1,4 @@
+{"cik":40545,"taxonomy":"us-gaap","tag":"UnbilledContractsReceivable","label":"Unbilled Contracts Receivable","description":"Hand-built companyconcept fixture (see README Part 6).","entityName":"GENERAL ELECTRIC CO","units":{"USD":[
+{"end":"2016-12-31","val":25162000000,"accn":"0000040545-18-000014","fy":2017,"fp":"FY","form":"10-K","filed":"2018-02-23"},
+{"end":"2017-12-31","val":28861000000,"accn":"0000040545-18-000014","fy":2017,"fp":"FY","form":"10-K","filed":"2018-02-23"}
+]}}

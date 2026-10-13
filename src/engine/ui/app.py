@@ -242,6 +242,9 @@ def create_app(settings: UiSettings) -> FastAPI:
 
             ctx["m04_flags"] = flags_view(engine, corpus, cik, datetime.now(UTC).date())
             ctx["m04_units"] = m04_units_view.company_view(engine, cik, ticker)  # Part 7a
+            from engine.financials.quality_view import company_view as quality_view  # Part 6
+
+            ctx["m04_quality"] = quality_view(engine, corpus, cik, ticker)
             from engine.financials import gate_view as m04_gate_view  # Part 4a
 
             ctx["m04_gate"] = m04_gate_view.company_view(

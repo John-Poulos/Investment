@@ -198,7 +198,10 @@ EXTRA_CONCEPTS: tuple[Concept, ...] = (
             "ProceedsFromIssuanceOfSharesUnderIncentiveAndShareBasedCompensationPlans",
             "ProceedsFromStockOptionsExercised"), C, F),
     Concept("proceeds_lt_debt", _gaap("ProceedsFromIssuanceOfLongTermDebt"), C, F),
-    Concept("lt_investments", _gaap("LongTermInvestments"), C, I),
+    # Long-term investments (owner, M04 Part 6 live check 1: Apple and others carry their
+    # long-term marketable securities under the noncurrent tags only)
+    Concept("lt_investments", _gaap("LongTermInvestments", "MarketableSecuritiesNoncurrent",
+            "AvailableForSaleSecuritiesDebtSecuritiesNoncurrent"), C, I),
     Concept("preferred_value", _gaap("PreferredStockValue"), C, I),
     Concept("accrued_taxes", _gaap("AccruedIncomeTaxesCurrent"), C, I),
     Concept("investing_cf", _gaap("NetCashProvidedByUsedInInvestingActivities")
