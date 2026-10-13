@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import date
@@ -55,6 +56,8 @@ class CustomerYear:
     revenue: float | None
     accession: str
     basis: str
+    # facts of the same year and filing left out of the sum: (member, value, reason)
+    excluded: tuple[tuple[str, float, str], ...] = ()
 
 
 def _year_revenue(engine: sqlite3.Connection, cik: str, end: str) -> float | None:
@@ -70,44 +73,112 @@ def _year_revenue(engine: sqlite3.Connection, cik: str, end: str) -> float | Non
     return None
 
 
-def _benchmark_ok(dims: str) -> bool:
-    """A customer percentage of revenue (not of receivables or purchases)."""
-    parts = dict(p.split("=", 1) for p in dims.split(";") if "=" in p)
-    for axis, member in parts.items():
-        a, m = axis.split(":")[-1], member.split(":")[-1].lower()
-        if a == "ConcentrationRiskByBenchmarkAxis" and not ("revenue" in m or "sales" in m):
-            return False
-        if a == "ConcentrationRiskByTypeAxis" and "customer" not in m:
-            return False
-    return True
+CUSTOMER_AXES = (
+    "MajorCustomersAxis",
+    "ConcentrationRiskByBenchmarkAxis",
+    "ConcentrationRiskByTypeAxis",
+)
+# A member that stands for several customers ("ThreeLargestCustomers", "TopTen…"): its
+# percentage repeats the named customers' (live check 1: INTC FY2025 "4 at 86%").
+_AGGREGATE = re.compile(
+    r"customers$|^top(?:\d|one|two|three|four|five|ten)|largest|combined|aggregate|^total"
+    r"|^all(?:other)?customers",
+    re.I,
+)
+
+
+def _dims(dims: str) -> dict[str, str]:
+    return {
+        a.split(":")[-1]: m.split(":")[-1]
+        for a, m in (p.split("=", 1) for p in dims.split(";") if "=" in p)
+    }
+
+
+def customer_reason(concept: str, dims: str) -> str:
+    """'' when the fact is a consolidated customer share of revenue, else why it is left
+    out: only `ConcentrationRiskByBenchmarkAxis` = revenue or sales with
+    `ConcentrationRiskByTypeAxis` = customer concentration, and no other axis (a segment,
+    product or geography split is not the company's share) (D-M04-43)."""
+    d = _dims(dims)
+    other = sorted(a for a in d if a not in CUSTOMER_AXES)
+    if other:
+        return f"not consolidated ({', '.join(other)})"
+    tag = concept.split(":")[-1]
+    bench = d.get("ConcentrationRiskByBenchmarkAxis", "").lower()
+    typ = d.get("ConcentrationRiskByTypeAxis", "").lower()
+    if tag in units.REVENUE_TAGS:
+        return "" if not bench and not typ else "revenue fact with a concentration axis"
+    if not bench:
+        return "no benchmark axis"
+    if not ("revenue" in bench or "sales" in bench) or any(
+        w in bench for w in ("cost", "receivable", "purchase", "payable", "inventor")
+    ):
+        return f"benchmark {d['ConcentrationRiskByBenchmarkAxis']}"
+    if "customer" not in typ:
+        return f"risk type {d['ConcentrationRiskByTypeAxis']}" if typ else "no risk-type axis"
+    return ""
+
+
+def _own_year(rs: list[sqlite3.Row]) -> dict[str, str]:
+    """accession → the fiscal year end its annual report covers (its latest annual period)."""
+    out: dict[str, str] = {}
+    for r in rs:
+        out[r["accession"]] = max(out.get(r["accession"], ""), r["period_end"])
+    return out
 
 
 def major_customers(engine: sqlite3.Connection, cik: str) -> list[CustomerYear]:
-    """≥ 10% customers per fiscal year, from the first annual filing that reports the year."""
-    by_end: dict[str, list[sqlite3.Row]] = {}
+    """≥ 10% customers per fiscal year: consolidated customer shares of revenue only
+    (`customer_reason`), one value per customer, all from one filing — the year's own
+    annual report (its latest amendment wins). A later 10-K repeats a past year only for
+    the customers still above 10% and re-letters them ("Customer A" is not the same
+    customer each year), so mixing filings would double-count or undercount. Aggregate
+    members (a "three largest customers" total) are left out, with the reason kept."""
+    kept: list[sqlite3.Row] = []
     for r in rows(engine, cik, role="customer"):
         if r["concept"].split(":")[-1] not in PCT_TAGS + units.REVENUE_TAGS or not _annual(r):
             continue
-        if r["form"] not in ANNUAL_FORMS or not _benchmark_ok(r["dims"]):
+        if r["form"] not in ANNUAL_FORMS:
             continue
+        kept.append(r)
+    own = _own_year(kept)
+    by_end: dict[str, list[sqlite3.Row]] = {}
+    for r in kept:
         by_end.setdefault(r["period_end"], []).append(r)
     out = []
     for end, rs in sorted(by_end.items()):
-        first = min(rs, key=lambda r: (r["filed"], r["accession"]))["accession"]
-        rs = [r for r in rs if r["accession"] == first]
-        pct = {
-            r["member"]: float(r["value"]) for r in rs if r["concept"].split(":")[-1] in PCT_TAGS
-        }
-        usd = {
-            r["member"]: float(r["value"])
-            for r in rs
-            if r["concept"].split(":")[-1] in units.REVENUE_TAGS
-        }
+        mine = [r for r in rs if own.get(r["accession"]) == end]
+        pool = mine or rs
+        pick = (
+            max(pool, key=lambda r: (r["filed"], r["accession"]))
+            if mine
+            else min(pool, key=lambda r: (r["filed"], r["accession"]))
+        )["accession"]
+        rs = [r for r in rs if r["accession"] == pick]
+        excluded: list[tuple[str, float, str]] = []
+        pct: dict[str, float] = {}
+        usd: dict[str, float] = {}
+        for r in rs:
+            tag = r["concept"].split(":")[-1]
+            why = customer_reason(r["concept"], r["dims"])
+            if why:
+                excluded.append((local(r["member"]), float(r["value"]), why))
+                continue
+            (pct if tag in PCT_TAGS else usd).setdefault(r["member"], float(r["value"]))
         rev = _year_revenue(engine, cik, end)
         basis = "stated percentages"
         if pct and max(pct.values()) > 1:  # tagged as 12 rather than 0.12
             pct = {k: v / 100 for k, v in pct.items()}
             basis += " (tagged in percent, scaled)"
+        for k in list(pct):
+            others = [v for o, v in pct.items() if o != k]
+            if _AGGREGATE.search(local(k)) or (
+                len(others) >= 3 and abs(pct[k] - sum(others)) <= 0.006
+            ):
+                excluded.append((local(k), pct.pop(k), "aggregate of several customers"))
+                usd.pop(k, None)
+        for k in [k for k in usd if _AGGREGATE.search(local(k))]:
+            excluded.append((local(k), usd.pop(k), "aggregate of several customers"))
         if not pct and usd and rev:
             pct = {k: v / rev for k, v in usd.items()}
             basis = "stated revenue ÷ total revenue"
@@ -124,8 +195,9 @@ def major_customers(engine: sqlite3.Connection, cik: str) -> list[CustomerYear]:
                 stake,
                 stake_usd,
                 rev,
-                first,
-                basis,
+                pick,
+                basis + ("" if mine else "; from the first filing that reports the year"),
+                tuple(excluded),
             )
         )
     return out
@@ -150,6 +222,40 @@ def _only_role(dims: str, role_axis: str) -> bool:
             continue
         return False
     return True
+
+
+RENAME_TOL = 0.01
+
+
+def renames(
+    old_rows: list[sqlite3.Row], new_rows: list[sqlite3.Row], gone: set[str], new: set[str]
+) -> dict[str, str]:
+    """Old member → new member where both filings report the same concepts for the
+    overlapping periods and every overlapping value agrees within 1% (a renamed member,
+    e.g. Boeing's BoeingDefenseSpaceSecuritySegment → DefenseSpaceAndSecuritySegment);
+    each old member pairs with exactly one new member, else it stays a break."""
+
+    def values(rs, member):
+        return {
+            (r["concept"], r["period_start"], r["period_end"]): float(r["value"])
+            for r in rs
+            if r["member"] == member
+        }
+
+    out: dict[str, str] = {}
+    for o in sorted(gone):
+        ov = values(old_rows, o)
+        hits = []
+        for n in sorted(new - set(out.values())):
+            nv = values(new_rows, n)
+            keys = set(ov) & set(nv)
+            if keys and all(
+                abs(ov[k] - nv[k]) <= RENAME_TOL * max(abs(ov[k]), abs(nv[k]), 1.0) for k in keys
+            ):
+                hits.append(n)
+        if len(hits) == 1:
+            out[o] = hits[0]
+    return out
 
 
 def segment_table(engine: sqlite3.Connection, cik: str) -> SegmentTable | None:
@@ -216,12 +322,25 @@ def segment_table(engine: sqlite3.Connection, cik: str) -> SegmentTable | None:
             before = {r["member"] for r in rs if r["accession"] == prev}
             now_ = {r["member"] for r in cur}
             if before != now_:
-                gone = ", ".join(sorted(local(m) for m in before - now_)) or "none"
-                new = ", ".join(sorted(local(m) for m in now_ - before)) or "none"
-                notes.append(
-                    f"Break: the set of {role}s changed from {prev} to {latest} "
-                    f"(no longer reported: {gone}; new: {new}); not merged (D-M04-42)."
+                renamed = renames(
+                    [r for r in rs if r["accession"] == prev], cur, before - now_, now_ - before
                 )
+                if renamed:
+                    notes.append(
+                        "Renamed member: "
+                        + ", ".join(f"{local(o)} → {local(n)}" for o, n in sorted(renamed.items()))
+                        + " (both filings report the overlapping years and the values agree "
+                        "within 1%); series continued."
+                    )
+                gone_set = before - now_ - set(renamed)
+                new_set = now_ - before - set(renamed.values())
+                if gone_set or new_set:
+                    gone = ", ".join(sorted(local(m) for m in gone_set)) or "none"
+                    new = ", ".join(sorted(local(m) for m in new_set)) or "none"
+                    notes.append(
+                        f"Break: the set of {role}s changed from {prev} to {latest} "
+                        f"(no longer reported: {gone}; new: {new}); not merged (D-M04-42)."
+                    )
         n_recast = sum(1 for k in recast if k[2] in ends)
         if n_recast:
             notes.append(

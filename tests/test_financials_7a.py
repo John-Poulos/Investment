@@ -670,3 +670,266 @@ def test_financials_tab_shows_the_7a_sections(tmp_path):
         assert text in html, text
     assert "Unit and dimensional data" not in html  # no longer "still to come"
     assert "object at 0x" not in html
+
+
+# --- Live check 1 fixes (D-M04-42, -43, -73) -----------------------------------------------------
+
+
+def test_tesla_table_in_one_cell_per_line_layout():
+    """Filer HTML wraps each cell in a div, so stored text has one cell per line (live check 1:
+    no Tesla rows from 253 documents); percentages in their own cell, a footnote, a dash."""
+    text = store_text("tsla_update_q4_2023_ex991_divcells_trimmed.htm")
+    assert "Total deliveries\t" not in text  # the row is not tab-joined in the stored text
+    ms = {(m.metric, m.line, m.period_label): m for m in units.quarter_table(text)}
+    assert ms[("deliveries", "", "Q4-2023")].value == 484_507
+    assert ms[("deliveries", "", "Q4-2022")].value == 405_278
+    assert ms[("production", "Model 3/Y", "Q3-2023")].value == 416_800
+    assert ms[("deliveries", "Other models", "Q1-2023")].value == 10_695
+    assert ms[("storage_deployed", "", "Q4-2023")].value == 3_202
+    assert ("storage_deployed", "", "Q2-2023") not in ms  # dash = no figure
+    assert not [k for k in ms if k[0] not in ("production", "deliveries", "storage_deployed")]
+    # the tab-separated layout still reads the same
+    old = {
+        (m.metric, m.line, m.period_label): m.value
+        for m in units.quarter_table(store_text("tsla_update_q4_2023_ex991_trimmed.htm"))
+    }
+    assert old[("deliveries", "", "Q4-2023")] == 484_507
+
+
+def test_pd_table_in_one_cell_per_line_layout():
+    from engine.sec.documents import html_to_text
+
+    html = (
+        "<p>Q3 2022</p><table><tr><td><div>Q3 2022</div></td><td><div>Production</div></td><td><div>Deliveries</div></td>"
+        "<td><div>Subject to operating lease accounting</div></td></tr>"
+        "<tr><td><div>Model 3/Y</div></td><td><div>345,988</div></td><td><div>325,158</div></td><td><div>3</div></td><td><div>%</div></td></tr>"
+        "<tr><td><div>Other Models</div></td><td><div>19,935</div></td><td><div>18,672</div></td><td><div>10</div></td><td><div>%</div></td></tr>"
+        "<tr><td><div>Total</div></td><td><div>365,923</div></td><td><div>343,830</div></td><td><div>4</div></td><td><div>%</div></td></tr></table>"
+    )
+    ms = {(m.metric, m.line): m.value for m in units.pd_table(html_to_text(html))}
+    assert ms == {
+        ("production", "Model 3/Y"): 345_988,
+        ("deliveries", "Model 3/Y"): 325_158,
+        ("production", "Other models"): 19_935,
+        ("deliveries", "Other models"): 18_672,
+        ("production", ""): 365_923,
+        ("deliveries", ""): 343_830,
+    }
+
+
+def test_tesla_10q_consumer_vehicles_sentences():
+    """Tesla's 10-Q/10-K wording (sentences written for the test): "consumer vehicles";
+    a six-months figure is not stored as a year."""
+    got = units.sentence_metrics(
+        "In the second quarter of 2025, we produced approximately 410,000 consumer vehicles and "
+        "delivered approximately 384,000 consumer vehicles. In the six months ended June 30, 2025, "
+        "we produced approximately 773,000 consumer vehicles and delivered approximately 721,000 "
+        "consumer vehicles."
+    )
+    assert [(m.metric, m.period_label, m.value) for m in got] == [
+        ("production", "Q2-2025", 410_000),
+        ("deliveries", "Q2-2025", 384_000),
+    ]
+    y = units.sentence_metrics(
+        "In 2024, we produced approximately 1,773,000 consumer vehicles and delivered "
+        "approximately 1,789,000 consumer vehicles."
+    )
+    assert [(m.metric, m.period_label, m.value) for m in y] == [
+        ("production", "FY2024", 1_773_000),
+        ("deliveries", "FY2024", 1_789_000),
+    ]
+
+
+def test_tesla_coverage_says_what_the_stored_documents_give(dbs):
+    engine, corpus = dbs
+    tesla(engine, corpus)
+    acc = "0001628280-25-900001"
+    filing(engine, TSLA, acc, "8-K", "2025-01-29", items="2.02,9.01")
+    d = IndexDoc(
+        2, "EX-99.1", "tsla-ex991.htm", f"{ARCH}/1318605/x/tsla-ex991.htm", "EX-99.1", None, False
+    )
+    page = b"<html><body><img src='p1.jpg'><p>Q4 2024 Update</p></body></html>"
+    store_document(corpus, TSLA, acc, d, page, NOW)
+    units.scan_company(engine, corpus, TSLA, NOW)
+    text = "\n".join(units.coverage_lines(engine, corpus, TSLA))
+    assert "operational summary" in text and "production-and-deliveries release" in text
+    assert "tsla-ex991.htm" in text and "almost no text" in text
+    # without a production-and-deliveries release the line says so
+    corpus.execute("DELETE FROM document WHERE filename = 'tsla_pd_q3_2022_ex991_trimmed.htm'")
+    assert "none in the stored corpus" in units.coverage_lines(engine, corpus, TSLA)[-1]
+
+
+def test_billable_units_never_read_a_year():
+    """Live check 1: "Q3-2021 2,021" from "billable volume in … 2021" (sentences written
+    for the test)."""
+    s = units.sentence_metrics
+    q = s("Billable volume in the third quarter of 2021 was approximately 300,000.")
+    assert [(m.period_label, m.value) for m in q] == [("Q3-2021", 300_000)]
+    y = s("Billable volume in 2021 grew 71% to approximately 1,129,000.")
+    assert [(m.period_label, m.value) for m in y] == [("FY2021", 1_129_000)]
+    assert s("We continued to grow billable volume in the fourth quarter of 2021.") == []
+    assert s("Billable volume of 2021, a record, in the fourth quarter of 2021.") == []
+    rev = s(
+        "The company accessioned approximately 157,000 billable tests in the third quarter of 2020."
+    )
+    assert [(m.period_label, m.value) for m in rev] == [("Q3-2020", 157_000)]
+    # the nearest period phrase names the figure
+    both = s(
+        "Billable volume of approximately 1,290,000 in 2022, and billable volume of 330,000 in "
+        "the fourth quarter of 2022."
+    )
+    assert (both[0].period_label, both[0].value) == ("FY2022", 1_290_000)
+
+
+def test_rescan_replaces_earlier_misreads_and_missing_years_say_so(dbs):
+    engine, corpus = dbs
+    entity(engine, NVTA, "Invitae Corp", "1231")
+    acc, filed, name = INVITAE_RELEASES[-1]
+    filing(engine, NVTA, acc, "8-K", filed, items="2.02,9.01")
+    doc(corpus, NVTA, acc, name)
+    engine.execute(
+        "INSERT INTO unit_metric (cik, metric, line, period_label, period_start, period_end, value, unit, kind, basis, source, accession, filename, filed, quote, extractor, extracted_at) "
+        "VALUES (?, 'billable_units', '', 'FY2021', '2021-01-01', '2021-12-31', 2021, 'units', 'kpi', 'stated', 'EX-99.1', ?, ?, ?, 'q', 'sentence-1', 'n')",
+        (NVTA, acc, name, filed),
+    )
+    units.scan_company(engine, corpus, NVTA, NOW)
+    assert units.period_value(engine, NVTA, "billable_units", "FY2021") == (
+        None,
+        "missing: not in stored text",
+    )
+    v, src = units.period_value(engine, NVTA, "billable_units", "FY2022")
+    assert v == 1_290_000 and src.startswith("EX-99.1 ")
+
+
+INTC = "0000050863"
+
+
+def cust(engine, acc, filed, member, value, *, extra="", end="2025-12-27", start="2024-12-29",
+         form="10-K", bench="us-gaap:RevenueFromContractWithCustomerProductAndServiceBenchmarkMember",
+         typ="us-gaap:CustomerConcentrationRiskMember"):  # fmt: skip
+    parts = [f"srt:MajorCustomersAxis={member}"]
+    if bench:
+        parts.append(f"us-gaap:ConcentrationRiskByBenchmarkAxis={bench}")
+    if typ:
+        parts.append(f"us-gaap:ConcentrationRiskByTypeAxis={typ}")
+    if extra:
+        parts.append(extra)
+    engine.execute(
+        "INSERT INTO fact_dim (cik, accession, form, filed, concept, axis, member, dims, period_start, period_end, value, unit) VALUES (?, ?, ?, ?, 'us-gaap:ConcentrationRiskPercentage1', 'srt:MajorCustomersAxis', ?, ?, ?, ?, ?, 'pure')",
+        (INTC, acc, form, filed, member, ";".join(sorted(parts)), start, end, value),
+    )
+
+
+def test_customer_concentration_consolidated_revenue_shares_only(dbs):
+    """INTC-shaped case (live check 1: "FY2025 4 at 86%"); values illustrative: three named
+    customers, an aggregate member repeating their total, a segment-level share, a
+    receivables share, a fact without a risk-type axis, the prior year in the same 10-K."""
+    engine, _ = dbs
+    k = ("0000050863-26-900011", "2026-01-30")
+    for m, v in (
+        ("intc:DellMember", 0.19),
+        ("intc:LenovoMember", 0.13),
+        ("intc:HPIncMember", 0.11),
+    ):
+        cust(engine, *k, m, v)
+        cust(engine, *k, m, v + 0.01, end="2024-12-28", start="2023-12-31")  # prior year
+    cust(engine, *k, "intc:ThreeLargestCustomersMember", 0.43)
+    cust(engine, *k, "intc:DellMember", 0.31,
+         extra="us-gaap:StatementBusinessSegmentsAxis=intc:ClientComputingGroupMember")  # fmt: skip
+    cust(engine, *k, "intc:ArrowMember", 0.45, bench="us-gaap:AccountsReceivableMember",
+         typ="us-gaap:CreditConcentrationRiskMember")  # fmt: skip
+    cust(engine, *k, "intc:WistronMember", 0.12, typ="")
+    y = units_view.major_customers(engine, INTC)[-1]
+    assert (y.label, y.count) == ("FY2025", 3) and y.at_stake == pytest.approx(0.43)
+    assert dict(y.customers) == {"Dell": 0.19, "Lenovo": 0.13, "HPInc": 0.11}
+    why = {n: r for n, _, r in y.excluded}
+    assert why["ThreeLargestCustomers"] == "aggregate of several customers"
+    assert why["Dell"].startswith("not consolidated (StatementBusinessSegmentsAxis)")
+    assert why["Arrow"].startswith("benchmark AccountsReceivable")
+    assert why["Wistron"] == "no risk-type axis"
+    # FY2024 comes from the FY2024 10-K once stored, not from the FY2025 10-K's repeat
+    k24 = ("0000050863-25-900009", "2025-01-31")
+    for m, v in (("intc:DellMember", 0.20), ("intc:LenovoMember", 0.14),
+                 ("intc:HPIncMember", 0.12), ("intc:OtherOemMember", 0.10)):  # fmt: skip
+        cust(engine, *k24, m, v, end="2024-12-28", start="2023-12-31")
+    y24 = units_view.major_customers(engine, INTC)[0]
+    assert y24.accession == k24[0] and y24.count == 4
+    # an unnamed aggregate is caught by its sum; an amendment of the year's 10-K wins
+    ka = ("0000050863-26-900020", "2026-03-15")
+    for m, v in (("intc:AMember", 0.19), ("intc:BMember", 0.13), ("intc:CMember", 0.11),
+                 ("intc:DMember", 0.43)):  # fmt: skip
+        cust(engine, *ka, m, v, form="10-K/A")
+    ya = units_view.major_customers(engine, INTC)[-1]
+    assert ya.accession == ka[0] and ya.count == 3 and ya.at_stake == pytest.approx(0.43)
+    assert ("D", 0.43, "aggregate of several customers") in ya.excluded
+
+
+BA = "0000012927"
+
+
+def seg(engine, acc, filed, member, end, value):
+    engine.execute(
+        "INSERT INTO fact_dim (cik, accession, form, filed, concept, axis, member, dims, period_start, period_end, value, unit) VALUES (?, ?, '10-K', ?, 'us-gaap:Revenues', 'us-gaap:StatementBusinessSegmentsAxis', ?, ?, ?, ?, ?, 'USD')",
+        (BA, acc, filed, member, f"us-gaap:StatementBusinessSegmentsAxis={member}",
+         f"{end[:4]}-01-01", end, value),
+    )  # fmt: skip
+
+
+def test_segment_rename_is_continued_not_a_break(dbs):
+    """BA-shaped case (live check 1; values illustrative): members renamed in the FY2025 10-K
+    with the overlapping years' values unchanged."""
+    engine, _ = dbs
+    old, new = ("0000012927-25-000015", "2025-02-03"), ("0001628280-26-004357", "2026-02-02")
+    for end, a, b, c in (("2023-12-31", 24_933e6, 19_002e6, 33_901e6),
+                         ("2024-12-31", 23_918e6, 19_954e6, 22_861e6)):  # fmt: skip
+        seg(engine, *old, "ba:BoeingDefenseSpaceSecuritySegmentMember", end, a)
+        seg(engine, *old, "ba:GlobalServicesMember", end, b)
+        seg(engine, *old, "ba:CommercialAirplanesMember", end, c)
+        seg(engine, *new, "ba:DefenseSpaceAndSecuritySegmentMember", end, a)
+        seg(engine, *new, "ba:GlobalServicesSegmentMember", end, b * 1.004)  # rounding, < 1%
+        seg(engine, *new, "ba:CommercialAirplanesMember", end, c)
+    seg(engine, *new, "ba:DefenseSpaceAndSecuritySegmentMember", "2025-12-31", 26_000e6)
+    seg(engine, *new, "ba:GlobalServicesSegmentMember", "2025-12-31", 20_500e6)
+    seg(engine, *new, "ba:CommercialAirplanesMember", "2025-12-31", 40_000e6)
+    sg = units_view.segment_table(engine, BA)
+    notes = " ".join(sg.notes)
+    assert "Renamed member" in notes and "series continued" in notes
+    assert "BoeingDefenseSpaceSecuritySegment → DefenseSpaceAndSecuritySegment" in notes
+    assert "GlobalServices → GlobalServicesSegment" in notes
+    assert not any(n.startswith("Break") for n in sg.notes)
+    # values that differ by more than 1% stay a break
+    engine.execute(
+        "UPDATE fact_dim SET value = value * 1.05 WHERE member = 'ba:GlobalServicesSegmentMember'"
+    )
+    brk = [n for n in units_view.segment_table(engine, BA).notes if n.startswith("Break")]
+    assert brk and "GlobalServicesSegment" in brk[0] and "DefenseSpace" not in brk[0]
+
+
+def test_units_summary_lists_customers_tesla_documents_and_invitae_years(dbs):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import run_financials
+
+    engine, corpus = dbs
+    tesla(engine, corpus)
+    invitae(engine, corpus)
+    k = ("0000050863-26-900011", "2026-01-30")
+    for m, v in (("intc:DellMember", 0.19), ("intc:LenovoMember", 0.13), ("intc:HPIncMember", 0.11),
+                 ("intc:ThreeLargestCustomersMember", 0.43)):  # fmt: skip
+        cust(engine, *k, m, v)
+    text = "\n".join(
+        run_financials.units_summary(engine, {"TSLA": TSLA, "INTC": INTC}, {}, {}, corpus)
+    )
+    assert "INTC FY2025 3 at 43%" in text
+    assert "INTC FY2025: 3 at 43% — Dell 19.0%, Lenovo 13.0%, HPInc 11.0%" in text
+    assert "left out: ThreeLargestCustomers 43.0% — aggregate of several customers" in text
+    assert "stored documents (what they can give; DS2):" in text and "operational summary" in text
+    assert "billable units FY2019: 469,000 (EX-99.1 0001501134-20-000007" in text
+    assert "billable units FY2021: missing: not in stored text" in text
+
+
+def test_label_file_episodes_carry_no_group():
+    import tomllib
+
+    path = Path(__file__).resolve().parent.parent / "config" / "m04_labels.toml"
+    eps = tomllib.loads(path.read_text(encoding="utf-8"))["episode"]
+    assert eps and all("group" not in e for e in eps)

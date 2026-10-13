@@ -8,7 +8,9 @@ Read from stored text only (0 requests): earnings-release exhibits (EX-99.1, EX-
   a header of quarter labels Q4-2022 … Q4-2023, so each release carries the prior quarter
   and the quarter a year ago) and the production-and-deliveries release table ("Model 3/Y
   | production | deliveries"). The financial summary's "Automotive regulatory credits" row
-  is stored as a **credit**, never netted into a KPI (S5.5).
+  is stored as a **credit**, never netted into a KPI (S5.5). Both tables are read as a
+  token stream, so a row split one cell per line (filer HTML with a <div> per cell) reads
+  like a tab-separated one (live check 1).
 - **Sentences** (any company): "produced N vehicles … and delivered M vehicles", "delivered
   N vehicles/airplanes", "billable volume of N" with a stated period ("fourth quarter of
   2025", "in 2024"). A figure with "approximately"/"over" is stored as stated, marked.
@@ -31,10 +33,13 @@ from datetime import date, datetime, timedelta
 
 from engine.sec.client import iso
 
-EXTRACTOR_TABLE = "tesla-ds2-1"
-EXTRACTOR_PD = "pd-table-1"
-EXTRACTOR_SENTENCE = "sentence-1"
-SCAN_VERSION = "units-1"  # bump to re-scan stored documents
+EXTRACTOR_TABLE = "tesla-ds2-2"
+EXTRACTOR_PD = "pd-table-2"
+EXTRACTOR_SENTENCE = "sentence-2"
+# bump to re-scan stored documents; a re-scan replaces the document's rows from these
+# extractors (any version), so a fixed extractor also drops its own earlier misreads
+SCAN_VERSION = "units-2"
+EXTRACTOR_FAMILIES = ("tesla-ds2-%", "pd-table-%", "sentence-%")
 SCAN_TYPES = ("EX-99.1", "EX-99.2", "10-K", "10-Q", "20-F")
 
 QUARTER_WORDS = {"first": 1, "second": 2, "third": 3, "fourth": 4}
@@ -152,28 +157,84 @@ def _scale(text: str) -> float:
     return 1.0
 
 
+def tokens(text: str) -> list[str]:
+    """Every non-empty table cell or text line in reading order. Filer HTML often wraps each
+    cell's text in its own <div>/<p> (Workiva, Tesla's Update), so the stored text puts each
+    cell on its own line; a token stream reads both layouts the same way."""
+    out = []
+    for line in text.split("\n"):
+        out += cells(line)
+    return out
+
+
+_GAP = {"—", "–", "-", "n/a", "N/A", "NM", "nm", "*"}  # a column with no figure
+
+
+def _values(toks: list[str], i: int, n: int) -> tuple[list[float | None], list[str], int] | None:
+    """The n column values after token i (values, their tokens, the next token's index):
+    numbers or dashes, skipping lone '%' and '$' tokens and footnote marks; None when the
+    row has fewer than n values."""
+    vals: list[float | None] = []
+    raw: list[str] = []
+    j = i + 1
+    while j < len(toks) and len(vals) < n:
+        t = toks[j].strip()
+        j += 1
+        if t in ("%", "$", ")", "("):
+            continue
+        if re.fullmatch(r"\(\d\)|\[\d\]", t) and not vals:
+            continue  # footnote mark after the label
+        if t in _GAP:
+            vals.append(None)
+        elif t.endswith("%") and number(t[:-1]) is not None:
+            vals.append(None)  # a percentage column (YoY, lease share): not a count
+        else:
+            v = number(t)
+            if v is None:
+                return None
+            vals.append(v)
+        raw.append(t)
+    while j < len(toks) and toks[j].strip() == "%":
+        j += 1  # the last column's own '%' cell
+    return (vals, raw, j) if len(vals) == n else None
+
+
+def _clean_label(t: str) -> str:
+    return re.sub(r"\s*(?:\(\d\))+\s*$", "", t.strip())
+
+
 def quarter_table(text: str, fye: str | None = "1231") -> list[Metric]:
     """Rows under a header of quarter labels (Tesla's Update): production and deliveries by
-    model line, storage deployed, and regulatory-credit revenue (kept as a credit)."""
+    model line, storage deployed, and regulatory-credit revenue (kept as a credit). Reads
+    tab-separated rows and one-cell-per-line tables alike (see `tokens`)."""
     out: list[Metric] = []
-    lines = text.split("\n")
+    toks = tokens(text)
     cols: list[tuple[int, int]] | None = None
     money_scale = _scale(text)
-    for raw in lines:
-        cs = cells(raw)
-        labels = [_qlabel(c) for c in cs]
-        if sum(1 for x in labels if x) >= 3:
-            cols = [x for x in labels if x]
+    i = 0
+    while i < len(toks):
+        run = []
+        while i + len(run) < len(toks) and _qlabel(toks[i + len(run)]):
+            run.append(_qlabel(toks[i + len(run)]))
+        if len(run) >= 3:
+            cols = run
+            i += len(run)
             continue
-        if cols is None or len(cs) < 2:
+        label = _clean_label(toks[i])
+        if cols is None:
+            i += 1
             continue
-        label = cs[0]
-        nums = [number(c) for c in cs[1:]]
-        vals = [v for v in nums if v is not None]
-        if len(vals) < len(cols):
+        m, s = _ROW.match(label), _STORAGE.match(label)
+        cr = _CREDITS.search(label) if len(label) <= 60 else None
+        if not (m or s or cr) or number(label) is not None:
+            i += 1
             continue
-        quote = "\t".join(cs)
-        m, s, cr = _ROW.match(label), _STORAGE.match(label), _CREDITS.search(label)
+        got = _values(toks, i, len(cols))
+        if got is None:
+            i += 1
+            continue
+        vals, raw, _ = got
+        quote = "\t".join([toks[i], *raw])
         if m:
             metric = m.group("what").lower()
             line, unit, kind, scale = _line_name(m.group("line")), "vehicles", "kpi", 1.0
@@ -185,11 +246,12 @@ def quarter_table(text: str, fye: str | None = "1231") -> list[Metric]:
                 "kpi",
                 1.0,
             )
-        elif cr:
-            metric, line, unit, kind, scale = "regulatory_credits", "", "USD", "credit", money_scale
         else:
-            continue
+            metric, line, unit, kind, scale = "regulatory_credits", "", "USD", "credit", money_scale
+        i += 1
         for (q, y), v in zip(cols, vals, strict=False):
+            if v is None:
+                continue
             start, end = quarter_dates(q, y, fye)
             out.append(
                 Metric(
@@ -218,27 +280,38 @@ _PD_LINE = re.compile(r"^(model [^\t]+|other models|total)$", re.I)
 def pd_table(text: str, fye: str | None = "1231") -> list[Metric]:
     """'Q4 2023 | Production | Deliveries' tables: one quarter, by model line."""
     out: list[Metric] = []
-    lines = text.split("\n")
-    for i, raw in enumerate(lines):
-        cs = cells(raw)
-        low = [c.lower() for c in cs]
-        if "production" not in low or "deliveries" not in low:
+    toks = tokens(text)
+    low = [t.lower() for t in toks]
+    for i, t in enumerate(low):
+        if t != "production" or "deliveries" not in low[i + 1 : i + 3]:
             continue
-        ctx = " ".join(lines[max(0, i - 3) : i + 1])
+        ctx = " ".join(toks[max(0, i - 4) : i])
         q = _QTEXT.search(ctx)
         if not q:
             continue
         qn, y = int(q.group(1)), int(q.group(2))
         start, end = quarter_dates(qn, y, fye)
-        offset = 1 if low[0] in ("production", "deliveries") else 0
-        p_i, d_i = low.index("production") + offset, low.index("deliveries") + offset
-        for row in lines[i + 1 : i + 8]:
-            rc = cells(row)
-            if not rc or not _PD_LINE.match(rc[0]):
-                continue
-            line = _line_name(rc[0])
-            for metric, j in (("production", p_i), ("deliveries", d_i)):
-                v = number(rc[j]) if j < len(rc) else None
+        # header = the column names after the quarter label, up to the first row label
+        head = []
+        j = i
+        while j < len(toks) and not _PD_LINE.match(toks[j]) and len(head) < 8:
+            head.append(low[j])
+            j += 1
+        p_i, d_i = head.index("production"), head.index("deliveries")
+        rows_seen = 0
+        while j < len(toks) and rows_seen < 6:
+            if not _PD_LINE.match(toks[j]):
+                break
+            got = _values(toks, j, len(head))
+            if got is None:
+                break
+            vals, raw, nxt = got
+            line = _line_name(toks[j])
+            rc = [toks[j], *raw]
+            j = nxt
+            rows_seen += 1
+            for metric, k in (("production", p_i), ("deliveries", d_i)):
+                v = vals[k]
                 if v is not None:
                     out.append(
                         Metric(
@@ -262,30 +335,57 @@ def pd_table(text: str, fye: str | None = "1231") -> list[Metric]:
 
 _AMT = (
     r"(?P<q{n}>approximately |about |over |more than |nearly )?"
-    r"(?P<n{n}>\d[\d,]*(?:\.\d+)?)(?P<m{n}> million)?"
+    r"(?P<n{n}>\d{{1,3}}(?:,\d{{3}})+(?:\.\d+)?|\d+(?:\.\d+)?)(?!,?\d)(?!\s?%)(?P<m{n}> million)?"
 )
+# Tesla's 10-K/10-Q say "consumer vehicles" (live check 1, 2026-10-12)
+_VEH = r"(?:consumer |electric |commercial |total )?(?P<u{n}>vehicles)"
 _PROD_DELIV = re.compile(
     r"produced "
     + _AMT.format(n=1)
-    + r"(?: vehicles)?[^.]{0,80}?\bdelivered "
+    + r"(?: (?:consumer |electric |commercial |total )?vehicles)?[^.]{0,80}?\bdelivered "
     + _AMT.format(n=2)
-    + r" (?P<u>vehicles)",
+    + " "
+    + _VEH.format(n=2),
     re.I,
 )
 _DELIV = re.compile(
-    r"\bdelivered " + _AMT.format(n=1) + r" (?:commercial )?(?P<u>vehicles|airplanes|aircraft)\b",
+    r"\bdelivered "
+    + _AMT.format(n=1)
+    + r" (?:consumer |electric |commercial |total )?(?P<u1>vehicles|airplanes|aircraft)\b",
     re.I,
 )
-_PROD = re.compile(r"\bproduced " + _AMT.format(n=1) + r" (?P<u>vehicles)\b", re.I)
-_BILLABLE = re.compile(r"billable (?:volume|units|tests)[^.\d]{0,40}?" + _AMT.format(n=1), re.I)
+_PROD = re.compile(r"\bproduced " + _AMT.format(n=1) + " " + _VEH.format(n=1) + r"\b", re.I)
+# Billable volume: the number must be attached to the phrase ("billable volume of N",
+# "billable volume in 2021 grew 71% to N", "N billable tests"); a year in between is the
+# period, never the count (live check 1: "2,021" from "billable volume in 2021 …").
+_BILL_PERIOD = (
+    r"(?:,?\s+(?:in|for|during)\s+(?:the\s+)?(?:(?:first|second|third|fourth)\s+quarter"
+    r"(?:\s+of)?\s+|full[- ]year\s+|fiscal(?:\s+year)?\s+)?\d{4},?)?"
+)
+_BILL_LINK = (
+    r"(?:\s+(?:of|was|were|totaled|totalled|reached|grew|increased|rose|to|\d+(?:\.\d+)?%))*"
+)
+_BILLABLE = re.compile(
+    r"billable (?:volume|units|tests|samples)"
+    + _BILL_PERIOD
+    + _BILL_LINK
+    + r"\s+"
+    + _AMT.format(n=1),
+    re.I,
+)
+_BILLABLE_REV = re.compile(_AMT.format(n=1) + r"\s+billable (?:tests|units|samples)\b", re.I)
 _PER_Q = re.compile(
     r"\b(first|second|third|fourth) quarter(?: of)?(?: fiscal)?(?: year)? (\d{4})\b", re.I
 )
-_PER_Q_ENDED = re.compile(r"quarter ended (\w+) (\d{1,2}), (\d{4})", re.I)
+_PER_Q_ENDED = re.compile(r"(?:quarter|three months) ended (\w+) (\d{1,2}), (\d{4})", re.I)
+_PER_YTD = re.compile(r"\b(?:six|nine) months ended \w+ \d{1,2}, \d{4}", re.I)
 _PER_Y = re.compile(
     r"\b(?:full[- ]year|fiscal(?: year)?|year ended \w+ \d{1,2},|for the year|in|during|for)"
     r" (\d{4})\b",
     re.I,
+)
+_YEAR_WORD = re.compile(
+    r"\b(?:quarter|year|fiscal|fy|in|during|for|ended|since|through|of|from)\s*$", re.I
 )
 
 
@@ -297,26 +397,67 @@ def _sentences(text: str) -> Iterable[str]:
         yield from re.split(r"(?<=[.;])\s+(?=[A-Z•])", para)
 
 
-def _period(s: str, fye: str | None) -> tuple[str, str | None, str] | None:
-    """(label, start, end) of the period a sentence names: a quarter wins over a year."""
-    if m := _PER_Q.search(s):
+Period = tuple[str, str | None, str]
+
+
+def _periods(s: str, fye: str | None) -> list[tuple[int, int, int, Period | None]]:
+    """Every period a sentence names: (start, end, rank, (label, start, end)); a year-to-date
+    span ("six months ended …") is listed with None so a figure next to it is skipped."""
+    out: list[tuple[int, int, int, Period | None]] = []
+    for m in _PER_Q.finditer(s):
         q, y = QUARTER_WORDS[m.group(1).lower()], int(m.group(2))
         start, end = quarter_dates(q, y, fye)
-        return f"Q{q}-{y}", start, end
-    if m := _PER_Q_ENDED.search(s):
+        out.append((m.start(), m.end(), 0, (f"Q{q}-{y}", start, end)))
+    for m in _PER_Q_ENDED.finditer(s):
         mon = MONTHS.get(m.group(1).lower())
         if mon:
             end_d = _month_end(int(m.group(3)), mon)
             start_d = (end_d - timedelta(days=88)).replace(day=1)
             q = (mon - 1) // 3 + 1 if (fye or "1231") == "1231" else None
             label = f"Q{q}-{end_d.year}" if q else f"quarter ended {end_d.isoformat()}"
-            return label, start_d.isoformat(), end_d.isoformat()
-    if m := _PER_Y.search(s):
+            out.append((m.start(), m.end(), 1, (label, start_d.isoformat(), end_d.isoformat())))
+    for m in _PER_YTD.finditer(s):
+        out.append((m.start(), m.end(), 2, None))
+    for m in _PER_Y.finditer(s):
         y = int(m.group(1))
-        if 1990 <= y <= 2100:
+        if 1990 <= y <= 2100 and not any(a <= m.start(1) < b for a, b, _, _ in out):
             start, end = year_dates(y, fye)
-            return f"FY{y}", start, end
-    return None
+            out.append((m.start(), m.end(), 3, (f"FY{y}", start, end)))
+    return out
+
+
+def _period(s: str, fye: str | None, pos: int | None = None) -> Period | None:
+    """(label, start, end) of the period a sentence names. With `pos` (where the figure
+    stands), the nearest period phrase wins ("… 469,000 in 2019, and 120,000 in the
+    fourth quarter"); without it, a quarter wins over a year."""
+    ps = _periods(s, fye)
+    if not ps:
+        return None
+    if pos is None:
+        return min(ps, key=lambda p: (p[3] is None, p[2], p[0]))[3]
+
+    def dist(p):
+        a, b = p[0], p[1]
+        return 0 if a <= pos < b else min(abs(pos - a), abs(pos - b))
+
+    return min(ps, key=lambda p: (dist(p), p[2]))[3]
+
+
+def _is_year(s: str, m: re.Match, n: int) -> bool:
+    """A 4-digit figure 1990–2039 without a thousands separator next to a year or period
+    word is a year, not a count."""
+    raw = m.group(f"n{n}")
+    if "," in raw or "." in raw or m.group(f"m{n}") or not re.fullmatch(r"\d{4}", raw):
+        return False
+    if not 1990 <= int(raw) <= 2039:
+        return False
+    before = s[max(0, m.start(f"n{n}") - 30) : m.start(f"n{n}")]
+    after = s[m.end(f"n{n}") : m.end(f"n{n}") + 20]
+    return bool(
+        _YEAR_WORD.search(before)
+        or re.match(r"^\s*(?:,|and\b|to\b|through\b|compared\b|was\b|were\b|[-–])", after)
+        or not after.strip()
+    )
 
 
 def _amount(m: re.Match, n: int) -> tuple[float, str]:
@@ -329,69 +470,36 @@ def _amount(m: re.Match, n: int) -> tuple[float, str]:
 
 def sentence_metrics(text: str, fye: str | None = "1231") -> list[Metric]:
     out: list[Metric] = []
+
+    def add(s: str, m: re.Match, n: int, metric: str, unit: str) -> None:
+        if _is_year(s, m, n):
+            return
+        per = _period(s, fye, m.start(f"n{n}"))
+        if per is None:
+            return
+        v, basis = _amount(m, n)
+        label, start, end = per
+        out.append(
+            Metric(
+                metric, "", label, start, end, v, unit, "kpi", basis, s[:600], EXTRACTOR_SENTENCE
+            )
+        )
+
     for s in _sentences(text):
         low = s.lower()
         if not any(w in low for w in ("produced", "delivered", "billable")):
             continue
-        per = _period(s, fye)
-        if per is None:
+        if not _periods(s, fye):
             continue
-        label, start, end = per
-        quote = s[:600]
         if m := _PROD_DELIV.search(s):
-            for metric, n in (("production", 1), ("deliveries", 2)):
-                v, basis = _amount(m, n)
-                out.append(
-                    Metric(
-                        metric,
-                        "",
-                        label,
-                        start,
-                        end,
-                        v,
-                        "vehicles",
-                        "kpi",
-                        basis,
-                        quote,
-                        EXTRACTOR_SENTENCE,
-                    )
-                )
-            continue
-        for rx, metric in ((_DELIV, "deliveries"), (_PROD, "production")):
-            if m := rx.search(s):
-                v, basis = _amount(m, 1)
-                out.append(
-                    Metric(
-                        metric,
-                        "",
-                        label,
-                        start,
-                        end,
-                        v,
-                        m.group("u").lower(),
-                        "kpi",
-                        basis,
-                        quote,
-                        EXTRACTOR_SENTENCE,
-                    )
-                )
-        if m := _BILLABLE.search(s):
-            v, basis = _amount(m, 1)
-            out.append(
-                Metric(
-                    "billable_units",
-                    "",
-                    label,
-                    start,
-                    end,
-                    v,
-                    "units",
-                    "kpi",
-                    basis,
-                    quote,
-                    EXTRACTOR_SENTENCE,
-                )
-            )
+            add(s, m, 1, "production", "vehicles")
+            add(s, m, 2, "deliveries", "vehicles")
+        else:
+            for rx, metric in ((_DELIV, "deliveries"), (_PROD, "production")):
+                if m := rx.search(s):
+                    add(s, m, 1, metric, m.group("u1").lower())
+        if m := (_BILLABLE.search(s) or _BILLABLE_REV.search(s)):
+            add(s, m, 1, "billable_units", "units")
     return out
 
 
@@ -502,6 +610,13 @@ def scan_company(
         got = extract(text, fye)
         engine.execute("BEGIN")
         try:
+            engine.execute(
+                "DELETE FROM unit_metric WHERE cik = ? AND accession = ? AND ifnull(filename, '') "
+                "= ifnull(?, '') AND ("
+                + " OR ".join(["extractor LIKE ?"] * len(EXTRACTOR_FAMILIES))
+                + ")",
+                (cik, d["accession"], d["filename"], *EXTRACTOR_FAMILIES),
+            )
             n = store(
                 engine,
                 cik,
@@ -527,6 +642,95 @@ def scan_company(
         for m in got:
             res.by_metric[m.metric] = res.by_metric.get(m.metric, 0) + 1
     return res
+
+
+_PD_TITLE = re.compile(r"vehicle production\s*(?:&|and)\s*deliveries", re.I)
+
+
+@dataclass(frozen=True)
+class DocCoverage:
+    """What one stored document can give the unit extractors (DS2 diagnosis)."""
+
+    doc_type: str
+    accession: str
+    filename: str
+    chars: int
+    quarter_header: bool  # ≥ 3 quarter labels in a row (the Update's summaries)
+    kpi_labels: int  # "Model 3/Y deliveries", "Total production", … tokens
+    pd_release: bool  # a production-and-deliveries release
+    rows: int  # unit_metric rows from this document
+
+    def text(self) -> str:
+        kind = (
+            "production-and-deliveries release"
+            if self.pd_release
+            else ("operational summary" if self.quarter_header and self.kpi_labels else "")
+        )
+        bits = [f"{self.chars:,} chars"]
+        if kind:
+            bits.append(kind)
+        elif self.chars < 3000:
+            bits.append("almost no text (images or a cover page?)")
+        else:
+            bits.append(f"no KPI table ({self.kpi_labels} KPI row label(s))")
+        bits.append(f"{self.rows} row(s)")
+        return f"{self.doc_type} {self.accession} {self.filename}: " + ", ".join(bits)
+
+
+def coverage(engine: sqlite3.Connection, corpus: sqlite3.Connection, cik: str) -> list[DocCoverage]:
+    """Per stored document of the scanned types: size, whether it carries the Update's
+    quarter-label summary or a production-and-deliveries table, and rows extracted."""
+    marks = ",".join("?" * len(SCAN_TYPES))
+    out = []
+    for d in corpus.execute(
+        f"SELECT accession, filename, doc_type, text FROM document WHERE cik = ? "
+        f"AND doc_type IN ({marks}) ORDER BY accession",
+        (cik, *SCAN_TYPES),
+    ):
+        toks = tokens(d["text"] or "")
+        run = best = 0
+        for t in toks:
+            run = run + 1 if _qlabel(t) else 0
+            best = max(best, run)
+        labels = sum(1 for t in toks if _ROW.match(_clean_label(t)) or _STORAGE.match(t))
+        low = [t.lower() for t in toks]
+        pd = bool(_PD_TITLE.search(d["text"] or "")) or any(
+            t == "production" and "deliveries" in low[i + 1 : i + 3] for i, t in enumerate(low)
+        )
+        n = engine.execute(
+            "SELECT count(*) FROM unit_metric WHERE cik = ? AND accession = ? "
+            "AND ifnull(filename, '') = ifnull(?, '')",
+            (cik, d["accession"], d["filename"]),
+        ).fetchone()[0]
+        out.append(
+            DocCoverage(
+                d["doc_type"],
+                d["accession"],
+                d["filename"] or "",
+                len(d["text"] or ""),
+                best >= 3,
+                labels,
+                pd,
+                n,
+            )
+        )
+    return out
+
+
+def coverage_lines(engine: sqlite3.Connection, corpus: sqlite3.Connection, cik: str) -> list[str]:
+    """The DS2 line for the log: what the stored documents can and cannot give."""
+    cov = coverage(engine, corpus, cik)
+    if not cov:
+        return ["no stored EX-99.1/EX-99.2/10-K/10-Q text for this company"]
+    out = [c.text() for c in cov]
+    if not any(c.pd_release for c in cov):
+        out.append(
+            "quarterly production-and-deliveries releases: none in the stored corpus (Tesla "
+            "posts them on its IR site; they are not among the stored 8-K exhibits), so "
+            "quarters come only from the Update letters' operational summary and 10-Q/10-K "
+            "sentences"
+        )
+    return out
 
 
 # --- Reads ---------------------------------------------------------------------------------
@@ -665,6 +869,23 @@ def change_between(
     if va is None or vb is None or va == 0:
         return None
     return vb / va - 1
+
+
+def period_value(
+    engine: sqlite3.Connection, cik: str, metric: str, label: str, line: str = ""
+) -> tuple[float | None, str]:
+    """(value, where from) for one period label: the latest stated row (its document
+    type and accession), else the sum of 4 stated quarters, else (None, "missing: not in
+    stored text")."""
+    fye = fiscal_year_end(engine, cik)
+    rows = _exact_first(latest_rows(engine, cik), fye)
+    for r in rows:
+        if (r["metric"], r["line"], r["period_label"]) == (metric, line, label):
+            return float(r["value"]), f"{r['source']} {r['accession']}, {r['basis']}"
+    for m in annual_from_quarters(rows, fye):
+        if (m.metric, m.line, m.period_label) == (metric, line, label):
+            return m.value, "sum of 4 stated quarters"
+    return None, "missing: not in stored text"
 
 
 # --- Category breaks (m04_unit_kpi) --------------------------------------------------------

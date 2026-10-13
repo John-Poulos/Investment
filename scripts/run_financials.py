@@ -1464,7 +1464,9 @@ def target_check(client, engine, now, log, clog=None) -> None:
         )
 
 
-def units_summary(engine, scope: dict[str, str], instance_log: dict, ex_log: dict) -> list[str]:
+def units_summary(
+    engine, scope: dict[str, str], instance_log: dict, ex_log: dict, corpus=None
+) -> list[str]:
     """What the owner looks for (M04_BUILD_LOG Part 7a live check)."""
     from engine.financials import exhibits, units, units_view
 
@@ -1515,6 +1517,25 @@ def units_summary(engine, scope: dict[str, str], instance_log: dict, ex_log: dic
             or "none"
         )
     )
+    lines.append(
+        "Per-customer breakdown, latest year (consolidated customer share of revenue only; "
+        "facts left out with the reason, D-M04-43):"
+    )
+    for t, cs in other:
+        if not cs:
+            continue
+        c = cs[-1]
+        usd = f" ≈ ${c.at_stake_usd / 1e9:,.1f}B" if c.at_stake_usd else ""
+        lines.append(
+            f"  {t} {c.label}: {c.count} at {c.at_stake:.0%}{usd} — "
+            + ", ".join(f"{n} {p:.1%}" for n, p in c.customers)
+            + f" ({c.accession}; {c.basis})"
+        )
+        for n, v, why in c.excluded[:8]:
+            shown = f"{v:.1%}" if abs(v) <= 1 else (f"{v:,.0f}" if abs(v) > 100 else f"{v:g}")
+            lines.append(f"    left out: {n} {shown} — {why}")
+        if len(c.excluded) > 8:
+            lines.append(f"    … {len(c.excluded) - 8} more left out")
     lines.append("Segments (latest annual instance; recasts and breaks):")
     for ticker, cik in sorted(scope.items()):
         sg = units_view.segment_table(engine, cik)
@@ -1535,10 +1556,17 @@ def units_summary(engine, scope: dict[str, str], instance_log: dict, ex_log: dic
                 f"  {r.metric}{' · ' + r.line if r.line else ''}: {e} → {r.later[0]} "
                 f"{r.later[1]:,.0f} {r.unit} ({ch}; {r.basis}){tag}"
             )
-        if not rows:
-            lines.append("  no Tesla KPI rows in the stored releases")
         for b in units.breaks(engine, tesla):
             lines.append(f"  break: {b.metric} in {b.filed} — {b.text()}")
+        if corpus is not None:
+            lines.append(
+                "  stored documents (what they can give; DS2):"
+                if rows
+                else "  no Tesla KPI rows; stored documents (what they can and cannot give; DS2):"
+            )
+            lines += [f"    {x}" for x in units.coverage_lines(engine, corpus, tesla)]
+        elif not rows:
+            lines.append("  no Tesla KPI rows in the stored documents")
     else:
         lines.append("  TSLA not in this run")
     lines.append(
@@ -1581,9 +1609,12 @@ def units_summary(engine, scope: dict[str, str], instance_log: dict, ex_log: dic
             f"  {m.label}: {m.margin:.1%} vs {m.prior:.1%} → {m.pp:+.1f} pp ({m.accession})"
         )
     for r in units.kpi_rows(engine, INVITAE[1]):
-        if r.metric == "billable_units":
+        if r.metric == "billable_units" and r.later[0].startswith("Q"):
             e = f"{r.earlier[0]} {r.earlier[1]:,.0f}" if r.earlier else "—"
             lines.append(f"  billable units: {e} → {r.later[0]} {r.later[1]:,.0f}")
+    for y in ("FY2019", "FY2020", "FY2021", "FY2022"):
+        v, src = units.period_value(engine, INVITAE[1], "billable_units", y)
+        lines.append(f"  billable units {y}: " + (f"{v:,.0f} ({src})" if v is not None else src))
     lines.append("Target gross margin (expected 2022Q1 −4.4, Q2 −8.9 pp):")
     for label, end, prior in units_view.TARGET_QUARTERS:
         pp, cur, old = units.gm_yoy_pp(engine, TARGET[1], end, prior)
@@ -1729,7 +1760,7 @@ def units_run(engine, corpus, comps: dict[str, str], now, log, client=None, clog
         f"m04_unit_kpi items: {', '.join(f'{k} {v}' for k, v in sorted(queued.items())) or 'none'}",
         "",
     )
-    log(*units_summary(engine, scope, instance_log, ex_log))
+    log(*units_summary(engine, scope, instance_log, ex_log, corpus))
 
 
 def run_units(args, log: Log, folder: Path) -> int:
