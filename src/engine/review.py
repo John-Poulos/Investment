@@ -11,6 +11,8 @@ Every action closes the item with who, when, the action and the owner's note
 - ticker_map_hold: approve (the next nightly run applies SEC's ticker files with
   force; approval valid 7 days) or keep the stored map.
 - m02_*: M02 proposals (engine/themes/proposals.py); data changes in `m02_action`.
+- m04_*: M04 proposals (engine/financials/queue.py); data changes in `m04_action`
+  (stage confirmations and overrides, peer shortlists; M04 Part 1c).
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from engine.financials import queue as m04_queue
 from engine.guidance import labels
 from engine.guidance.calls import anchor_of, management_turns
 from engine.guidance.ledger import TAX_RATE_SANE, Release, _insert
@@ -41,6 +44,7 @@ KIND_LABELS = {
     "guidance_audit": "Guidance check (weekly sample or Gemini)",
     "guidance_implausible": "Guidance outside the plausible range",
     **proposals.KIND_LABELS,
+    **m04_queue.KIND_LABELS,
 }
 ACTIONS = {
     "guidance_unparsed": ("enter", "dismiss"),
@@ -50,6 +54,7 @@ ACTIONS = {
     "guidance_audit": ("correct", "wrong", "no_guidance", "missed", "dismiss"),
     "guidance_implausible": ("correct", "wrong", "dismiss"),
     **proposals.ACTIONS,
+    **m04_queue.ACTIONS,
 }
 METRIC_NAMES = tuple(dict.fromkeys(name for _, name in METRICS))
 PERIOD = re.compile(r"^(?:FY\d{4}( Q[1-4]| remaining)?|CY\d{4})$")
@@ -202,6 +207,76 @@ def m02_action(
     except Exception:
         engine.execute("ROLLBACK")
         raise
+
+
+def m04_action(
+    engine: sqlite3.Connection,
+    item_id: int,
+    action: str,
+    note: str,
+    by: str,
+    now: datetime,
+    *,
+    target: str = "",
+    keep: tuple[str, ...] | None = None,
+) -> str:
+    """M04 proposal actions (M04 Part 1c): stage confirmation or override (`target` = the
+    stage chosen), peer shortlist confirmation (`keep` = candidates kept). The data change
+    and the closing are one transaction; `lifecycle_stage` is rewritten with it. Returns
+    the resolution stored on the item."""
+    from engine.financials import models, stage
+
+    it = _open(engine, item_id, tuple(m04_queue.ACTIONS))
+    if action not in it.actions:
+        raise ReviewError(f"'{action}' is not an action for {it.label.lower()}.")
+    engine.execute("BEGIN")
+    try:
+        done = m04_queue.apply(engine, item_id, it.kind, action, it.payload, it.cik, by, now,
+                               target=target, keep=keep)  # fmt: skip
+        _close(engine, item_id, done, note, by, now)
+        if it.kind == "m04_stage" and it.cik:
+            mf = models.load_safe()
+            tag, how = models.route(engine, mf, it.cik, it.ticker)
+            stage.stage_signal(engine, it.cik, it.ticker, now.date().isoformat(), tag,
+                               how if tag else "")  # fmt: skip
+        engine.execute("COMMIT")
+    except m04_queue.QueueError as e:
+        engine.execute("ROLLBACK")
+        raise ReviewError(str(e)) from e
+    except Exception:
+        engine.execute("ROLLBACK")
+        raise
+    return done
+
+
+def m04_override(
+    engine: sqlite3.Connection, cik: str, ticker: str | None, chosen: str, note: str, by: str,
+    now: datetime,
+) -> str:  # fmt: skip
+    """The owner changes a company's stage with no item open: an `m04_stage` item is
+    opened (setup, outside the cap) and resolved at once, so the change is in the review
+    history (D-M04-12 owner override)."""
+    from engine.financials import stage
+
+    if chosen not in stage.STAGES:
+        raise ReviewError(f"Unknown stage {chosen!r}.")
+    row = stage.latest_row(engine, cik)
+    payload = {"ticker": ticker, "period_end": row["period_end"] if row else None,
+               "fiscal_label": row["fiscal_label"] if row else "—",
+               "computed": row["computed"] if row else None, "why": ["override"]}  # fmt: skip
+    engine.execute("BEGIN")
+    try:
+        m04_queue.propose(engine, "m04_stage", f"{cik}:override:{now.isoformat()}",
+                          f"{ticker or cik}: owner override to {stage.STAGE_NAMES[chosen]}",
+                          payload, now, cik=cik, setup=True)  # fmt: skip
+        engine.execute("COMMIT")
+    except Exception:
+        engine.execute("ROLLBACK")
+        raise
+    item = engine.execute("SELECT item_id FROM review_queue WHERE kind = 'm04_stage' AND cik = ? "
+                          "AND resolved_at IS NULL ORDER BY item_id DESC LIMIT 1",
+                          (cik,)).fetchone()  # fmt: skip
+    return m04_action(engine, item[0], "confirm", note, by, now, target=chosen)
 
 
 # --- guidance accuracy checks (D-M02-24) ------------------------------------------------

@@ -1,0 +1,29 @@
+# M04 model tags (D-M04-8; docs/M04_FINANCIALS.md "Model tags"). Hand-edited by the owner;
+# the engine reads this file and never writes it. Each entry needs a tag, a one-line reason
+# and a source. Allowed tags (any other tag is rejected at load):
+#   issuance_funded, asset_treasury, reit, fund, financial, spac_shell
+# A tag overrides the SEC industry code (SIC) and applies before the life-cycle stage.
+# Key a company by `cik` (10 digits; tickers can be recycled, D-M04-74) and/or `ticker`;
+# with both, the CIK decides. `before = "YYYY-MM-DD"` limits the tag to periods ending
+# before that date (keyed on period end, e.g. a de-SPAC shell's years).
+
+[[company]]
+ticker = "MSTR"
+cik = "0001050446"
+tag = "asset_treasury"
+reason = "Bitcoin treasury company: income and assets swing with bitcoin's price; SIC 6199 would exclude it as a financial."
+source = "D-M04-8 (M04 design review 1.7a, 2026-10-12); R1 brief"
+
+[[company]]
+ticker = "ETV"
+tag = "fund"
+reason = "Closed-end fund filing N-CSR, not 10-K: no operating-company financials."
+source = "D-M04-8; config/watchlist.toml note"
+
+[[company]]
+ticker = "INFQ"
+cik = "0002007825"
+tag = "spac_shell"
+before = "2026-02-13"
+reason = "Churchill Capital Corp X shell years before the Infleqtion merger closed on 2026-02-13; no tag after."
+source = "D-M04-8; probe S12 (closing 8-K items 2.01 and 5.06)"

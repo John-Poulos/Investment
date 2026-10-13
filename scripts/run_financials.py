@@ -4,6 +4,8 @@
     uv run python scripts/run_financials.py data --no-sec    # local re-run, 0 SEC requests
     uv run python scripts/run_financials.py capex            # Part 1b live check
     uv run python scripts/run_financials.py capex --no-sec   # local re-run, 0 SEC requests
+    uv run python scripts/run_financials.py profile          # Part 1c live check
+    uv run python scripts/run_financials.py profile --no-sec # local re-run, 0 SEC requests
     uv run python scripts/run_financials.py --list           # the subcommand table
 
 Subcommands: data (1a) · capex (1b) · profile (1c) · peers (2) · flags (3) · gate (4a) ·
@@ -21,6 +23,16 @@ instance per filing, ~18 requests; each instance is parsed, its extension facts 
 the file dropped from http_cache, SB.16), rebuilds NVIDIA's series (0 requests), then
 recomputes for every covered company the capex split, core trend rows, ROIC and the
 guidance record (0 requests) and prints what the owner looks for.
+
+`profile` (Part 1c): loads config/company_models.toml (unknown tags rejected); reads EDGAR's
+browse-by-SIC lists for every SIC of the core and promoted companies (one browse per SIC,
+at most 10 pages per SIC, at most 90 pages; pages re-used for 7 days; SIC 3674's full list
+goes to the log: the S1 re-probe), 3 revenue frames for the ranking year and 2 for the
+year before (suspect guard); ranks each company's peer shortlist by revenue closeness among
+active filers (stored form indexes, 0 requests), suspect revenue last; opens the
+setup batch (one `m04_stage` and one `m04_peer` item per company, outside the weekly cap);
+writes `lifecycle_stage`; prints what the owner looks for. `--no-sec` re-ranks from stored
+lists and frames.
 
 Takes data/refresh.lock (one SEC process at a time). Writes
 logs/financials_<subcommand>_<YYYYMMDD-HHMMSS>.txt as it goes, with requests, MB and
@@ -57,14 +69,15 @@ SUBCOMMANDS = (
     ("cvd", "8a", "CvD assembly, health vote, M04 tab"),
     ("backtest", "8b", "calibration"),
 )
-BUILT = {"data", "capex"}
+BUILT = {"data", "capex", "profile"}
 NVDA_CIK = "0001045810"
 NVDA_YEARS = range(2013, 2022)  # FY2013–FY2021: capex only under the extension tag
 WDC_CIK = "0000106040"
 WDC_TAGS = ("Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax")
 COUNTED_TABLES = ("fact", "series", "cover_shares", "filing_status", "signal", "entity_link",
                   "entity", "refresh_state", "fetch_log", "capex_split",
-                  "guidance_outcome")  # fmt: skip
+                  "guidance_outcome", "company_stage", "m04_proposal", "peer_candidate",
+                  "sic_listing", "frame_value", "review_queue")  # fmt: skip
 
 
 class Log:
@@ -86,6 +99,10 @@ class Log:
 
 
 def fetch_type(url: str) -> str:
+    if "/cgi-bin/browse-edgar" in url:
+        return "browse-by-SIC"
+    if "/api/xbrl/frames/" in url:
+        return "frames"
     if "/companyconcept/" in url:
         return "companyconcept"
     if "/companyfacts/" in url:
@@ -611,6 +628,187 @@ def run_capex(args, log: Log, folder: Path) -> int:
     return 0
 
 
+# --- profile (Part 1c) ---------------------------------------------------------------------
+
+
+S1_SIC = "3674"  # the S1 re-probe: full list to the log (SB.17)
+
+
+def profile_summary(engine, mf, sp, pp, now) -> list[str]:
+    """What the owner looks for (M04_BUILD_LOG Part 1c live check)."""
+    from engine.financials import peers, stage
+    from engine.sec.browse import BROWSE_FORM
+
+    lines = ["=== Summary (what the owner looks for) ==="]
+    if mf.error:
+        lines.append(f"Model tag file {mf.path}: REJECTED — {mf.error}")
+    else:
+        lines.append(
+            f"Model tag file {mf.path}: loaded with {len(mf.entries)} entries: "
+            + "; ".join(f"{e.ticker or e.cik} {e.tag} ({e.scope})" for e in mf.entries)
+        )
+    review = [t for t, r in sorted(sp.results.items()) if r.reasons]
+    lines.append(f"Stages computed: {len(sp.results)}; all go to the setup batch (first "
+                 f"confirmation); with an ambiguity as well: {len(review)} — "
+                 f"{', '.join(review) or 'none'}")  # fmt: skip
+    for ticker, r in sorted(sp.results.items()):
+        held = stage.STAGE_NAMES[r.computed] if r.computed else "none holds"
+        why = ", ".join(stage.REASONS[c] for c in r.reasons) or "plain (first confirmation only)"
+        cagr = f"{r.cagr3:+.1%}" if r.cagr3 is not None else r.cagr_note
+        lines.append(f"  {ticker}: {held} ({r.label}; CAGR 3y {cagr}); {why}")
+    for ticker, how in sorted(sp.excluded.items()):
+        lines.append(f"  {ticker}: no stage — {how}")
+    lines.append(
+        f"Setup stage items: {sum(v == 'queued' for v in sp.opened.values())} queued "
+        f"now, {sum(v == 'suppressed' for v in sp.opened.values())} already open"
+    )
+    lines.append("Peer shortlists per SIC (listed · active = 10-K/20-F/40-F in 12 months):")
+    by_sic: dict = {}
+    for ticker, s in sorted(pp.shortlists.items()):
+        by_sic.setdefault(s.sic, []).append((ticker, s))
+    for sic, rows in sorted(by_sic.items(), key=lambda kv: (kv[0] is None, kv[0] or "")):
+        if sic is None:
+            continue
+        ciks = [r[0] for r in engine.execute("SELECT DISTINCT cik FROM sic_listing WHERE sic = ?",
+                                             (sic,))]  # fmt: skip
+        act = peers.active_filers(engine, ciks, now.date())
+        foreign = sum(1 for f, _ in act.values() if f.split("/")[0] in ("20-F", "40-F"))
+        b = engine.execute("SELECT pages, capped FROM sic_browse WHERE sic = ? AND browsed = ?",
+                           (sic, BROWSE_FORM)).fetchone()  # fmt: skip
+        how = (f"browse {b['pages']} page(s)" + (" PARTIAL (cap)" if b["capped"] else "")
+               if b else "not browsed")  # fmt: skip
+        lines.append(
+            f"  SIC {sic}: listed {len(ciks)} ({how}); active "
+            f"{len(act)} ({len(act) - foreign} on 10-K, {foreign} on 20-F/40-F)"
+        )
+        for ticker, s in rows:
+            names = "; ".join(
+                f"{c.rank}. {c.name}"
+                + (f" {c.revenue / 1e9:,.1f}B" if c.revenue else " (revenue missing)")
+                + (f" (revenue suspect: {c.suspect})" if c.suspect else "")
+                for c in s.candidates
+            )
+            tv = f"{s.target_revenue / 1e9:,.1f}B" if s.target_revenue else "missing"
+            lines.append(f"    {ticker} (revenue {tv}): {len(s.candidates)} — {names or s.note}")
+        suspects = sorted({(n, w) for _, s in rows for n, w in s.suspects})
+        if suspects:
+            lines.append("    revenue suspect (ranked after the valued names): "
+                         + "; ".join(f"{n} ({w})" for n, w in suspects))  # fmt: skip
+    nopeer = {t: (s.note or "no active candidate") for t, s in pp.shortlists.items()
+              if not s.candidates}  # fmt: skip
+    lines.append(f"Companies with no usable SIC peers: {len(nopeer)}")
+    lines += [f"  {t}: {why}" for t, why in sorted(nopeer.items())]
+    lines.append(f"Setup peer items: {sum(v == 'queued' for v in pp.opened.values())} queued now, "
+                 f"{sum(v == 'suppressed' for v in pp.opened.values())} already open")  # fmt: skip
+    if pp.gaps:
+        lines.append("Form-index quarters missing in the last 12 months (active counts partial): "
+                     + ", ".join(pp.gaps))  # fmt: skip
+    else:
+        lines.append("Form indexes cover the last 12 months (active counts complete)")
+    return lines
+
+
+def profile_run(engine, comps: dict[str, str], mf, now, log, client=None, clog=None) -> None:
+    """The `profile` work on open connections (tests inject a scratch DB and a fake client;
+    `client=None` = no SEC requests)."""
+    from engine.financials import peers, profile
+    from engine.sec import browse
+
+    targets = profile.peer_targets(engine, comps, mf)
+    sics = sorted({sic for _, sic, _ in targets.values() if sic})
+    if client is not None:
+        log(f"Browse-by-SIC for {len(sics)} SIC(s): {', '.join(sics)} (one browse per SIC, "
+            f"at most {browse.PAGE_CAP} pages each):")  # fmt: skip
+        t0 = time.monotonic()
+        for sic in sics:
+            b = browse.browse_sic(client, sic)
+            engine.execute("BEGIN")
+            browse.store(engine, b, now)
+            engine.execute("COMMIT")
+            log(f"  SIC {sic}: {len(b.companies)} companies in {b.pages} page(s)"
+                + (" PARTIAL (cap)" if b.capped else "")
+                + (f" FAILED: {b.error}" if b.error else ""))  # fmt: skip
+            if b.throttled:
+                log("  SEC throttle: the rest waits for the next run")
+                break
+        year = peers.frame_year(now.date())
+        if clog is not None:
+            clog.seconds["browse-by-SIC"] += time.monotonic() - t0
+        log(f"Revenue frames CY{year} (ranking) and CY{year - 1} (suspect guard):")
+        t1 = time.monotonic()
+        log(*peers.fetch_revenue_frames(client, engine, year, now))
+        if clog is not None:
+            clog.seconds["frames"] += time.monotonic() - t1
+        log("")
+    else:
+        log("SEC skipped (--no-sec): stored browse lists and frames used", "")
+
+    if S1_SIC in sics:
+        rows = engine.execute("SELECT cik, name, browsed FROM sic_listing WHERE sic = ? "
+                              "ORDER BY name", (S1_SIC,)).fetchall()  # fmt: skip
+        act = peers.active_filers(engine, [r["cik"] for r in rows], now.date())
+        log(f"S1 re-probe — SIC {S1_SIC} full list ({len(rows)} listed, {len(act)} active; "
+            "* = active, with its form and date):")  # fmt: skip
+        log(
+            "  "
+            + "; ".join(
+                f"{r['name']} ({r['cik'].lstrip('0')})"
+                + (f" *{act[r['cik']][0]} {act[r['cik']][1]}" if r["cik"] in act else "")
+                + ("" if r["browsed"] == "10-K" else f" [{r['browsed']} list]")
+                for r in rows
+            )
+        )
+        log("")
+
+    pp = profile.peer_pass(engine, comps, mf, now)
+    sp = profile.stage_pass(engine, comps, mf, now)
+    log(*profile.stage_lines(sp, engine))
+    log("")
+    log(*profile_summary(engine, mf, sp, pp, now))
+
+
+def run_profile(args, log: Log, folder: Path) -> int:
+    from engine.financials import models
+    from engine.store.db import open_db
+    from engine.store.http import SqliteCache, SqliteFetchLog
+
+    engine = open_db("engine", folder)
+    corpus = open_db("corpus", folder, check_same_thread=False)
+    now = datetime.now(UTC)
+    mb_before, before = db_mb(folder), counts(engine)
+    comps = companies(engine)
+    if args.tickers:
+        wanted = {t.strip().upper() for t in args.tickers.split(",")}
+        comps = {t: c for t, c in comps.items() if t in wanted}
+    head = f"run_financials profile · {now:%Y-%m-%d %H:%M} UTC · {len(comps)} companies"
+    log(head + (" · no SEC" if args.no_sec else ""), f"engine.db before: {mb_before:,.1f} MB", "")
+    try:
+        mf = models.load()
+    except models.ModelFileError as e:
+        mf = models.ModelFile(str(models.MODELS), (), str(e))
+    log(f"Model tags: {mf.error or f'{len(mf.entries)} entries loaded'}", "")
+    client = clog = None
+    if not args.no_sec:
+        from engine.sec.client import SecClient, user_agent_from_env
+
+        clog = CountingLog(SqliteFetchLog(engine))
+        client = SecClient(user_agent_from_env(), cache=SqliteCache(corpus), log=clog)
+    profile_run(engine, comps, mf, now, log, client, clog)
+    if clog is not None:
+        log(*clog.lines())
+    else:
+        log("SEC requests: 0 (--no-sec)")
+    after = counts(engine)
+    log(
+        "Rows added per table: "
+        + ", ".join(f"{t} {after[t] - before[t]:+,}" for t in COUNTED_TABLES)
+    )
+    log(f"engine.db: {mb_before:,.1f} MB → {db_mb(folder):,.1f} MB")
+    corpus.close()
+    engine.close()
+    return 0
+
+
 def _main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("subcommand", nargs="?", choices=[s for s, _, _ in SUBCOMMANDS])
@@ -635,6 +833,8 @@ def _main() -> int:
     try:
         if args.subcommand == "capex":
             return run_capex(args, log, data_dir())
+        if args.subcommand == "profile":
+            return run_profile(args, log, data_dir())
         return run_data(args, log, data_dir())
     except Exception:
         log("FAILED with a traceback:", traceback.format_exc())

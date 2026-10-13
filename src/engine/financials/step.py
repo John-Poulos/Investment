@@ -15,7 +15,11 @@ Two hooks in `scripts/run_refresh.py`, both inside the refresh lock and timed:
   `owner_earnings`, `rev_yoy`, `rev_cagr3`, `fcf_growth`, `fcf_growth_oe`, `gm_trend_pp`,
   `opex_vs_sales`, `guidance_hit_rate`, `guidance_removed`). NVIDIA's FY2013–21 capex
   instances are a one-off owner backfill (`scripts/run_financials.py capex`), never fetched
-  here (D-M04-70).
+  here (D-M04-70). Part 1c recomputes the life-cycle stage of every core and promoted
+  company (D-M04-80), opens the setup `m04_stage` items on the first run and an item per new
+  fiscal year whose computed stage differs from the owner's or is ambiguous (D-M04-12),
+  flushes M04 overflow (cap 5, D-M04-71) and writes `lifecycle_stage`. Browse-by-SIC and the
+  revenue frames are owner-run only (`scripts/run_financials.py profile`).
 
 Never fails the run: errors are reported in its lines; writes are short transactions.
 """
@@ -28,7 +32,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from engine.financials import capex, shares, status, trends
+from engine.financials import capex, models, profile, shares, status, trends
 from engine.guidance import record
 from engine.sec.client import SecClient
 from engine.sec.cover import fetch_cover, r1_done
@@ -309,7 +313,20 @@ def run_local_part(
         f"({p1b['split']} split years, {p1b['scored']} scored guides, "
         f"{p1b['removed']} removed guides)"
     )
+    try:
+        mf = models.load_safe()
+        if mf.error:
+            lines.append(f"  model tag file rejected, no tags applied: {mf.error}")
+        sp = profile.stage_pass(engine, companies, mf, now)
+        opened = sum(1 for v in sp.opened.values() if v == "queued")
+        summary += (f"; stages computed for {len(sp.results)} companies, {opened} stage item(s) "
+                    f"opened")  # fmt: skip
+        lines += sp.errors
+    except Exception as e:  # the stage pass must not stop the step
+        if engine.in_transaction:
+            engine.execute("ROLLBACK")
+        lines.append(f"  stage pass: error — {type(e).__name__}: {e}")
     lines.insert(0, summary)
     lines[1:1] = alerts
-    head = f"M04 financials — local pass (Parts 1a–1b, 0 SEC requests) ({clock() - t0:.1f} s):"
+    head = f"M04 financials — local pass (Parts 1a–1c, 0 SEC requests) ({clock() - t0:.1f} s):"
     return [head, *lines]
