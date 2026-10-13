@@ -572,11 +572,12 @@ def test_financials_tab_shows_part3_sections(tmp_path):
     assert "restatement step not explained" in items
 
 
-def test_label_template_has_28_episodes_and_red_flags_blank():
+def test_label_file_has_28_episodes_and_valid_labels():
+    """The owner fills the file (2b6c12d): structure and label words are checked here;
+    a missing label_date is reported by `labels.read` for the owner, not failed."""
     lf = labels.read(labels.Path(__file__).resolve().parent.parent / "config" / "m04_labels.toml")
-    assert lf.error == "" and lf.episodes == 28 and lf.controls == 4
-    assert lf.episodes_labelled == 0 and lf.red_flags >= 12 and lf.red_flags_labelled == 0
-    assert lf.problems == ()
+    assert lf.error == "" and lf.episodes == 28 and lf.controls == 4 and lf.red_flags >= 12
+    assert [p for p in lf.problems if "label_date" not in p] == []
 
 
 # --- Live check 1 fixes (data defects, 8-K texts, rating context, item quote) ---------------------

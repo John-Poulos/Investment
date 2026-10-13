@@ -58,6 +58,8 @@ class CustomerYear:
     basis: str
     # facts of the same year and filing left out of the sum: (member, value, reason)
     excluded: tuple[tuple[str, float, str], ...] = ()
+    # per counted customer: its benchmark / type axes and any other axis it is tagged with
+    axes: tuple[tuple[str, str], ...] = ()
 
 
 def _year_revenue(engine: sqlite3.Connection, cik: str, end: str) -> float | None:
@@ -95,28 +97,40 @@ def _dims(dims: str) -> dict[str, str]:
 
 
 def customer_reason(concept: str, dims: str) -> str:
-    """'' when the fact is a consolidated customer share of revenue, else why it is left
-    out: only `ConcentrationRiskByBenchmarkAxis` = revenue or sales with
-    `ConcentrationRiskByTypeAxis` = customer concentration, and no other axis (a segment,
-    product or geography split is not the company's share) (D-M04-43)."""
+    """'' when the fact can be a customer share of revenue, else why it is left out: a
+    `ConcentrationRiskByBenchmarkAxis` other than revenue or sales (receivables,
+    purchases, cost) or a `ConcentrationRiskByTypeAxis` other than customer concentration
+    (credit, supplier). A missing benchmark or type axis is allowed and shown in the
+    breakdown (re-run 1: requiring both dropped NVIDIA FY2025–26). Other axes (segment,
+    product) are handled per customer in `major_customers` (D-M04-43)."""
     d = _dims(dims)
-    other = sorted(a for a in d if a not in CUSTOMER_AXES)
-    if other:
-        return f"not consolidated ({', '.join(other)})"
-    tag = concept.split(":")[-1]
     bench = d.get("ConcentrationRiskByBenchmarkAxis", "").lower()
     typ = d.get("ConcentrationRiskByTypeAxis", "").lower()
-    if tag in units.REVENUE_TAGS:
-        return "" if not bench and not typ else "revenue fact with a concentration axis"
-    if not bench:
-        return "no benchmark axis"
-    if not ("revenue" in bench or "sales" in bench) or any(
-        w in bench for w in ("cost", "receivable", "purchase", "payable", "inventor")
+    if bench and (
+        not ("revenue" in bench or "sales" in bench)
+        or any(w in bench for w in ("cost", "receivable", "purchase", "payable", "inventor"))
     ):
         return f"benchmark {d['ConcentrationRiskByBenchmarkAxis']}"
-    if "customer" not in typ:
-        return f"risk type {d['ConcentrationRiskByTypeAxis']}" if typ else "no risk-type axis"
+    if typ and "customer" not in typ:
+        return f"risk type {d['ConcentrationRiskByTypeAxis']}"
     return ""
+
+
+def qualifier(dims: str) -> str:
+    """The axes beside the customer and concentration axes ('' = consolidated), e.g.
+    'StatementBusinessSegmentsAxis=ComputeAndNetworkingSegment'."""
+    return ";".join(f"{a}={m}" for a, m in sorted(_dims(dims).items()) if a not in CUSTOMER_AXES)
+
+
+def axes_text(dims: str) -> str:
+    """'benchmark X / type Y' (missing axes named) plus any other axis, for the log."""
+    d = _dims(dims)
+    out = (
+        f"benchmark {d.get('ConcentrationRiskByBenchmarkAxis', 'none')} / "
+        f"type {d.get('ConcentrationRiskByTypeAxis', 'none')}"
+    )
+    q = qualifier(dims)
+    return out + (f"; tagged with {q}" if q else "")
 
 
 def _own_year(rs: list[sqlite3.Row]) -> dict[str, str]:
@@ -127,13 +141,18 @@ def _own_year(rs: list[sqlite3.Row]) -> dict[str, str]:
     return out
 
 
-def major_customers(engine: sqlite3.Connection, cik: str) -> list[CustomerYear]:
+def major_customers(
+    engine: sqlite3.Connection, cik: str, *, keep_empty: bool = False
+) -> list[CustomerYear]:
     """≥ 10% customers per fiscal year: consolidated customer shares of revenue only
     (`customer_reason`), one value per customer, all from one filing — the year's own
     annual report (its latest amendment wins). A later 10-K repeats a past year only for
     the customers still above 10% and re-letters them ("Customer A" is not the same
     customer each year), so mixing filings would double-count or undercount. Aggregate
-    members (a "three largest customers" total) are left out, with the reason kept."""
+    members (a "three largest customers" total) are left out, with the reason kept. A
+    customer with no consolidated fact but one share tagged with a segment or product
+    member counts, labelled. `keep_empty` also returns years where every fact was left
+    out (count 0), so the log can show why a company dropped out."""
     kept: list[sqlite3.Row] = []
     for r in rows(engine, cik, role="customer"):
         if r["concept"].split(":")[-1] not in PCT_TAGS + units.REVENUE_TAGS or not _annual(r):
@@ -158,13 +177,51 @@ def major_customers(engine: sqlite3.Connection, cik: str) -> list[CustomerYear]:
         excluded: list[tuple[str, float, str]] = []
         pct: dict[str, float] = {}
         usd: dict[str, float] = {}
+        detail: dict[str, str] = {}
+        cand: dict[tuple[str, str], list[sqlite3.Row]] = {}  # (kind, member) → facts
         for r in rs:
             tag = r["concept"].split(":")[-1]
             why = customer_reason(r["concept"], r["dims"])
             if why:
                 excluded.append((local(r["member"]), float(r["value"]), why))
                 continue
-            (pct if tag in PCT_TAGS else usd).setdefault(r["member"], float(r["value"]))
+            kind = "pct" if tag in PCT_TAGS else "usd"
+            cand.setdefault((kind, r["member"]), []).append(r)
+        for (kind, member), facts in sorted(cand.items()):
+            target = pct if kind == "pct" else usd
+            cons = [r for r in facts if not qualifier(r["dims"])]
+            quals = [r for r in facts if qualifier(r["dims"])]
+            if cons:
+                target[member] = float(cons[0]["value"])
+                detail.setdefault(member, axes_text(cons[0]["dims"]))
+                for r in quals:
+                    excluded.append(
+                        (local(member), float(r["value"]),
+                         f"{qualifier(r['dims'])} (the consolidated figure is used)")
+                    )  # fmt: skip
+                continue
+            # No consolidated fact: a share tagged with one segment or product member
+            # (NVIDIA: "attributable to Compute & Networking") is the company's share,
+            # labelled; several different segment shares are not summable.
+            vals = {float(r["value"]) for r in quals}
+            if kind == "pct" and len(vals) == 1:
+                target[member] = vals.pop()
+                detail.setdefault(member, axes_text(quals[0]["dims"]))
+            elif kind == "usd" and len({qualifier(r["dims"]).split("=")[0] for r in quals}) == 1:
+                by_q = {qualifier(r["dims"]): float(r["value"]) for r in quals}
+                target[member] = sum(by_q.values())
+                detail.setdefault(
+                    member,
+                    axes_text(quals[0]["dims"])
+                    + (f" (sum of {len(by_q)} amounts)" if len(by_q) > 1 else ""),
+                )
+            else:
+                for r in quals:
+                    excluded.append(
+                        (local(member), float(r["value"]),
+                         f"{qualifier(r['dims'])}: shares of several segments, no "
+                         "consolidated figure")
+                    )  # fmt: skip
         rev = _year_revenue(engine, cik, end)
         basis = "stated percentages"
         if pct and max(pct.values()) > 1:  # tagged as 12 rather than 0.12
@@ -182,7 +239,7 @@ def major_customers(engine: sqlite3.Connection, cik: str) -> list[CustomerYear]:
         if not pct and usd and rev:
             pct = {k: v / rev for k, v in usd.items()}
             basis = "stated revenue ÷ total revenue"
-        if not pct:
+        if not pct and not (keep_empty and excluded):
             continue
         stake = sum(pct.values())
         stake_usd = sum(usd.values()) if usd else (stake * rev if rev else None)
@@ -198,6 +255,7 @@ def major_customers(engine: sqlite3.Connection, cik: str) -> list[CustomerYear]:
                 pick,
                 basis + ("" if mine else "; from the first filing that reports the year"),
                 tuple(excluded),
+                tuple((local(k), detail.get(k, "")) for k in pct),
             )
         )
     return out

@@ -114,17 +114,30 @@ COUNTED_TABLES = ("fact", "series", "cover_shares", "filing_status", "signal", "
                   "peer_member")  # fmt: skip
 
 
-class Log:
-    """Lines go to the console and to the log file as they are produced."""
+SUMMARY_MARK = "=== Summary"
+CONSOLE_ALWAYS = ("Log written to:", "FAILED", "SEC throttle")
 
-    def __init__(self, path: Path) -> None:
+
+class Log:
+    """Every line goes to the log file as it is produced; the console shows only the
+    "=== Summary" block onward, failures and the log path (owner, Part 7a re-run 1: the
+    full detail was too long for the terminal). The file content is unchanged."""
+
+    def __init__(self, path: Path, *, echo_all: bool = False) -> None:
         self.path = path
         path.parent.mkdir(exist_ok=True)
         self._fh = path.open("w", encoding="utf-8")
+        self._echo = echo_all
+
+    def console(self, line: str) -> bool:
+        if line.startswith((SUMMARY_MARK, "FAILED")):
+            self._echo = True
+        return self._echo or line.startswith(CONSOLE_ALWAYS)
 
     def __call__(self, *lines: str) -> None:
         for line in lines:
-            print(line)
+            if self.console(line):
+                print(line)
             self._fh.write(line + "\n")
         self._fh.flush()
 
@@ -1518,24 +1531,31 @@ def units_summary(
         )
     )
     lines.append(
-        "Per-customer breakdown, latest year (consolidated customer share of revenue only; "
-        "facts left out with the reason, D-M04-43):"
+        "Per-customer breakdown, latest year (customer share of revenue; benchmark / type "
+        "axes per customer; facts left out with the reason, D-M04-43):"
     )
-    for t, cs in other:
+    for t, cik in sorted(scope.items()):
+        cs = units_view.major_customers(engine, cik, keep_empty=True)
         if not cs:
             continue
-        c = cs[-1]
-        usd = f" ≈ ${c.at_stake_usd / 1e9:,.1f}B" if c.at_stake_usd else ""
-        lines.append(
-            f"  {t} {c.label}: {c.count} at {c.at_stake:.0%}{usd} — "
-            + ", ".join(f"{n} {p:.1%}" for n, p in c.customers)
-            + f" ({c.accession}; {c.basis})"
+        with_result = [c for c in cs if c.count]
+        shown_years = ([with_result[-1]] if with_result else []) + (
+            [cs[-1]] if not with_result or cs[-1] is not with_result[-1] else []
         )
-        for n, v, why in c.excluded[:8]:
-            shown = f"{v:.1%}" if abs(v) <= 1 else (f"{v:,.0f}" if abs(v) > 100 else f"{v:g}")
-            lines.append(f"    left out: {n} {shown} — {why}")
-        if len(c.excluded) > 8:
-            lines.append(f"    … {len(c.excluded) - 8} more left out")
+        for c in shown_years:
+            usd = f" ≈ ${c.at_stake_usd / 1e9:,.1f}B" if c.at_stake_usd else ""
+            lines.append(
+                f"  {t} {c.label}: {c.count} at {c.at_stake:.0%}{usd}"
+                + (" — " + ", ".join(f"{n} {p:.1%}" for n, p in c.customers) if c.customers else "")
+                + f" ({c.accession}; {c.basis})"
+            )
+            for n, ax in c.axes:
+                lines.append(f"    {n}: {ax}")
+            for n, v, why in c.excluded[:12]:
+                shown = f"{v:.1%}" if abs(v) <= 1 else (f"{v:,.0f}" if abs(v) > 100 else f"{v:g}")
+                lines.append(f"    left out: {n} {shown} — {why}")
+            if len(c.excluded) > 12:
+                lines.append(f"    … {len(c.excluded) - 12} more left out")
     lines.append("Segments (latest annual instance; recasts and breaks):")
     for ticker, cik in sorted(scope.items()):
         sg = units_view.segment_table(engine, cik)
@@ -1821,6 +1841,7 @@ def _main() -> int:
     from engine.store.db import data_dir
 
     log = Log(ROOT / "logs" / f"financials_{args.subcommand}_{datetime.now():%Y%m%d-%H%M%S}.txt")
+    print(f"run_financials {args.subcommand}: working; full detail goes to {log.path}")
     try:
         if args.subcommand == "capex":
             return run_capex(args, log, data_dir())

@@ -607,6 +607,20 @@ Do the bookkeeping once, before any code cites it (SB.1, S1.8, S1.9). No code, n
   - **BA segment break was a rename.** When an old and a new member report the same concepts for the overlapping years within 1% in both filings, the note reads "Renamed member: old → new …; series continued" instead of a break. INTC's NetworkAndEdge stays a break.
   - **Label file:** `group` removed from every `[[episode]]` (owner: it gives away the expected answer in blind labelling). The groups are listed only in "Label schedule" above, and Part 8b groups by that list.
   - Re-run: `uv run python scripts/run_financials.py units --no-sec` (0 requests) re-scans stored text and recomputes KPIs, customers and segments.
+- **Re-run 1** (2026-10-13, `--no-sec`, `logs/financials_units_20261013-001818.txt`):
+  - **Fixed as expected:**
+    - Tesla KPIs come from 3 stored production-and-deliveries releases: Q3-2026 deliveries 486,532 (+1.3% q/q); FY2025 1,640,000 (−8.3%, from the 10-K sentence). The Update letters (EX-99.1, ~40k chars) carry no KPI table as text.
+    - INTC 3 at 43%, with the ThreeLargestCustomers aggregate and its receivables-benchmark fact left out. MRVL 2 at 51% (DistributorA 37%, CustomerA 14%).
+    - Invitae units: FY2020 659k, FY2021 1,170k; FY2019 and FY2022 are not in the stored text.
+    - BA's renamed segment members are continued.
+  - **Regressions, fixed:**
+    - NVIDIA FY2025 (3 at 34%) and FY2026 (2 at 36%) and BA (first run: 3 at 46%) dropped out. The live-check-1 rule excluded every customer fact carrying another axis, or lacking a benchmark or type axis, so a customer tagged only with a segment member (NVIDIA: "attributable to Compute & Networking") or without a type axis vanished.
+    - New rule (D-M04-43): only a non-revenue benchmark (receivables, purchases, cost) or a non-customer risk type (credit, supplier) excludes a fact. A missing benchmark or type axis is allowed and shown.
+    - Per customer, the consolidated fact wins, and segment-tagged facts beside it are listed as left out. A customer with no consolidated fact counts when its segment-tagged shares are one value (labelled "tagged with …"). Several different segment shares are left out ("shares of several segments, no consolidated figure"). US$ amounts by segment are summed, labelled.
+    - The breakdown prints every company, NVDA included, with benchmark / type axes per customer and all left-out facts with reasons, also for a year where nothing counted.
+  - **RIVN ChaseBank 36%:** the build cannot see the stored axes; the next re-run's breakdown line shows its benchmark / type, so the owner can judge whether it is a revenue-concentration disclosure.
+  - **Console:** `run_financials.py` prints only a start line, the "=== Summary" block onward, failures and the log path; the log file is unchanged (all subcommands, shared `Log`).
+  - **Label test:** after the owner's labels (2b6c12d), the template test checks structure and label words only. `labels.read` reports a missing `label_date` on all 28 episodes and 10 red-flag rows for the owner.
 ### Part 7b — R12, unit economics and customers
 ### Part 8a — CvD assembly, health vote and the M04 tab
 ### Part 8b — Calibration

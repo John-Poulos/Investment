@@ -823,7 +823,7 @@ def cust(engine, acc, filed, member, value, *, extra="", end="2025-12-27", start
 def test_customer_concentration_consolidated_revenue_shares_only(dbs):
     """INTC-shaped case (live check 1: "FY2025 4 at 86%"); values illustrative: three named
     customers, an aggregate member repeating their total, a segment-level share, a
-    receivables share, a fact without a risk-type axis, the prior year in the same 10-K."""
+    receivables share, a supplier-risk share, the prior year in the same 10-K."""
     engine, _ = dbs
     k = ("0000050863-26-900011", "2026-01-30")
     for m, v in (
@@ -838,15 +838,21 @@ def test_customer_concentration_consolidated_revenue_shares_only(dbs):
          extra="us-gaap:StatementBusinessSegmentsAxis=intc:ClientComputingGroupMember")  # fmt: skip
     cust(engine, *k, "intc:ArrowMember", 0.45, bench="us-gaap:AccountsReceivableMember",
          typ="us-gaap:CreditConcentrationRiskMember")  # fmt: skip
-    cust(engine, *k, "intc:WistronMember", 0.12, typ="")
+    cust(engine, *k, "intc:TsmcMember", 0.12, typ="us-gaap:SupplierConcentrationRiskMember")
     y = units_view.major_customers(engine, INTC)[-1]
     assert (y.label, y.count) == ("FY2025", 3) and y.at_stake == pytest.approx(0.43)
     assert dict(y.customers) == {"Dell": 0.19, "Lenovo": 0.13, "HPInc": 0.11}
     why = {n: r for n, _, r in y.excluded}
     assert why["ThreeLargestCustomers"] == "aggregate of several customers"
-    assert why["Dell"].startswith("not consolidated (StatementBusinessSegmentsAxis)")
+    assert why["Dell"] == (
+        "StatementBusinessSegmentsAxis=ClientComputingGroupMember (the consolidated figure is used)"
+    )
     assert why["Arrow"].startswith("benchmark AccountsReceivable")
-    assert why["Wistron"] == "no risk-type axis"
+    assert why["Tsmc"] == "risk type SupplierConcentrationRiskMember"
+    assert dict(y.axes)["Dell"] == (
+        "benchmark RevenueFromContractWithCustomerProductAndServiceBenchmarkMember / "
+        "type CustomerConcentrationRiskMember"
+    )
     # FY2024 comes from the FY2024 10-K once stored, not from the FY2025 10-K's repeat
     k24 = ("0000050863-25-900009", "2025-01-31")
     for m, v in (("intc:DellMember", 0.20), ("intc:LenovoMember", 0.14),
@@ -862,6 +868,80 @@ def test_customer_concentration_consolidated_revenue_shares_only(dbs):
     ya = units_view.major_customers(engine, INTC)[-1]
     assert ya.accession == ka[0] and ya.count == 3 and ya.at_stake == pytest.approx(0.43)
     assert ("D", 0.43, "aggregate of several customers") in ya.excluded
+
+
+def test_nvidia_customers_survive_segment_attribution_and_a_missing_type_axis(dbs):
+    """Re-run 1 regression: NVIDIA FY2025 (3 at 34%) and FY2026 (2 at 36%) vanished under the
+    "no other axis" and "type axis required" rules. Two plausible shapes of NVIDIA's tagging
+    (the stored facts were not visible to the build): customers attributed to the Compute &
+    Networking segment, and percentages without a ConcentrationRiskByTypeAxis."""
+    engine, _ = dbs
+    nvda_filings(engine)
+    seg_cn = "us-gaap:StatementBusinessSegmentsAxis=nvda:ComputeAndNetworkingMember"
+    k25, k26 = ("0001045810-25-000023", "2025-02-26"), ("0001045810-26-000021", "2026-02-25")
+    for m, v in (("nvda:CustomerAMember", 0.12), ("nvda:CustomerBMember", 0.11),
+                 ("nvda:CustomerCMember", 0.11)):  # fmt: skip
+        cust(engine, *k25, m, v, extra=seg_cn, end="2025-01-26", start="2024-01-29",
+             bench="us-gaap:RevenueFromContractWithCustomerMember")  # fmt: skip
+    for m, v in (("nvda:CustomerOneMember", 0.22), ("nvda:CustomerTwoMember", 0.14)):
+        cust(engine, *k26, m, v, typ="", end="2026-01-25", start="2025-01-27",
+             bench="us-gaap:RevenueFromContractWithCustomerMember")  # fmt: skip
+    engine.execute("UPDATE fact_dim SET cik = ? WHERE accession LIKE '0001045810-%'", (NVDA,))
+    ys = units_view.major_customers(engine, NVDA)
+    assert [(y.label, y.count, round(y.at_stake, 2)) for y in ys] == [
+        ("FY2025", 3, 0.34),
+        ("FY2026", 2, 0.36),
+    ]
+    assert (
+        "tagged with StatementBusinessSegmentsAxis=ComputeAndNetworking"
+        in dict(ys[0].axes)["CustomerA"]
+    )
+    assert dict(ys[1].axes)["CustomerOne"].endswith("/ type none")
+    assert dict(ys[1].customers) == {"CustomerOne": 0.22, "CustomerTwo": 0.14}
+
+
+def test_ba_government_customer_and_left_out_facts_shown(dbs):
+    """Re-run 1 regression (BA vanished; values illustrative): U.S. government as a
+    consolidated share plus segment shares, and a year where every fact is left out still
+    shows why."""
+    engine, _ = dbs
+    k = ("0001628280-26-004357", "2026-02-02")
+    seg_bds = "us-gaap:StatementBusinessSegmentsAxis=ba:DefenseSpaceAndSecuritySegmentMember"
+    seg_bgs = "us-gaap:StatementBusinessSegmentsAxis=ba:GlobalServicesSegmentMember"
+    cust(engine, *k, "ba:USGovernmentMember", 0.37, typ="")
+    cust(engine, *k, "ba:USGovernmentMember", 0.86, typ="", extra=seg_bds)
+    cust(engine, *k, "ba:ForeignMilitarySalesMember", 0.05, typ="", extra=seg_bds)
+    cust(engine, *k, "ba:ForeignMilitarySalesMember", 0.09, typ="", extra=seg_bgs)
+    engine.execute("UPDATE fact_dim SET cik = ? WHERE accession = ?", (BA, k[0]))
+    (y,) = units_view.major_customers(engine, BA)
+    assert (y.count, y.customers) == (1, [("USGovernment", 0.37)])
+    why = [r for n, _, r in y.excluded if n == "ForeignMilitarySales"]
+    assert len(why) == 2 and all("shares of several segments" in r for r in why)
+    # every fact left out: no result year, but `keep_empty` keeps it for the log
+    engine.execute("DELETE FROM fact_dim WHERE member = 'ba:USGovernmentMember'")
+    assert units_view.major_customers(engine, BA) == []
+    (e,) = units_view.major_customers(engine, BA, keep_empty=True)
+    assert e.count == 0 and len(e.excluded) == 2
+
+
+def test_console_shows_only_the_summary_and_the_log_path(tmp_path, capsys):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import run_financials
+
+    log = run_financials.Log(tmp_path / "x.txt")
+    log("detail 1", "detail 2")
+    log("=== Summary (what the owner looks for) ===", "summary line")
+    log("Log written to: x")
+    log.close()
+    assert capsys.readouterr().out.splitlines() == [
+        "=== Summary (what the owner looks for) ===",
+        "summary line",
+        "Log written to: x",
+    ]
+    assert (tmp_path / "x.txt").read_text(encoding="utf-8").splitlines()[:2] == [
+        "detail 1",
+        "detail 2",
+    ]
 
 
 BA = "0000012927"
