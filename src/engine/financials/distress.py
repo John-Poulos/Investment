@@ -134,11 +134,42 @@ def twelve_at(engine, cik, concept, as_of, end) -> AsOfPoint | None:
     )
 
 
+def _twelve_ends(engine, cik, as_of, b) -> str:
+    """The net-income 12-month and quarter ends stored in the two years to `b` (shown when
+    Ohlson O misses an input, so the log names the gap)."""
+    lo = (date.fromisoformat(b) - timedelta(days=760)).isoformat()
+    bits = []
+    for pt in ("TTM", "FY", "Q"):
+        ends = sorted(e for e in _pts(engine, cik, "net_income", as_of, pt) if lo <= e <= b)
+        bits.append(f"{pt} {', '.join(ends) if ends else 'none'}")
+    return "net income ends stored: " + "; ".join(bits)
+
+
 def stage_label(engine: sqlite3.Connection, cik: str) -> tuple[str, bool]:
     conf = stage.confirmed(engine, cik)
     if conf:
         return f"stage {stage.STAGE_NAMES[conf['confirmed']]} (confirmed)", True
-    return "stage unconfirmed: labelled, not counted (D-M04-7)", False
+    return (
+        f"stage unconfirmed ({unconfirmed_why(engine, cik)}): labelled, not counted (D-M04-7)",
+        False,
+    )
+
+
+def unconfirmed_why(engine: sqlite3.Connection, cik: str) -> str:
+    """Why no owner stage is stored, read the way the setup page and `lifecycle_stage` read
+    it (`stage.confirmed`): an open `m04_stage` item, no computed row (tracked names get no
+    stage pass, D-M04-80), or a computed row without a confirmation."""
+    item = engine.execute(
+        "SELECT item_id FROM review_queue WHERE kind = 'm04_stage' AND cik = ? AND "
+        "resolved_at IS NULL ORDER BY item_id DESC LIMIT 1",
+        (cik,),
+    ).fetchone()
+    if item is not None:
+        return f"m04_stage item {item[0]} open on the setup page"
+    row = stage.latest_row(engine, cik)
+    if row is None:
+        return "no stage computed: tracked tier or not yet run (D-M04-80)"
+    return f"computed {row['computed'] or 'none'} for {row['fiscal_label']}, no confirmation stored"
 
 
 def market_value(
@@ -147,25 +178,59 @@ def market_value(
     covers = [
         v for v in shares.cover_counts(engine, cik) if v.value is not None and v.date <= as_of
     ]
-    if not covers:
-        return None, "missing: no cover share count", []
-    v = covers[0]
+    if covers:
+        v = covers[0]
+        count, what, day, acc, filed = v.value, "cover shares", v.date, v.accession, v.first_filed
+    else:
+        fb = share_fallback(engine, cik, as_of)
+        if fb is None:
+            return None, "missing: no cover share count, period-end or weighted-average count", []
+        count, what, day, acc, filed = fb
     close = shares.close_on(engine, cik, close_day or as_of)
     if close is None:
         return None, f"missing: no close on or before {close_day or as_of}", []
-    mv = v.value * close[0]
+    mv = count * close[0]
     note = (
-        f"market value {mv / 1e6:,.0f}M = cover shares {v.value:,.0f} ({v.date}) × close "
+        f"market value {mv / 1e6:,.0f}M = {what} {count:,.0f} ({day}) × close "
         f"${close[0]:,.2f} of {close[1]}"
     )
     return (
         mv,
         note,
         [
-            Source(v.accession, v.first_filed or v.date, "A", "cover shares"),
+            Source(acc, filed or day, "A", what.split(" (")[0]),
             Source(f"close {close[1]}", close[1], "A", "Tiingo close"),
         ],
     )
+
+
+def share_fallback(
+    engine: sqlite3.Connection, cik: str, as_of: str
+) -> tuple[float, str, str, str, str] | None:
+    """No cover count (e.g. a two-class filer whose R1 page is not read, RIVN): the dei total
+    from stored facts (non-dimensional), else `CommonStockSharesOutstanding` at period end,
+    else the basic weighted average of the latest quarter or year; split-adjusted to today
+    and named in the method (live check 1). (count, label, date, accession, filed)."""
+    why = shares.cover_missing_reason(engine, cik)
+    for concept, ptypes, label in (
+        ("shares_cover", ("I",), "dei EntityCommonStockSharesOutstanding (stored facts)"),
+        ("shares_period_end", ("I",), "CommonStockSharesOutstanding at period end"),
+        ("shares_basic_wavg", ("Q", "FY"), "basic weighted-average shares"),
+    ):
+        pts = [p for p in facts_as_of(engine, cik, concept, as_of).points if p.ptype in ptypes]
+        if not pts:
+            continue
+        p = max(pts, key=lambda x: (x.end, x.ptype == "Q"))
+        factor, split = shares.split_note(engine, cik, p.end)
+        extra = f"; {split}" if factor != 1.0 else ""
+        return (
+            float(p.value) * factor,
+            f"{label} (fallback: {why}{extra})",
+            p.end,
+            p.accession,
+            p.filed,
+        )
+    return None
 
 
 def score(
@@ -270,8 +335,19 @@ def _ohlson(engine, cik, as_of, s: Score, TA: float, tl: float, vals) -> None:
     prior_end = (date.fromisoformat(b) - timedelta(days=365)).isoformat()
     ni0 = twelve_at(engine, cik, "net_income", as_of, prior_end)
     ocf = twelve_at(engine, cik, "operating_cash_flow", as_of, b)
-    if ni is None or ni0 is None or ocf is None or not tl:
-        s.o_note = "missing: net income (two years) or OCF"
+    gaps = [
+        what
+        for what, p in (
+            (f"net income 12 months to {b}", ni),
+            (f"net income 12 months to ~{prior_end} (prior year)", ni0),
+            (f"OCF 12 months to {b}", ocf),
+        )
+        if p is None
+    ]
+    if gaps or not tl:
+        s.o_note = "missing: " + ("; ".join(gaps) if gaps else "total liabilities")
+        if gaps:
+            s.o_note += " — " + _twelve_ends(engine, cik, as_of, b)
         return
     ca, cl = float(vals["current_assets"].value), float(vals["current_liabilities"].value)
     n1, n0 = float(ni.value), float(ni0.value)

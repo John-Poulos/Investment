@@ -791,3 +791,163 @@ def test_financials_tab_shows_the_gate_panel(tmp_path):
     assert "object at 0x" not in html
     assert "Inputs wrong (note)" in one and "survival gate panel" in one
     assert "Capex-funded runway below 6 quarters" in guide
+
+
+# --- Live check 1 (logs/financials_gate_20261013-100053.txt) ------------------------------------
+
+
+def intel_fy2024_like(
+    engine, cash_tag="CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"
+):
+    """Intel as of 2025-01-31 in the live log read the 2021-09-25 balance sheet: its cash tag
+    was absent for the later periods as known then. Here the main tag stops at Q3 2021, the
+    FY2024 cash sits under another tag, and the FY2025 10-K re-tags the 2024 comparative
+    under the main tag (filed a year later, so invisible on 2025-01-31)."""
+    entity(engine, INTC, "INTEL CORP", "3674", ticker="INTC")
+    inst(engine, INTC, "2021-09-25", "2021-10-22", CashAndCashEquivalentsAtCarryingValue=4807,
+         ShortTermInvestments=7067, DebtCurrent=4694)  # fmt: skip
+    for e, f, ocf, cx in (
+        ("2024-03-30", "2024-04-26", -1227, 5970),
+        ("2024-06-29", "2024-08-02", 1054, 11670),
+        ("2024-09-28", "2024-11-01", 5130, 17770),
+    ):
+        quarter(engine, INTC, "2024-01-01", e, f, ocf, cx)
+    quarter(engine, INTC, "2024-01-01", "2024-12-28", "2025-01-31", 8288, 23944, form="10-K")
+    tags = {"Assets": 196485, "ShortTermInvestments": 13813, "DebtCurrent": 3729}
+    if cash_tag:
+        tags[cash_tag] = 8249 + 120
+        tags["RestrictedCashCurrent"] = 120
+    inst(engine, INTC, "2024-12-28", "2025-01-31", "10-K", **tags)
+    fact(engine, INTC, "CashAndCashEquivalentsAtCarryingValue", None, "2024-12-28", 8249,
+         "2026-01-30", "10-K", acc="0000050863-26-000001")  # fmt: skip
+
+
+def test_intel_historical_as_of_reads_the_latest_balance_sheet_not_a_stale_one(dbs):
+    engine, _ = dbs
+    intel_fy2024_like(engine)
+    g = gate.evaluate(engine, INTC, "INTC", "2025-01-31", models=MF, calendar=False)
+    assert g.balance_date == "2024-12-28" and g.cash == 8249 * M and g.liquidity == 22062 * M
+    assert "CashCashEquivalentsRestrictedCash" in g.method() and "− restricted 120M" in g.method()
+    assert g.tier == "capex_funded" and round(g.runway, 1) == 5.6 and g.state == "warn"
+    assert g.runway_review
+    # today the main tag is back (FY2025 10-K): no fallback label
+    now = gate.evaluate(engine, INTC, "INTC", TODAY, models=MF, calendar=False)
+    assert now.balance_date == "2024-12-28" and "fallback" not in now.method()
+
+
+def test_no_cash_tag_at_the_latest_balance_sheet_is_incomplete_with_the_tags_named(dbs):
+    engine, _ = dbs
+    intel_fy2024_like(engine, cash_tag=None)
+    fact(
+        engine, INTC, "CashAndShortTermInvestments", None, "2024-12-28", 22062, "2025-01-31", "10-K"
+    )
+    g = gate.evaluate(engine, INTC, "INTC", "2025-01-31", models=MF, calendar=False)
+    assert g.state == "incomplete" and g.balance_date == "2024-12-28"
+    assert "cash at the latest balance sheet (2024-12-28)" in g.missing[0]
+    assert "us-gaap:CashAndShortTermInvestments 22,062M" in g.method()
+    assert ("cash", "no cash tag at the balance sheet of 2024-12-28") in g.gate_inputs
+
+
+def test_infq_before_the_closing_reads_trust_only_and_the_line_names_the_scope(dbs):
+    rf = run_financials_module()
+    engine, _ = dbs
+    entity(engine, INFQ, "Infleqtion, Inc.", "3829", ticker="INFQ")
+    inst(engine, INFQ, "2025-09-30", "2025-11-10", AssetsHeldInTrustNoncurrent=420,
+         CashAndCashEquivalentsAtCarryingValue=1)  # fmt: skip
+    quarter(engine, INFQ, "2026-04-01", "2026-06-30", "2026-08-10", -6.19)
+    inst(engine, INFQ, "2026-06-30", "2026-08-10", CashAndCashEquivalentsAtCarryingValue=477)
+    g = gate.evaluate(engine, INFQ, "INFQ", "2026-02-12", models=MF, calendar=False)
+    assert g.scope == "trust_only" and g.state == "pass" and g.trust == 420 * M
+    out: list[str] = []
+    rf._gate_line(lambda *a: out.extend(a), "INFQ before the closing", g, "trust only")
+    assert "pass [trust only] — runway —" in out[0]
+
+
+def orcl_like(engine, cik, ticker):
+    """Capex-funded, runway 5.0 q on the last two quarters, Z'' in distress (live check 1:
+    ORCL warn with Z'' 0.97)."""
+    entity(engine, cik, f"{ticker} CORP", "7372", fye="0630", ticker=ticker)
+    quarter(engine, cik, "2026-01-01", "2026-03-31", "2026-04-30", 5000, 9000)
+    quarter(engine, cik, "2026-04-01", "2026-06-30", "2026-08-01", 5000, 9000, form="10-K")
+    inst(engine, cik, "2026-06-30", "2026-08-01", "10-K", Assets=100000, AssetsCurrent=25000,
+         LiabilitiesCurrent=30000, Liabilities=95000, RetainedEarningsAccumulatedDeficit=-5000,
+         StockholdersEquity=5000, CashAndCashEquivalentsAtCarryingValue=20000)  # fmt: skip
+    fact(engine, cik, "OperatingIncomeLoss", "2025-07-01", "2026-06-30", 1000, "2026-08-01", "10-K")
+
+
+def test_capex_funded_review_and_score_gap_open_at_first_sight_but_not_for_tracked(dbs):
+    from engine.themes import tiers
+
+    engine, _ = dbs
+    orcl_like(engine, "0000000011", "CORE")
+    cg = gate_step.company_gate(engine, "CORE", "0000000011", NOW, mf=MF)
+    assert cg.gate.state == "warn" and cg.gate.runway_review and round(cg.gate.runway, 1) == 5.0
+    assert cg.score.variant == "Z''" and cg.score.warning  # warn counts as pass (D-M04-31)
+    assert cg.queued == {"m04_runway": "queued", "m04_score_gap": "queued"}
+    assert "prior year" in cg.score.o_note and "net income ends stored: TTM none" in cg.score.o_note
+    orcl_like(engine, "0001341439", "ORCL")
+    tiers.add_tracked(engine, "0001341439", "ORCL", reason="t", theme_key=None, by="owner", now=NOW)
+    gp = gate_step.gate_pass(engine, {"ORCL": "0001341439"}, NOW, mf=MF)
+    oc = gp.companies["ORCL"]
+    assert oc.queued == {} and oc.held == ["m04_runway", "m04_score_gap"]
+    assert len(gate_step.open_items(engine)) == 2  # CORE's two; none for the tracked name
+    assert "no stage computed: tracked tier" in oc.score.method()
+
+
+def test_rivian_without_a_cover_count_uses_the_labelled_share_fallback(dbs):
+    engine, _ = dbs
+    rivian(engine)
+    price(engine, RIVN, "RIVN", "2026-10-09", 12.0)
+    fact(engine, RIVN, "WeightedAverageNumberOfSharesOutstandingBasic", "2026-04-01",
+         "2026-06-30", 1_200_000_000, "2026-08-05", unit="shares")  # fmt: skip
+    s = distress.score(engine, RIVN, "RIVN", TODAY, models=MF, close_day=TODAY)
+    assert s.variant == "Z" and round(s.value, 2) == -1.84 and s.warning
+    assert "basic weighted-average shares (fallback:" in s.close_note
+    assert round(s.zpp, 2) == -5.37
+
+
+def test_short_term_investments_alias_fallback_and_the_tags_named(dbs):
+    engine, _ = dbs
+    nv = "0001045810"
+    entity(engine, nv, "NVIDIA CORP", "3674", fye="0125", ticker="NVDA")
+    quarter(engine, nv, "2026-01-26", "2026-04-26", "2026-05-28", 20000, 1000)
+    quarter(engine, nv, "2026-04-27", "2026-07-26", "2026-08-27", 20000, 1000)
+    inst(engine, nv, "2026-07-26", "2026-08-27", CashAndCashEquivalentsAtCarryingValue=22443)
+    fact(engine, nv, "MarketableSecuritiesCurrent", None, "2019-01-27", 5000, "2019-02-21", "10-K")
+    g = gate.evaluate(engine, nv, "NVDA", TODAY, models=MF, calendar=False)
+    assert g.sti is None and "ST investments none at 2026-07-26: tags with facts " \
+        "us-gaap:MarketableSecuritiesCurrent (latest 2019-01-27)" in g.method()  # fmt: skip
+    assert "no facts for us-gaap:ShortTermInvestments" in g.method()
+    fact(engine, nv, "CashCashEquivalentsAndShortTermInvestments", None, "2026-07-26", 60000,
+         "2026-08-27")  # fmt: skip
+    g = gate.evaluate(engine, nv, "NVDA", TODAY, models=MF, calendar=False)
+    assert g.sti == (60000 - 22443) * M and "(fallback, labelled)" in g.method()
+    fact(engine, nv, "MarketableSecuritiesAndEquitySecuritiesFVNI", None, "2026-07-26", 40000,
+         "2026-08-27", tax="nvda")  # fmt: skip
+    g = gate.evaluate(engine, nv, "NVDA", TODAY, models=MF, calendar=False)
+    assert g.sti == 40000 * M and "alias, NVDA only" in g.method()
+    assert debt.debt_rows(engine, nv, TODAY, "2026-07-26").latest.cash == (22443 + 40000) * M
+
+
+def test_stage_label_reads_the_owner_stage_like_the_setup_page(dbs):
+    from engine.financials import stage
+
+    engine, _ = dbs
+    c = "0000000012"
+    assert "no stage computed" in distress.stage_label(engine, c)[0]
+    stage.confirm(engine, c, None, "growth", "owner", NOW)
+    assert distress.stage_label(engine, c) == ("stage growth (confirmed)", True)
+
+
+def test_gate_summary_says_already_proposed_and_lists_open_items(dbs, make_client):
+    rf = run_financials_module()
+    engine, _ = dbs
+    rivian(engine)
+    rf.gate_run(engine, {"RIVN": RIVN}, NOW, lambda *a: None, None, mf=MF)
+    out: list[str] = []
+    rf.gate_run(engine, {"RIVN": RIVN}, NOW.replace(hour=13), lambda *a: out.extend(a), None,
+                mf=MF)  # fmt: skip
+    text = "\n".join(out)
+    assert "m04_gate_fail already proposed by an earlier run 1" in text and "suppressed" not in text
+    assert "Open Part 4a items: 1" in text and "m04_gate_fail RIVN (item 1" in text
+    assert "12-month test passes; + 4 × burn warns" in text

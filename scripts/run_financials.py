@@ -1858,7 +1858,7 @@ BA_LINES = {
 }  # fmt: skip
 BA_EXPECT = {
     "FY2019": (
-        "fail 3.6; wall passes (DebtCurrent 7,340 holds CP 6,109)",
+        "fail 3.6; 12-month test passes; + 4 × burn warns (DebtCurrent 7,340 holds CP 6,109)",
         "fail 5.9 (6,400 beyond 12 months)",
     ),
     "Q2 2024": ("fail 3.1", "fail 5.5; 7,000 beyond 24 months"),
@@ -1911,7 +1911,8 @@ def _gate_line(log, label, g, expect) -> None:
                     for k, v in g.runway_by_basis.items()) or "—"  # fmt: skip
     trig = ("; trigger: " + "; ".join(g.triggers)) if g.triggers else ""
     miss = ("; missing: " + "; ".join(g.missing)) if g.missing else ""
-    log(f"  {label}: {g.state} — runway {g.runway_text()} ({g.tier_text}; {rb}); liquidity "
+    log(f"  {label}: {g.state} [{g.scope_name}] — runway {g.runway_text()} "
+        f"({g.tier_text}; {rb}); liquidity "
         f"{gate.money(g.liquidity)} as of {g.balance_date}; wall {g.wall_test[0]} "
         f"({g.debt12_text or 'no debt tags'}){trig}{miss} | expected: {expect}")  # fmt: skip
 
@@ -1956,12 +1957,14 @@ def gate_regression(engine, now, log, mf=None) -> None:
             _gate_line(log, f"Boeing {label} with the stated lines", g, BA_EXPECT[label][1])
             far = sum(c.amount for c in g.credits if c.beyond_24m)
             log(f"    credit beyond 24 months: {gate.money(far)}")
-    _gate_line(log, "Intel FY2024 (as of 2025-01-31)",
-               gate.evaluate(engine, "0000050863", "INTC", "2025-01-31", calendar=False, models=mf),
-               "warn, capex-funded 5.6 → m04_runway")  # fmt: skip
-    _gate_line(log, "INFQ before the closing (as of 2026-02-12)",
-               gate.evaluate(engine, "0002007825", "INFQ", "2026-02-12", calendar=False, models=mf),
-               "trust only")  # fmt: skip
+    ig = gate.evaluate(engine, "0000050863", "INTC", "2025-01-31", calendar=False, models=mf)
+    _gate_line(log, "Intel FY2024 (as of 2025-01-31)", ig,
+               "warn, capex-funded 5.6 → m04_runway (balance sheet 2024-12-28)")  # fmt: skip
+    log(f"    method: {ig.method()}")
+    fq = gate.evaluate(engine, "0002007825", "INFQ", "2026-02-12", calendar=False, models=mf)
+    _gate_line(log, "INFQ before the closing (as of 2026-02-12)", fq,
+               "trust only: pass on the trust account (spac_shell before 2026-02-13)")  # fmt: skip
+    log(f"    method: {fq.method()}")
 
 
 def gate_summary(engine, gp, now) -> list[str]:
@@ -1980,10 +1983,17 @@ def gate_summary(engine, gp, now) -> list[str]:
     queued: dict[str, int] = {}
     for c in gp.companies.values():
         for k, v in c.queued.items():
+            v = "already proposed by an earlier run" if v == "suppressed" else v
             key = f"{k.split(':')[0]} {v}"
             queued[key] = queued.get(key, 0) + 1
-    out.append("Part 4a items: "
+    out.append("Part 4a items this run: "
                + (", ".join(f"{k} {v}" for k, v in sorted(queued.items())) or "none"))  # fmt: skip
+    held = [f"{c.ticker} {k}" for _, c in sorted(gp.companies.items()) for k in c.held]
+    if held:
+        out.append("Tracked names, rows only, no review items (D-M04-80): " + ", ".join(held))
+    items = gate_step.open_items(engine)
+    out.append(f"Open Part 4a items: {len(items)}")
+    out += [f"  {x}" for x in items]
     withdrawn = sum(c.withdrawn for c in gp.companies.values())
     if withdrawn:
         out.append(f"Items withdrawn (condition no longer holds): {withdrawn}")

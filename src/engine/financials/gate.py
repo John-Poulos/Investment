@@ -6,7 +6,11 @@ and Ohlson O are out of the gate (`distress.py`).
 - **Liquidity** = cash + short-term investments (restricted cash excluded) + undrawn
   committed credit that is confirmed, stated for this balance sheet and matures more than
   12 months after it (`credit_line`, D-M04-32, -86). Tagged capacity without a maturity is
-  shown, never counted.
+  shown, never counted. The balance sheet is the latest one filed by the as-of date
+  (cash, total or current assets); cash is read at that date, with labelled fallbacks, and
+  never at an older balance sheet (live check 1). Short-term investments: the shared
+  concept with its aliases, two fallback tags, then cash-and-investments minus cash
+  (labelled); none found → the candidate tags with facts are named.
 - **Burn** = −(OCF − total capex) per quarter, the worse of TTM ÷ 4 and the last two
   quarters (D-M04-32); total capex on the company's own-history definition (Part 1b,
   D-M04-3). One quarter only → incomplete; fewer than four → last two only ("short
@@ -36,15 +40,15 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 
 from engine.financials import capex as capex_mod
 from engine.financials import models as models_mod
 from engine.financials import restate
-from engine.sec.asof import AsOfPoint, facts_as_of, is_foreign_filer
+from engine.sec.asof import PERIODIC_FORMS, AsOfPoint, facts_as_of, is_foreign_filer
 from engine.sec.identity import normalize_cik
-from engine.sec.xbrl_facts import ALL_CONCEPTS, Concept
+from engine.sec.xbrl_facts import ALL_CONCEPTS, Concept, concept_for
 from engine.signals import Source
 
 FAIL_Q = 6.0  # D-M04-32
@@ -90,6 +94,35 @@ DEBT_CURRENT = Concept(
     "instant",
 )
 LTD_CURRENT = Concept("ltd_current", _g("LongTermDebtCurrent"), "currency", "instant")
+# Cash fallbacks at the balance-sheet date (live check 1: a company whose cash line sits
+# under another tag for some years must not fall back to an older balance sheet). The
+# cash-flow total includes restricted cash: restricted cash tagged at the date is taken
+# out; untagged, the label says so. Always labelled in `method`.
+CASH_WITH_RESTRICTED = Concept(
+    "cash_with_restricted",
+    _g("CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"),
+    "currency",
+    "instant",
+)
+CASH_ONLY = Concept("cash_only", _g("Cash"), "currency", "instant")
+# Short-term investments: the shared concept (tag priority, per-company aliases such as
+# NVDA's extension tag, read through `facts_as_of`) plus two older or narrower tags; the
+# combined cash-and-investments total minus cash is the last, labelled fallback.
+STI_MORE = _g("AvailableForSaleSecuritiesCurrent", "OtherShortTermInvestments")
+CASH_AND_STI = Concept(
+    "cash_and_sti", _g("CashCashEquivalentsAndShortTermInvestments"), "currency", "instant"
+)
+
+
+def sti_concept() -> Concept:
+    """`short_term_investments` with the gate's fallback tags after its own (marked); the
+    name is kept so `concept_for` still appends the company aliases (lowest priority)."""
+    base = ALL_CONCEPTS["short_term_investments"]
+    return replace(
+        base,
+        tags=base.tags + STI_MORE,
+        marks=base.marks + tuple((t, g, "≈ fallback tag (M04 gate)") for t, g in STI_MORE),
+    )
 
 
 def _d(s: str) -> date:
@@ -314,6 +347,58 @@ def _at(points: dict[str, AsOfPoint], end: str | None, days: int = NEAR) -> AsOf
 def _latest(points: dict[str, AsOfPoint], on_or_before: str | None = None) -> AsOfPoint | None:
     ends = [e for e in points if on_or_before is None or e <= on_or_before]
     return points[max(ends)] if ends else None
+
+
+def balance_anchor(
+    engine: sqlite3.Connection, cik: str, as_of: str, cash_pts: dict[str, AsOfPoint]
+) -> str | None:
+    """The latest balance sheet filed on or before `as_of`: the newest instant among cash,
+    total assets and current assets. Cash is then read at this date, never at an older one
+    (live check 1: Intel FY2024 read a 2021 balance sheet when its cash tag was absent)."""
+    ends = list(cash_pts)
+    for name in ("total_assets", "current_assets"):
+        ends += list(_points(engine, cik, name, as_of, "I"))
+    return max(ends, default=None)
+
+
+def _periodic_marks() -> tuple[str, list[str]]:
+    forms = sorted(PERIODIC_FORMS)
+    return ",".join("?" * len(forms)), forms
+
+
+def tags_at(
+    engine: sqlite3.Connection, cik: str, end: str, as_of: str, like: str = "%Cash%"
+) -> list[str]:
+    """Instant tags (name LIKE `like`) the company filed for `end` by `as_of`, with values:
+    the log shows them when an input is missing at the balance sheet."""
+    marks, forms = _periodic_marks()
+    lo = (_d(end) - timedelta(days=NEAR)).isoformat()
+    hi = (_d(end) + timedelta(days=NEAR)).isoformat()
+    rows = engine.execute(
+        "SELECT taxonomy, tag, max(value) AS v FROM fact WHERE cik = ? AND period_start IS NULL "
+        "AND period_end BETWEEN ? AND ? AND filed <= ? AND tag LIKE ? AND unit = 'USD' "
+        f"AND form IN ({marks}) GROUP BY taxonomy, tag ORDER BY tag",
+        (cik, lo, hi, as_of, like, *forms),
+    ).fetchall()
+    return [f"{r['taxonomy']}:{r['tag']} {money(float(r['v']))}" for r in rows]
+
+
+def tags_present(
+    engine: sqlite3.Connection, cik: str, tags: tuple[tuple[str, str], ...], as_of: str
+) -> tuple[list[str], list[str]]:
+    """(tags with any instant facts by `as_of`, "tag (latest end)"; tags with none)."""
+    have, none = [], []
+    for tax, tag in tags:
+        row = engine.execute(
+            "SELECT max(period_end) FROM fact WHERE cik = ? AND taxonomy = ? AND tag = ? "
+            "AND period_start IS NULL AND filed <= ?",
+            (cik, tax, tag, as_of),
+        ).fetchone()
+        if row and row[0]:
+            have.append(f"{tax}:{tag} (latest {row[0]})")
+        else:
+            none.append(f"{tax}:{tag}")
+    return have, none
 
 
 def owner_maps(engine: sqlite3.Connection, cik: str) -> dict[str, dict]:
@@ -580,19 +665,68 @@ def _liquidity_and_burn(
     cik = g.cik
     maps = owner_maps(engine, cik)
     cash_pts = _points(engine, cik, _with_map(ALL_CONCEPTS["cash"], maps.get("cash")), as_of, "I")
-    cash = _latest(cash_pts)
-    if cash is None:
+    b = balance_anchor(engine, cik, as_of, cash_pts)
+    if b is None:
         g.missing.append("cash at the latest balance sheet")
         g.gate_inputs.append(("cash", "no cash tag found"))
         return
-    b = g.balance_date = cash.end
-    g.cash = float(cash.value)
+    g.balance_date = b
+    rc = _at(_points(engine, cik, "restricted_cash", as_of, "I"), b)
+    cash = _at(cash_pts, b)
+    if cash is not None:
+        g.cash = float(cash.value)
+    elif (cr := _at(_points(engine, cik, CASH_WITH_RESTRICTED, as_of, "I"), b)) is not None:
+        cash = cr
+        if rc is not None:
+            g.cash = float(cr.value) - float(rc.value)
+            g.notes.append(
+                f"cash = CashCashEquivalentsRestrictedCash… {money(cr.value)} − restricted "
+                f"{money(rc.value)} (fallback: no cash-and-equivalents tag at {b})"
+            )
+        else:
+            g.cash = float(cr.value)
+            g.notes.append(
+                f"cash = CashCashEquivalentsRestrictedCash… {money(cr.value)} (fallback: no "
+                f"cash-and-equivalents tag at {b}; restricted cash, if any, inside)"
+            )
+    elif (co := _at(_points(engine, cik, CASH_ONLY, as_of, "I"), b)) is not None:
+        cash = co
+        g.cash = float(co.value)
+        g.notes.append(
+            f"cash = us-gaap:Cash {money(co.value)} (fallback: no equivalents tag at {b})"
+        )
+    if cash is None:
+        seen = tags_at(engine, cik, b, as_of)
+        g.missing.append(f"cash at the latest balance sheet ({b}): no cash tag at that date")
+        g.notes.append(
+            f"tags with 'Cash' in the name at {b}: " + ("; ".join(seen) if seen else "none")
+        )
+        g.gate_inputs.append(("cash", f"no cash tag at the balance sheet of {b}"))
+        return
     g.sources += _src(cash, "cash")
-    sti = _at(_points(engine, cik, "short_term_investments", as_of, "I"), b)
+    sti_con = sti_concept()
+    sti = _at(_points(engine, cik, sti_con, as_of, "I"), b)
     if sti is not None:
         g.sti = float(sti.value)
         g.sources += _src(sti, "short-term investments")
-    rc = _at(_points(engine, cik, "restricted_cash", as_of, "I"), b)
+        if "alias" in sti.method or "fallback tag" in sti.method:
+            g.notes.append(f"ST investments {sti.method.split(';')[0]}")
+    elif (cs := _at(_points(engine, cik, CASH_AND_STI, as_of, "I"), b)) is not None:
+        if float(cs.value) > g.cash:
+            g.sti = float(cs.value) - g.cash
+            g.sources += _src(cs, "cash and short-term investments")
+            g.notes.append(
+                f"ST investments = CashCashEquivalentsAndShortTermInvestments {money(cs.value)} "
+                f"− cash {money(g.cash)} (fallback, labelled)"
+            )
+    if g.sti is None:
+        have, none = tags_present(engine, cik, concept_for(cik, sti_con).tags + CASH_AND_STI.tags,
+                                  as_of)  # fmt: skip
+        g.notes.append(
+            f"ST investments none at {b}: tags with facts "
+            + ("; ".join(have) if have else "none")
+            + (f"; no facts for {', '.join(none)}" if none else "")
+        )
     if rc is not None:
         g.restricted = float(rc.value)
         g.notes.append(f"restricted cash {money(rc.value)} excluded")

@@ -58,6 +58,7 @@ class CompanyGate:
     fcf: debt.FcfBurn | None = None
     neg: debt.NegEquity | None = None
     queued: dict[str, str] = field(default_factory=dict)  # kind → status
+    held: list[str] = field(default_factory=list)  # kinds a tracked name would open (D-M04-80)
     withdrawn: int = 0
     error: str = ""
 
@@ -390,7 +391,16 @@ def propose_items(
     key_gap = _turn(st, "score_gap", gap, since)
     st.update(state=g.state, balance=g.balance_date, at=iso(now))
     _save_state(engine, cik, st, now)
-    if not queue_items:
+    if not queue_items:  # tracked tier: rows only, no review items (D-M04-80)
+        cg.held = [
+            k
+            for k, on in (
+                ("m04_gate_fail", key_fail),
+                ("m04_runway", key_runway),
+                ("m04_score_gap", key_gap),
+            )
+            if on
+        ] + [f"m04_gate_input:{inp}" for inp, _ in g.gate_inputs]
         return
     filed = g.signal_as_of
     live: dict[str, set[str]] = {
@@ -611,6 +621,28 @@ def run_local_part(
         f"M04 survival gate — local pass (Part 4a, 0 SEC requests) ({clock() - t0:.1f} s):",
         *lines,
     ]
+
+
+KINDS = ("m04_gate_fail", "m04_runway", "m04_gate_input", "m04_score_gap")
+
+
+def open_items(engine: sqlite3.Connection) -> list[str]:
+    """Open Part 4a review items: "kind company (item N, opened <date>): reason"."""
+    marks = ",".join("?" * len(KINDS))
+    out = []
+    for r in engine.execute(
+        f"SELECT item_id, kind, cik, reason, payload, created_at FROM review_queue WHERE kind "
+        f"IN ({marks}) AND resolved_at IS NULL ORDER BY kind, item_id",
+        KINDS,
+    ):
+        try:
+            who = json.loads(r["payload"] or "{}").get("ticker") or r["cik"]
+        except json.JSONDecodeError:
+            who = r["cik"]
+        out.append(
+            f"{r['kind']} {who} (item {r['item_id']}, opened {r['created_at'][:10]}): {r['reason']}"
+        )
+    return out
 
 
 def recent_alerts(engine: sqlite3.Connection, now: datetime, hours: int = 24) -> list[str]:

@@ -21,7 +21,7 @@ from datetime import date, timedelta
 
 from engine.financials import peers as peers_mod
 from engine.financials import stats
-from engine.financials.gate import DEBT_CURRENT, LTD_CURRENT, Gate, money
+from engine.financials.gate import DEBT_CURRENT, LTD_CURRENT, Gate, money, sti_concept
 from engine.sec.asof import AsOfPoint, facts_as_of
 from engine.sec.identity import normalize_cik
 from engine.signals import Source
@@ -68,7 +68,7 @@ class _Book:
         self.ltdc = _pts(engine, c, LTD_CURRENT, as_of, "I")
         self.stb = _pts(engine, c, "short_term_borrowings", as_of, "I")
         self.cash = _pts(engine, c, "cash", as_of, "I")
-        self.sti = _pts(engine, c, "short_term_investments", as_of, "I")
+        self.sti = _pts(engine, c, sti_concept(), as_of, "I")
         self.rev = {
             **_pts(engine, c, "revenue", as_of, "FY"),
             **_pts(engine, c, "revenue", as_of, "TTM"),
