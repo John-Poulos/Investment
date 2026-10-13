@@ -42,7 +42,7 @@
     <td class="num">{{ e.amount }} <span class="muted">{{ e.basis }}</span></td>
     <td class="num"><span title="{{ e.denominator_what }}">{{ e.denominator }}</span></td>
     <td class="num">{{ e.share }}</td>
-    <td>{% if e.band in ('watch', 'elevated') %}<b>{{ e.band }}</b>{% else %}{{ e.band | replace('_', ' ') }}{% endif %}{% if e.baseline %} <span class="muted">(baseline)</span>{% endif %}{% if e.owner %} <span class="muted">· you: {{ e.owner }}</span>{% endif %}</td></tr>
+    <td>{% if e.band in ('watch', 'elevated') %}<b>{{ e.band }}</b>{% else %}{{ e.band | replace('_', ' ') }}{% endif %}{% if e.baseline %} <span class="muted">(baseline)</span>{% endif %}{% if e.owner %} <span class="muted">· you: {{ e.owner }}</span>{% endif %}{% if e.superseded %} <span class="muted">· no longer found (kept: answered or reviewed)</span>{% endif %}</td></tr>
   {% endfor %}
 </table>
 {% else %}<p class="empty">No estimate-change sentence with an amount in the stored annual reports.</p>{% endif %}
@@ -55,13 +55,14 @@
 <h2>Recurring “one-time” charges <span class="muted">(M04; special_items, D-M04-19)</span></h2>
 {% if eq.special %}{% set sp = eq.special %}
 <table class="data">
-  <tr><th>Fiscal year</th><th>Tags ($M)</th><th>Wording in the annual report</th></tr>
+  <tr><th>Fiscal year</th><th>Tags ($M)</th><th>Wording in the annual report</th><th>Counts?</th></tr>
   {% for y in sp.years %}
   <tr><td>{{ y.label }}</td><td>{{ y.tags }}</td>
-    <td>{% for p, q in y.text %}<span title="“{{ q }}”">“{{ p }}”</span>{{ ' · ' if not loop.last }}{% else %}<span class="muted">{{ 'none' if y.text_state == 'read' else 'text not stored' }}</span>{% endfor %}</td></tr>
+    <td>{% for p, q, amt in y.text %}<span title="“{{ q }}”">“{{ p }}”{% if amt %} {{ amt }}{% else %} <span class="muted">(context)</span>{% endif %}</span>{{ ' · ' if not loop.last }}{% else %}<span class="muted">{{ 'none' if y.text_state == 'read' else 'text not stored' }}</span>{% endfor %}</td>
+    <td>{% if y.has %}yes — {{ y.source }}{% else %}<span class="muted">no</span>{% endif %}</td></tr>
   {% endfor %}
 </table>
-<p class="note">Years with items: {{ sp.count }} of {{ sp.of }} → {% if sp.state == 'warn' %}<b>warn</b>{% else %}{{ sp.state | replace('_', ' ') }}{% endif %}; cumulative ÷ operating income: {{ sp.ratio }}.
+<p class="note">Years counted (an amount needed): {{ sp.count }} of {{ sp.of }} → {% if sp.state == 'warn' %}<b>warn</b>{% else %}{{ sp.state | replace('_', ' ') }}{% endif %}; cumulative counted charges ÷ operating income: {{ sp.ratio }}.
 {% if sp.non_gaap %} Company-stated non-GAAP gap (quoted, never computed): “{{ sp.non_gaap }}” <span class="muted">({{ sp.non_gaap_ref }})</span>{% else %} No stated non-GAAP reconciliation sentence in the stored releases.{% endif %}</p>
 {% endif %}
 <p class="note">{{ eq.notes.special }}</p>

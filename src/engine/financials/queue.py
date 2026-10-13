@@ -175,10 +175,13 @@ def propose(
 
 
 def withdraw(engine: sqlite3.Connection, kind: str, key: str, now: datetime, why: str) -> bool:
-    """Drop a proposal whose finding no longer holds after a recomputation (Part 3 live
-    check 1): a waiting one (overflow, baseline) is deleted; a queued one whose item is
-    still open is closed as `withdrawn` (by "engine", with `why`) and deleted. An item you
-    already answered is kept. Caller owns the transaction."""
+    """Withdraw a proposal whose finding no longer holds after a recomputation (Part 3 live
+    check 1): a queued one whose item is still open has that item closed as `withdrawn` (by
+    "engine", with `why`); a waiting one (overflow, baseline) gets a review item recorded
+    already closed the same way (Part 6 re-run 1), so every withdrawn finding stays as
+    history with its reason and payload. The routing row in `m04_proposal` is then deleted
+    (its status has no 'withdrawn'), so a finding that returns is proposed afresh. An item
+    you already answered is kept and nothing is withdrawn. Caller owns the transaction."""
     pk = f"{kind}:{key}"
     row = engine.execute("SELECT * FROM m04_proposal WHERE prop_key = ?", (pk,)).fetchone()
     if row is None:
@@ -191,6 +194,14 @@ def withdraw(engine: sqlite3.Connection, kind: str, key: str, now: datetime, why
         )
         if not cur.rowcount:
             return False
+    else:
+        engine.execute(
+            "INSERT INTO review_queue (module_id, kind, cik, reason, payload, created_at, "
+            "resolved_at, resolution, resolved_by, note) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'withdrawn', 'engine', ?)",
+            (MODULE, kind, row["cik"], row["reason"], row["payload"], row["first_seen_at"],
+             iso(now), f"{why} (was {row['status']}, never shown in the queue)"),
+        )  # fmt: skip
     engine.execute("DELETE FROM m04_proposal WHERE prop_key = ?", (pk,))
     return True
 

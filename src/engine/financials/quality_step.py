@@ -397,24 +397,17 @@ def write_signals(
                 ),
             )
 
-    # special_items (D-M04-19)
+    # special_items (D-M04-19, -94): value = cumulative counted charges ÷ cumulative
+    # operating income; text warn | none | not_meaningful (short history as stated)
     if sp is None or sp.state == "missing":
         missing("special_items", sp.why if sp else "not computed")
     else:
-        yrs = "; ".join(
-            f"{y.label}: "
-            + (
-                ", ".join(
-                    [f"{w} {quality.money(v)}M" for w, v, _ in y.tags]
-                    + [f"“{p}” in text" for p, _, _ in y.text]
-                )
-                or "none"
-            )
-            + ("" if y.text_state == "read" else " (text not stored)")
-            for y in sp.years
-        )
+        yrs = "; ".join(f"{y.label}: {y.source}" for y in sp.years)
         ssrc = [
-            Source(a, d, "A", w) for y in sp.years for w, _, a in y.tags if (d := _filed(engine, a))
+            Source(a, d, "A", w)
+            for y in sp.years
+            for w, a in [(w, a) for w, _, a in y.tags] + [(p, a) for p, _, a, _ in y.stated]
+            if (d := _filed(engine, a))
         ] or base_src
         kw = dict(value=round(sp.ratio, 4)) if sp.ratio is not None else {}
         write_signal(
@@ -425,9 +418,14 @@ def write_signals(
             info=("ST",),
             sources=ssrc,
             method=(
-                f"years with items {sp.count} of {len(sp.years)} (warn ≥ "
-                f"{special.WARN_YEARS}); {yrs}; cumulative ÷ operating income "
-                + (f"{sp.ratio:.1%}" if sp.ratio is not None else sp.ratio_why)
+                f"years counted {sp.count} of {len(sp.years)} (an amount needed: tag or stated "
+                f"$; warn ≥ {special.WARN_YEARS} and ≥ {special.SIZE_MIN:.0%} of operating "
+                f"income, D-M04-94); {yrs}; cumulative ÷ operating income "
+                + (
+                    f"{sp.ratio:.1%}"
+                    if sp.ratio is not None
+                    else f"{sp.ratio_why} (tagged years {sp.tagged_years})"
+                )
                 + ("; non-GAAP gap quoted on the tab" if sp.non_gaap else "")
                 + f"{mark}"
             ),

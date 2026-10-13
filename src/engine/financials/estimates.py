@@ -39,6 +39,8 @@ NOTE_BELOW, ELEVATED_FROM = 0.10, 0.25  # D-M04-17 starting values
 NI_MIN_SHARE = 0.01
 ANNUAL_FORMS = ("10-K", "10-KT", "20-F", "40-F")
 DISCLOSURES = 3
+DEDUPE_TOL = 0.03  # the same amount stated twice in one report at different rounding
+PASS_STATE = "m04_estimates_pass:{cik}"  # the company's latest estimate pass (superseded rows)
 
 QUERY = (
     '"change in estimate" OR "changes in estimate" OR "changes in estimates" OR '
@@ -76,6 +78,20 @@ VARIANCE = re.compile(
 TABLE_LABEL = re.compile(r"\b(?:increase|decrease)\s*/?\s*\(?(?:increase|decrease)\b", re.I)
 PER_SHARE_ROW = re.compile(r"per (?:basic |diluted )?share|\bEPS\b", re.I)
 RESPECTIVELY = re.compile(r"\brespectively\b", re.I)
+# Schedule rows are not estimate changes (Part 6 re-run 1: Intel "Future amortization
+# expenses $ 998 $ 858 $ 655 …"): future / expected amortization, maturities, "thereafter"
+SCHEDULE = re.compile(
+    r"\bfuture\b|\bexpected (?:future )?amortization|\bmaturit(?:y|ies)\b|\bthereafter\b|"
+    r"\bremaining (?:amortization|payments?|obligations?)\b",
+    re.I,
+)
+SCHEDULE_ROW_MIN = 3  # amounts in a row without an estimate phrase in its label
+# "a change in estimated profitability of $2,131 million" (GE FY2017): the amount is the
+# change itself, an earnings effect (pre-tax)
+CHANGE_OF = re.compile(
+    r"changes? in (?:the |our )?(?:total )?estimated profitability (?:of|totall?ing)\s*\(?$",
+    re.I,
+)
 TABLE_LOOKBACK = 3  # sentences before a table row searched for the estimate wording
 KIND = (
     ("useful_life", re.compile(r"useful li(?:fe|ves)", re.I)),
@@ -134,6 +150,8 @@ class Candidate:
     basis: str
     raw: str
     year: str | None
+    at: int = 0  # offset of the amount in the sentence
+    listed: bool = False  # mapped to its year by a "…, respectively" list
 
 
 @dataclass
@@ -188,6 +206,9 @@ def candidates(sentence: str, scale: float) -> list[Candidate]:
             continue
         window = sentence[prev_end : n.start]
         basis, d, used_to = _trailing(sentence, n.end)
+        if basis is None and CHANGE_OF.search(sentence[: n.start]):
+            # "driven by a change in estimated profitability of $2,131 million" (GE)
+            basis, d, used_to = "pre_tax", _direction(sentence[: n.start]), n.end
         if basis is None:
             best: tuple[int, int] = (-1, 0)
             for name, rx in OBJECTS:  # the object nearest the amount; "net earnings" first
@@ -206,7 +227,7 @@ def candidates(sentence: str, scale: float) -> list[Candidate]:
         after = YEAR.findall(sentence[n.end : n.end + YEAR_AFTER])
         before = YEAR.findall(sentence[: n.start])
         year = years[-1] if years else after[0] if after else before[-1] if before else None
-        out.append(Candidate(sign * n.value, basis, n.raw, year))
+        out.append(Candidate(sign * n.value, basis, n.raw, year, n.start))
         ends.append(n.end)
         last_basis, last_dir, prev_end = basis, d, used_to
     # "… by $2.2 billion, $1.4 billion and $1.6 billion in 2016, 2015 and 2014, respectively"
@@ -214,7 +235,7 @@ def candidates(sentence: str, scale: float) -> list[Candidate]:
         listed = YEAR.findall(sentence[ends[-1] :])
         if len(listed) == len(out):
             for c, y in zip(out, listed, strict=True):
-                c.year = y
+                c.year, c.listed = y, True
     return out
 
 
@@ -257,6 +278,24 @@ def table_candidate(row: str, scale: float, label: str | None) -> Candidate | No
         value = -value
     year = label[2:] if label and label.startswith("FY") else None
     return Candidate(value, basis, first.raw, year)
+
+
+def is_schedule_row(sentence: str, table: bool) -> bool:
+    """A schedule row (future amortization, maturities, "thereafter"), not an estimate change:
+    schedule wording before the first amount (in a table row: anywhere in it), or a table row
+    of ≥ 3 amounts whose label names no estimate (Part 6 re-run 1, Intel)."""
+    nums = numbers(sentence, 0, len(sentence), 1.0)
+    if len(nums) < 2:
+        return False
+    head = sentence[: nums[0].start]
+    if SCHEDULE.search(head) or (table and SCHEDULE.search(sentence)):
+        return True
+    return (
+        table
+        and len(nums) >= SCHEDULE_ROW_MIN
+        and not ESTIMATE.search(head)
+        and not TABLE_LABEL.search(head)
+    )
 
 
 def is_table_row(sentence: str) -> bool:
@@ -392,13 +431,30 @@ def _prev_sentence(text: str, spans: list[tuple[int, int]], i: int) -> str:
     return text[a:b] if b <= s else ""
 
 
+AMOUNT_START = re.compile(r"\$\s?\d|\d\s*(?:million|billion)\b", re.I)
+
+
+def _clauses(sent: str) -> tuple[str, str]:
+    """(the clauses before the one with the first amount, that clause on): GE's "Revisions
+    may affect … total estimated profitability resulting in an adjustment of earnings; such
+    adjustments increased earnings by $2.1 billion …" is a general statement, then a fact."""
+    m = AMOUNT_START.search(sent)
+    cut = sent.rfind(";", 0, m.start()) if m else -1
+    return (sent[: cut + 1], sent[cut + 1 :]) if cut >= 0 else ("", sent)
+
+
 def qualifies(sent: str, prev: str) -> tuple[bool, str]:
     """(counts, context) for a prose sentence (D-M04-92 as amended at live check 1): the
     estimate wording in the sentence itself, or in the sentence directly before one that
     refers to "this change" / "such adjustments"; variance wording ("increased $X compared
     with", "or 31%", "year over year") only when the sentence itself names an estimate
-    change; never a hypothetical (may / could / might / if)."""
-    if HYPOTHETICAL.search(sent):
+    change; never a hypothetical (may / could / might / if) in the clause with the amount —
+    a general clause before a ";" may hold one when the amount's clause refers back to it
+    ("such adjustments increased earnings by …", GE; Part 6 re-run 1)."""
+    head, tail = _clauses(sent)
+    if HYPOTHETICAL.search(tail):
+        return False, ""
+    if head and HYPOTHETICAL.search(head) and not (REFERS.search(tail) and ESTIMATE.search(head)):
         return False, ""
     # a sentence cut by a line break inside it ("… included in “Property and equipment,\n\n
     # net” as of …", Amazon) continues the one before: its wording counts too
@@ -432,7 +488,7 @@ def scan(
         label, end = report_fy(engine, norm, a)
         hits = search(corpus, QUERY, ciks=[norm], accessions=[a.accession], limit=200)
         seen: set[tuple[int, int]] = set()
-        kept: set[tuple[str, int]] = set()
+        kept: list[tuple[str, float]] = []
         for h in sorted(hits, key=lambda h: (h.doc_id, h.start)):
             text = corpus.execute(
                 "SELECT text FROM document WHERE doc_id = ?", (h.doc_id,)
@@ -444,7 +500,10 @@ def scan(
                     continue
                 seen.add((h.doc_id, s))
                 sent = text[s:e]
-                if is_table_row(sent):
+                table = is_table_row(sent)
+                if is_schedule_row(sent, table):
+                    continue
+                if table:
                     look = [text[x:y] for x, y in spans[max(0, i - TABLE_LOOKBACK) : i]]
                     if not any(ESTIMATE.search(t) for t in look):
                         continue
@@ -459,45 +518,64 @@ def scan(
                     best = pick(cands)
                 if best is None:
                     continue
-                fy = f"FY{best.year}" if best.year else label
-                dedupe = (fy or "", round(best.amount / 1e5))
-                if dedupe in kept:
-                    continue  # the same amount for the same year, already stated (GFS 76M ×3)
-                kept.add(dedupe)
-                pend = _year_end(engine, norm, fy, end) if fy else None
-                f = Finding(
-                    norm,
-                    a.accession,
-                    f"{a.accession}/{h.filename}",
-                    a.form,
-                    a.filed,
-                    s,
-                    clean(sent),
-                    kind_of(context),
-                    best.amount,
-                    best.basis,
-                    fy or "unknown",
-                    pend,
-                    passage_id=h.passage_id,
-                    others=[f"{c.raw} ({c.basis})" for c in cands if c is not best],
-                )
-                den, what, state = _denominator(engine, norm, best.basis, pend, a.filed)
-                f.denominator_what = what
-                if den is None:
-                    f.band, f.why = "missing", state
-                elif den <= 0:
-                    f.band, f.why = "not_meaningful", f"denominator ≤ 0 ({what})"
-                    f.denominator = den
-                else:
-                    rev = _revenue(engine, norm, pend, a.filed) if pend else None
-                    f.denominator = den
-                    if rev and den < NI_MIN_SHARE * rev:
-                        f.band, f.why = "not_meaningful", "denominator below 1% of revenue"
-                    else:
-                        f.share = best.amount / den
-                        f.band = band(f.share)
-                out.append(f)
+                # "…, respectively": one row per listed year; the first keeps the sentence
+                # offset, the others take their amount's offset (the row key stays unique)
+                listed = [c for c in cands if c.listed and c.basis == best.basis]
+                for c in listed or [best]:
+                    fy = f"FY{c.year}" if c.year else label
+                    if _same_amount(kept, fy or "", c.amount):
+                        continue  # already stated in this report (GFS 76M ×3)
+                    kept.append((fy or "", c.amount))
+                    start = s if not listed or c is listed[0] else s + c.at
+                    f = Finding(
+                        norm,
+                        a.accession,
+                        f"{a.accession}/{h.filename}",
+                        a.form,
+                        a.filed,
+                        start,
+                        clean(sent),
+                        kind_of(context),
+                        c.amount,
+                        c.basis,
+                        fy or "unknown",
+                        _year_end(engine, norm, fy, end) if fy else None,
+                        passage_id=h.passage_id,
+                        others=[f"{o.raw} ({o.basis})" for o in cands if o is not c],
+                    )
+                    _rate(engine, norm, f, a.filed)
+                    out.append(f)
     return out
+
+
+def _same_amount(kept: list[tuple[str, float]], fy: str, amount: float) -> bool:
+    """The same amount for the same year already stated in this report: same sign, within
+    3% (GFS 76M three times; GE "$2.1 billion" and "$2,131 million" for 2017)."""
+    return any(
+        k == fy
+        and (v > 0) == (amount > 0)
+        and abs(v - amount) <= DEDUPE_TOL * max(abs(v), abs(amount))
+        for k, v in kept
+    )
+
+
+def _rate(engine: sqlite3.Connection, cik: str, f: Finding, filed: str) -> None:
+    """Denominator, share and band as known on the report's filing date (D-M04-18)."""
+    den, what, state = _denominator(engine, cik, f.basis, f.period_end, filed)
+    f.denominator_what = what
+    if den is None:
+        f.band, f.why = "missing", state
+    elif den <= 0:
+        f.band, f.why = "not_meaningful", f"denominator ≤ 0 ({what})"
+        f.denominator = den
+    else:
+        rev = _revenue(engine, cik, f.period_end, filed) if f.period_end else None
+        f.denominator = den
+        if rev and den < NI_MIN_SHARE * rev:
+            f.band, f.why = "not_meaningful", "denominator below 1% of revenue"
+        else:
+            f.share = f.amount / den
+            f.band = band(f.share)
 
 
 NEAR_MISS = re.compile(r"estimat\w*|catch[- ]up|profitability|service agreements?", re.I)
@@ -587,8 +665,11 @@ def store(
     now_iso: str,
     baseline: bool,
 ) -> None:
-    """Upsert this scan's rows (owner answers kept); a row whose sentence is no longer found
-    (and has no answer) is deleted. Caller owns the transaction."""
+    """Upsert this scan's rows (owner answers kept). A row whose sentence is no longer found
+    is deleted when it has neither an owner answer nor a linked review item; one that has
+    either is kept unchanged as history — its `computed_at` stays at the last pass that
+    found it, which marks it "no longer found" (`superseded`; Part 6 re-run 1). Caller owns
+    the transaction."""
     keys = set()
     for f in findings:
         keys.add((f.accession, f.start))
@@ -629,7 +710,7 @@ def store(
         )
     for r in engine.execute(
         "SELECT accession, start_offset FROM estimate_change WHERE cik = ? AND "
-        "owner_outcome IS NULL",
+        "owner_outcome IS NULL AND item_id IS NULL",
         (cik,),
     ).fetchall():
         if (r[0], r[1]) not in keys:
@@ -637,6 +718,12 @@ def store(
                 "DELETE FROM estimate_change WHERE cik = ? AND accession = ? AND start_offset = ?",
                 (cik, r[0], r[1]),
             )
+    engine.execute(
+        "INSERT INTO refresh_state (name, source_ref, fetched_at, detail) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT (name) DO UPDATE SET fetched_at = excluded.fetched_at, "
+        "detail = excluded.detail",
+        (PASS_STATE.format(cik=cik), cik, now_iso, f"{len(findings)} sentence(s)"),
+    )
 
 
 def stored(engine: sqlite3.Connection, cik: str) -> list[sqlite3.Row]:
@@ -644,6 +731,28 @@ def stored(engine: sqlite3.Connection, cik: str) -> list[sqlite3.Row]:
         "SELECT * FROM estimate_change WHERE cik = ? ORDER BY filed DESC, start_offset",
         (normalize_cik(cik) or cik,),
     ).fetchall()
+
+
+def last_pass(engine: sqlite3.Connection, cik: str) -> str | None:
+    r = engine.execute(
+        "SELECT fetched_at FROM refresh_state WHERE name = ?", (PASS_STATE.format(cik=cik),)
+    ).fetchone()
+    return r[0] if r else None
+
+
+def superseded(engine: sqlite3.Connection, cik: str, rows: list[sqlite3.Row]) -> set[tuple]:
+    """(accession, offset) of kept rows the company's latest pass no longer found: an
+    answered or linked row keeps its last `computed_at`; every row a pass finds gets that
+    pass's time (recorded in `refresh_state`)."""
+    last = last_pass(engine, normalize_cik(cik) or cik)
+    if last is None:
+        return set()
+    return {(r["accession"], r["start_offset"]) for r in rows if r["computed_at"] < last}
+
+
+def current(engine: sqlite3.Connection, cik: str, rows: list[sqlite3.Row]) -> list[sqlite3.Row]:
+    gone = superseded(engine, cik, rows)
+    return [r for r in rows if (r["accession"], r["start_offset"]) not in gone]
 
 
 # --- Catch-up revenue (ASC 606 tag) ---------------------------------------------------------

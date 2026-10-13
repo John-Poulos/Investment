@@ -65,11 +65,15 @@ ESTIMATES_NOTE = (
     "its verified quote."
 )
 SPECIAL_NOTE = (
-    "Per fiscal year of the last 4: restructuring, impairment or write-down tags, or "
-    "“non-recurring” / “one-time” wording in that year's stored annual report (D-M04-19). "
-    "Items in ≥ 3 of 4 years warn (starting value, all stages); a genuine multi-year "
-    "restructuring reads as recurrence too, so read the plan. The company-stated non-GAAP vs "
-    "GAAP gap is quoted from its own release, never computed."
+    "Per fiscal year of the last 4, a year counts only with an amount: a restructuring, "
+    "impairment or write-down tag, or a “non-recurring” / “one-time” sentence in that year's "
+    "stored annual report that states a dollar amount for the year (quote kept). Wording "
+    "without an amount is shown as context, never counted. Warn when ≥ 3 of 4 years count and "
+    "the counted charges are ≥ 5% of operating income over the same years (starting values, "
+    "all stages); with operating income ≤ 0 the size is not measured and the warning needs "
+    "≥ 3 years with tagged charges (D-M04-19, D-M04-94). A genuine multi-year restructuring "
+    "reads as recurrence too, so read the plan. The company-stated non-GAAP vs GAAP gap is "
+    "quoted from its own release, never computed."
 )
 SWINGS_NOTE = (
     "Non-cash, non-operating items by tag with their after-tax effect and share of net income "
@@ -190,8 +194,11 @@ def _gap_rows(g: quality.Gap, line: str, ticker: str | None) -> list[dict]:
     return out
 
 
-def _estimate_rows(rows: list[sqlite3.Row], ticker: str | None) -> list[dict]:
+def _estimate_rows(
+    rows: list[sqlite3.Row], ticker: str | None, gone: set[tuple] | None = None
+) -> list[dict]:
     out = []
+    gone = gone or set()
     for r in rows:
         share = f"{float(r['share']):+.1%}" if r["share"] is not None else "—"
         out.append(
@@ -213,6 +220,7 @@ def _estimate_rows(rows: list[sqlite3.Row], ticker: str | None) -> list[dict]:
                 "band": r["band"],
                 "baseline": bool(r["baseline"]),
                 "owner": r["owner_outcome"] or "",
+                "superseded": (r["accession"], r["start_offset"]) in gone,
             }
         )
     return out
@@ -228,7 +236,10 @@ def _special(sp: special.Special) -> dict:
             {
                 "label": y.label,
                 "tags": ", ".join(f"{w} {quality.money(v)}M" for w, v, _ in y.tags) or "—",
-                "text": [(p, q) for p, q, _ in y.text],
+                "text": [
+                    (p, q, quality.money(a) + "M" if a is not None else "") for p, q, _, a in y.text
+                ],
+                "source": y.source,
                 "text_state": y.text_state,
                 "has": y.has,
             }
@@ -336,7 +347,8 @@ def company_view(
                     "title": "",
                 }
             ]
-        view.estimates = _estimate_rows(estimates.stored(engine, norm), ticker)
+        rows = estimates.stored(engine, norm)
+        view.estimates = _estimate_rows(rows, ticker, estimates.superseded(engine, norm, rows))
         cu = estimates.catch_up(engine, norm)
         if cu:
             view.catch_up = [{"company": ticker, "years": cu.years, "flag": cu.flag}]
@@ -361,8 +373,9 @@ def company_view(
         ge = quality.Facts(engine, GE_CIK)
         g = quality.contract_asset_gap(ge)
         view.reference["gaps"] = _gap_rows(g, "contract assets", "GE (reference)")
+        ge_rows = estimates.stored(engine, GE_CIK)
         view.reference["estimates"] = _estimate_rows(
-            estimates.stored(engine, GE_CIK), "GE (reference)"
+            ge_rows, "GE (reference)", estimates.superseded(engine, GE_CIK, ge_rows)
         )
     if norm != LMT_CIK:
         cu = estimates.catch_up(engine, LMT_CIK)
@@ -380,5 +393,7 @@ def company_view(
         else:
             val = s["value_text"] or "missing"
         view.signals.append((name, val, s["method"]))
-    view.recurrence = estimates.recurrence_rows(estimates.stored(engine, norm))
+    view.recurrence = estimates.recurrence_rows(
+        estimates.current(engine, norm, estimates.stored(engine, norm))
+    )
     return view

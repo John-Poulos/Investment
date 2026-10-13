@@ -2307,8 +2307,10 @@ def quality_summary(engine, qp, ge_findings, ge_gap, lmt, ge_near=()) -> list[st
             lines.append(f"    {f.form} {f.filed} {f.fiscal_label} {f.band} {share}: "
                          f"{quality.money(f.amount)}M {f.basis} ÷ {f.denominator_what or f.why} — "
                          f"“{f.quote[:220]}”")  # fmt: skip
-    lines.append("GE reference (2016 expected: 2,200 ÷ 9,030 = 24.4% → watch; restated $0.7B kept "
-                 "by filing version):")  # fmt: skip
+    lines.append("GE reference (brief: 2016 2,200 ÷ 9,030 = 24.4% → watch; the FY2017 10-K "
+                 "states 2017 / 2016 / 2015 = $2.1B / $2.2B / $1.4B, each ÷ that year's pretax "
+                 "income as known on 2018-02-23, D-M04-18; a denominator other than 9,030 for "
+                 "FY2016 is the figure as of that filing):")  # fmt: skip
     for f in ge_findings:
         share = f"{f.share:+.1%}" if f.share is not None else "—"
         lines.append(f"  {f.form} {f.accession} {f.filed} {f.fiscal_label} {f.band} {share}: "
@@ -2336,14 +2338,19 @@ def quality_summary(engine, qp, ge_findings, ge_gap, lmt, ge_near=()) -> list[st
         cu = " · ".join(f"{lb} {v / 1e9:,.1f}B" for lb, v, _ in lmt.years)
         cu += f" — {lmt.flag}" if lmt.flag else ""
     lines.append(f"Lockheed catch-up revenue (expected 2.2B 2019 … 1.2B 2024): {cu}")
-    lines.append("special_items (years with items of 4 · state · cumulative ÷ operating income):")
+    lines.append("special_items (D-M04-94: a year counts only with an amount; warn = ≥ 3 of 4 "
+                 "years and ≥ 5% of cumulative operating income; years counted of 4 · "
+                 "cumulative ÷ operating income · state; then the source per year):")  # fmt: skip
     for t, cq in sorted(qp.companies.items()):
         sp = cq.special
         if sp is None:
             continue
-        lines.append(f"  {t}: {sp.count} of {len(sp.years)} · {sp.state} · "
-                     + (f"{sp.ratio:.1%}" if sp.ratio is not None else sp.ratio_why or sp.why)
+        size = (f"{sp.ratio:.1%}" if sp.ratio is not None
+                else f"{sp.ratio_why or sp.why} (tagged years {sp.tagged_years})")  # fmt: skip
+        lines.append(f"  {t}: {sp.count} of {len(sp.years)} · {size} · {sp.state}"
                      + (" · non-GAAP sentence quoted" if sp.non_gaap else ""))  # fmt: skip
+        for y in sp.years:
+            lines.append(f"    {y.label}: {'counted' if y.has else 'not counted'} — {y.source}")
     lines.append("Non-operating swings (MSTR expected: digital-asset fair-value loss inside "
                  "operating income):")  # fmt: skip
     for t, cq in sorted(qp.companies.items()):

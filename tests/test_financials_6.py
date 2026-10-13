@@ -349,14 +349,92 @@ def test_ge_2016_estimate_share_24_4_watch_and_restated_amount_kept_by_version(d
     assert (f16.amount, f16.basis, f16.fiscal_label) == (2_200 * M, "pre_tax", "FY2016")
     assert f16.denominator == 9_030 * M and f16.share == pytest.approx(0.2436, abs=0.0005)
     assert f16.band == "watch" and "pretax income" in f16.denominator_what
-    f17 = next(f for f in found if f.accession == "0000040545-18-000014")
-    assert f17.amount == 700 * M and f17.fiscal_label == "FY2016"
-    assert f17.denominator == 7_036 * M and f17.band == "note"  # as known on 2018-02-23
+    # the real FY2017 10-K (re-run 1): "such adjustments increased earnings by $2.1 billion,
+    # $2.2 billion and $1.4 billion … 2017, 2016 and 2015, respectively" → one row per year;
+    # "$2,131 million" for 2017 is the same amount as "$2.1 billion" (one row); the cash-flow
+    # variance sentence stays out
+    f17 = sorted(
+        (f.fiscal_label, round(f.amount / M), f.band) for f in found
+         if f.accession == "0000040545-18-000014"
+    )  # fmt: skip
+    assert f17 == [("FY2015", 1400, "missing"), ("FY2016", 2200, "elevated"),
+                   ("FY2017", 2100, "not_meaningful")]  # fmt: skip
+    r16 = next(
+        f for f in found if f.accession == "0000040545-18-000014" and f.fiscal_label == "FY2016"
+    )
+    # D-M04-18: FY2016 pretax as known on 2018-02-23 (fixture 7,036; the brief's 9,030 is the
+    # FY2016 10-K's own figure): 2,200 ÷ 7,036 = 31.3%
+    assert r16.denominator == 7_036 * M and r16.share == pytest.approx(2_200 / 7_036)
+    assert all("$3,699" not in f.quote and "Cash used" not in f.quote for f in found)
     engine, _ = dbs
     engine.execute("BEGIN")
     estimates.store(engine, found, GE, "2026-10-13T12:00:00+00:00", False)
     engine.execute("COMMIT")
-    assert len(estimates.stored(engine, GE)) == 2  # both filing versions kept
+    assert len(estimates.stored(engine, GE)) == 4  # both filing versions kept, keys unique
+
+
+def test_ge_change_in_estimated_profitability_amount_is_the_change():
+    sent = (
+        "Contract assets increased $3,699 million in 2017, which was primarily driven by a "
+        "change in estimated profitability of $2,131 million within our long-term product "
+        "service agreements within Power ($1,300 million)."
+    )
+    assert estimates.qualifies(sent, "")[0]
+    best = estimates.pick(estimates.candidates(sent, M))
+    assert (best.amount, best.basis, best.year) == (2_131 * M, "pre_tax", "2017")
+    cash = (
+        "Cash used for contract assets of $3.9 billion in 2016 compared with $1.9 billion in "
+        "2015, primarily due to cumulative catch up adjustments driven by lower forecasted cost "
+        "to complete the contracts."
+    )
+    assert not estimates.qualifies(cash, "")[0]  # a cash-flow variance
+
+
+def test_hypothetical_general_clause_before_such_adjustments_counts_only_with_estimate():
+    ok = (
+        "Revisions may affect a product services agreement’s total estimated profitability "
+        "resulting in an adjustment of earnings; such adjustments decreased earnings by $0.5 "
+        "billion in 2017."
+    )
+    assert estimates.qualifies(ok, "")[0]
+    (c,) = estimates.candidates(ok, M)
+    assert c.amount == -500 * M and c.basis == "pre_tax"
+    assert not estimates.qualifies(
+        "Prices may change; such adjustments increased earnings by $0.5 billion.", ""
+    )[0]  # no estimate named before the ";"
+    assert not estimates.qualifies(
+        "We changed our estimated useful lives; this change could reduce net income by $1 billion.",
+        "",
+    )[0]  # the hypothetical is in the amount's own clause
+
+
+def test_schedule_rows_are_not_estimate_changes():
+    # Intel re-run 1: future-amortization rows after a useful-life sentence
+    for row in ("Future amortization expenses\t$ 998\t$ 858\t$ 655\t$ 431\t$ 252\t$ 493\t$ 3,687",
+                "Future amortization expenses $ 1,360 $ 948 $ 742 $ 552 $ 339 $ 643 $ 4,584",
+                "Amortization expense\t$ 1,360\t$ 948\t$ 742",
+                "Debt maturities\t$ 500\t$ 700"):  # fmt: skip
+        assert estimates.is_schedule_row(row, estimates.is_table_row(row)), row
+    ba = "Decrease/increase to Earnings/(loss) from operations\t($1,377)\t($6,562)\t($2,943)"
+    assert not estimates.is_schedule_row(ba, True)
+    ge = ("Revisions to total estimated profitability increased earnings by $2.1 billion, "
+          "$2.2 billion and $1.4 billion in 2017, 2016 and 2015, respectively.")  # fmt: skip
+    assert not estimates.is_schedule_row(ge, estimates.is_table_row(ge))
+
+
+def test_intel_like_report_drops_future_amortization_rows(dbs):
+    engine, corpus = dbs
+    acc = "0000099999-25-900003"
+    filing(engine, ZZZ, acc, "10-K", "2025-01-31", "2024-12-31")
+    concept(engine, ZZZ, "OperatingIncomeLoss", [("2024-01-01", "2024-12-31", 5_000 * M, acc, "10-K", "2025-01-31")])  # fmt: skip
+    doc(corpus, ZZZ, acc,
+        "FORM 10-K (In millions)\n\nIdentified intangible assets are amortized over their "
+        "estimated useful lives. As of December 31, 2024, we expected future amortization "
+        "expense as follows:\n\nFuture amortization expenses\t$ 998\t$ 858\t$ 655\t$ 431\t$ 252"
+        "\t$ 493\t$ 3,687\n\nThe effect of this change in estimate was an increase in operating "
+        "income of $300 million.\n")  # fmt: skip
+    found = estimates.scan(engine, corpus, ZZZ)
+    assert [(f.fiscal_label, round(f.amount / M)) for f in found] == [("FY2024", 300)]
 
 
 def goog_amzn(dbs):
@@ -484,14 +562,74 @@ def test_special_items_three_of_four_years_warn_with_wording_and_quoted_non_gaap
         name="ex991.htm",
     )
     sp = special.compute(engine, corpus, ZZZ)
-    assert [y.has for y in sp.years] == [True, True, True, True] and sp.count == 4
+    # D-M04-94: FY2024's wording states no amount → context, not counted
+    assert [y.has for y in sp.years] == [True, True, False, True] and sp.count == 3
     assert sp.state == "warn" and sp.ratio == pytest.approx(600 / 4000)
     fy24 = next(y for y in sp.years if y.label == "FY2024")
-    assert fy24.text_state == "read" and fy24.text[0][0] == "one-time"
+    assert fy24.text_state == "read" and fy24.text[0][0] == "one-time" and fy24.text[0][3] is None
+    assert fy24.source == "wording only (context, not counted)"
     assert "non-GAAP net income was $1,150 million" in sp.non_gaap
     engine.execute("BEGIN")
     assert special.store(engine, ZZZ, sp, "t") == 4
     engine.execute("COMMIT")
+
+
+def special_case(dbs, op, tags, text=None):
+    """Four fiscal years 2022–2025 with operating income `op` ($M each) and tags per year;
+    `text` = the FY2024 10-K sentence."""
+    engine, corpus = dbs
+    vals = [(f"{y}-12-31", {"Revenues": 10_000, "OperatingIncomeLoss": op, **t})
+            for y, t in zip((2022, 2023, 2024, 2025), tags, strict=True)]  # fmt: skip
+    synth(engine, ZZZ, vals)
+    if text:
+        acc = "0000099999-25-900002"
+        filing(engine, ZZZ, acc, "10-K", "2025-02-15", "2024-12-31")
+        doc(corpus, ZZZ, acc, f"FORM 10-K (in millions)\n\n{text}\n")
+    return special.compute(engine, corpus, ZZZ)
+
+
+def test_special_items_stated_amount_counts_and_another_year_does_not(dbs):
+    r = {"RestructuringCharges": 300}
+    sp = special_case(dbs, 1000, [r, r, {}, {}],
+                      "Results include a one-time charge of $150 million for a customer settlement.")  # fmt: skip
+    fy24 = sp.years[2]
+    assert fy24.has and fy24.text[0][3] == 150 * M and "150M" in fy24.source
+    assert sp.count == 3 and sp.ratio == pytest.approx(750 / 4000) and sp.state == "warn"
+    assert special.stated_amount("A one-time charge of $40 million in 2022.", "2024", M) is None
+    assert special.stated_amount("A one-time charge of $40 million in 2024.", "2024", M) == 40 * M
+    assert special.stated_amount("A one-time benefit of $0.12 per share.", "2024", M) is None
+
+
+def test_special_items_wording_only_years_never_warn(dbs):
+    # AAPL / META / GFS at 0.0% on the live check: wording in 3 years, no tags, no amounts
+    engine, corpus = dbs
+    synth(engine, ZZZ, [(f"{y}-12-31", {"Revenues": 10_000, "OperatingIncomeLoss": 1000})
+                        for y in (2022, 2023, 2024, 2025)])  # fmt: skip
+    for i, y in enumerate((2022, 2023, 2024)):
+        acc = f"0000099999-{y + 1 - 2000}-90000{i}"
+        filing(engine, ZZZ, acc, "10-K", f"{y + 1}-02-15", f"{y}-12-31")
+        doc(corpus, ZZZ, acc, "FORM 10-K (in millions)\n\nWe exclude non-recurring items.\n")
+    sp = special.compute(engine, corpus, ZZZ)
+    assert sp.count == 0 and sp.state == "none" and sp.ratio == 0.0
+    assert sum(1 for y in sp.years if y.text) == 3
+
+
+def test_special_items_small_charges_every_year_stay_none(dbs):
+    sp = special_case(dbs, 10_000, [{"RestructuringCharges": 100}] * 4)  # 1% of op income
+    assert sp.count == 4 and sp.ratio == pytest.approx(0.01) and sp.state == "none"
+
+
+def test_special_items_operating_loss_needs_three_tagged_years(dbs):
+    t = {"AssetImpairmentCharges": 50}
+    sp = special_case(dbs, -100, [t, t, t, {}])
+    assert sp.state == "warn" and sp.ratio is None
+    assert sp.ratio_why == "operating income ≤ 0: size not measured" and sp.tagged_years == 3
+
+
+def test_special_items_operating_loss_with_a_stated_year_is_not_meaningful(dbs):
+    t = {"AssetImpairmentCharges": 50}
+    sp = special_case(dbs, -100, [t, t, {}, {}], "A non-recurring charge of $20 million.")
+    assert sp.count == 3 and sp.tagged_years == 2 and sp.state == "not_meaningful"
 
 
 def test_special_items_short_history_and_operating_loss_not_meaningful(dbs):
@@ -849,9 +987,10 @@ def test_estimate_finder_drops_variance_sentences_and_dedupes_table_rows(dbs):
     got = sorted((f.fiscal_label, round(f.amount / M), f.basis) for f in found)
     # −1,377 once (prose and table row, FY2025, negative); the 76M sentence once; no BGS
     # +9,856, no catch-up variance 5,196, no R&D 13.5B, no opex 4.0B, no amortization 519,
-    # no per-share row
-    assert got == [("FY2025", -1377, "pre_tax"), ("FY2025", 76, "pre_tax")]
-    f = next(f for f in found if f.amount < 0)
+    # no per-share row; the "…, respectively" list gives one row per year (re-run 1)
+    assert got == [("FY2023", -2943, "pre_tax"), ("FY2024", -6562, "pre_tax"),
+                   ("FY2025", -1377, "pre_tax"), ("FY2025", 76, "pre_tax")]  # fmt: skip
+    f = next(f for f in found if f.amount < 0 and f.fiscal_label == "FY2025")
     assert f.share == pytest.approx(-1377 / 4281) and f.band == "elevated"
     assert f.kind == "catch_up" and "Net cumulative catch-up" in f.quote
 
@@ -877,6 +1016,44 @@ def test_estimate_wording_in_the_sentence_before_needs_this_change():
     )
     assert ok and "useful lives" in ctx
     assert not estimates.qualifies("Operating expenses increased $4.0 billion or 7%.", "")[0]
+
+
+def test_withdrawn_waiting_proposals_and_linked_rows_stay_as_history(dbs):
+    # re-run 1: "m04_proposal -3, estimate_change -19" — a waiting (overflow) proposal left
+    # no trace when withdrawn; a row linked to a review item was deleted with it
+    engine, corpus = dbs
+    acc = ba_like(dbs)
+    gone = BA_TEXT.index("BGS earnings")
+    engine.execute("BEGIN")
+    for i in range(queue.WEEKLY_CAP):  # fill this week's cap so the next one waits
+        queue.propose(engine, "m04_estimate", f"x{i}", "filler", {}, NOW, cik=YYY)
+    assert queue.propose(engine, "m04_estimate", f"{ZZZ}:{acc}:{gone}", "old BGS", {"q": 1},
+                         NOW, cik=ZZZ, filed="2026-01-30") == "overflow"  # fmt: skip
+    engine.execute(
+        "INSERT INTO estimate_change (cik, accession, start_offset, doc_ref, kind, amount, basis, "
+        "band, quote, item_id, first_seen_at, computed_at) VALUES (?, ?, ?, 'd', 'other', 1, "
+        "'pre_tax', 'elevated', 'old BGS', 999, '2026-10-01', '2026-10-01')",
+        (ZZZ, acc, gone),
+    )
+    engine.execute("COMMIT")
+    cq = quality_step.company_quality(engine, corpus, "ZZZ", ZZZ, NOW)
+    assert cq.proposals.get("m04_estimate withdrawn") == 1
+    row = engine.execute(
+        "SELECT reason, resolution, resolved_by, note, resolved_at FROM review_queue "
+        "WHERE cik = ? AND reason = 'old BGS'",
+        (ZZZ,),
+    ).fetchone()
+    assert (row["resolution"], row["resolved_by"]) == ("withdrawn", "engine")
+    assert "was overflow" in row["note"] and row["resolved_at"]
+    assert not engine.execute(
+        "SELECT 1 FROM m04_proposal WHERE prop_key LIKE ?", (f"%:{gone}",)
+    ).fetchone()
+    rows = estimates.stored(engine, ZZZ)
+    assert (acc, gone) in {(r["accession"], r["start_offset"]) for r in rows}  # linked: kept
+    assert estimates.superseded(engine, ZZZ, rows) == {(acc, gone)}
+    assert (acc, gone) not in {
+        (r["accession"], r["start_offset"]) for r in estimates.current(engine, ZZZ, rows)
+    }
 
 
 def test_withdrawn_items_when_the_finding_no_longer_holds(dbs):
@@ -920,8 +1097,11 @@ def test_ge_named_reports_and_respectively_years(dbs):
         doc(corpus, GE, acc, f"GE FORM 10-K {y} (In millions)\n\nNothing about estimates here.\n")
     doc(corpus, GE, "0000040545-17-000010", GE_RESPECTIVELY)
     assert estimates.scan(engine, corpus, GE) == []  # the newest three hold no estimate text
-    (f,) = estimates.scan(engine, corpus, GE, accessions=["0000040545-17-000010"])
-    assert (f.amount, f.fiscal_label) == (2_200 * M, "FY2016")
+    found = estimates.scan(engine, corpus, GE, accessions=["0000040545-17-000010"])
+    assert [(f.fiscal_label, round(f.amount / M)) for f in found] == [
+        ("FY2016", 2200), ("FY2015", 1400), ("FY2014", 1600)]  # fmt: skip
+    assert len({f.start for f in found}) == 3  # one row per listed year, unique keys
+    f = found[0]
     assert f.share == pytest.approx(0.2436, abs=0.0005) and f.band == "watch"
 
 
@@ -1032,8 +1212,10 @@ def test_acquisition_year_reading_shown_not_counted(dbs):
 
 
 def test_special_items_rule_is_one_function():
-    y = special.YearItems("2025-12-31", "FY2025", text=[("one-time", "q", "a")])
-    assert special.qualifies(y) and y.has
+    y = special.YearItems("2025-12-31", "FY2025", text=[("one-time", "q", "a", 5 * M)])
+    assert special.qualifies(y) and y.has and y.charge == 5 * M
+    ctx = special.YearItems("2025-12-31", "FY2025", text=[("one-time", "q", "a", None)])
+    assert not special.qualifies(ctx)  # wording without an amount (D-M04-94)
     assert not special.qualifies(special.YearItems("2025-12-31", "FY2025"))
 
 
