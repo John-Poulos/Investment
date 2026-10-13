@@ -96,3 +96,23 @@ MU 2025-01-21 and 2025-03-12, TSLA 2026-09-29 (PROBE_RESULTS L8); AVGO's 10-K of
 (accession illustrative; its R1 is served from the META fixture page, flag false); Intel's
 rating action BBB+ → BBB (August 2025; sentence written for the test). All 8-K texts are
 written for the tests.
+
+## Part 7a
+
+Trimmed XBRL instances (SEC extracted-instance layout: `xbrli:context` with `xbrldi:explicitMember` dims), companyconcept files and release snippets (HTML as EDGAR serves exhibits; stored through the document parser in the tests). Placeholders: accession numbers not quoted from a log (`<cik>-<yy>-9nnnnn` or a plausible number), filed dates, company prefixes' namespace URIs.
+
+| File | Figures and their source | Placeholders |
+|---|---|---|
+| nvda_10k_fy2025_instance_trimmed.xml | NVIDIA FY2025: 3 customers ≥ 10%, 34% at stake (M04_BUILD_LOG Part 7a); revenue 130,497M; segment revenue 116,193 / 14,304 (NVIDIA FY2025 10-K) | **per-customer split 12/11/11%, the 17% receivables share, segment operating income and the extension fact are illustrative**; the equity-component and typed-member contexts test the skip rules |
+| nvda_10k_fy2026_instance_trimmed.xml | NVIDIA FY2026: 2 customers, 36% at stake ≈ $77.7B (Part 7a spec) | **22/14% split, FY2026 segment values and the FY2025 recast (115,186 / 15,311) are illustrative**; revenue 215,938M is entered in the test so 36% gives $77.7B |
+| meta_10k_fy2025_instance_trimmed.xml | Meta cover counts Class A 2,187,177,748 + Class B 342,377,716 at 2026-01-23 (Part 1a) | equity-statement fact illustrative (skip rule) |
+| mstr_10q_2011q2_instance_trimmed.xml | MSTR Q2 2011 Class A 8,217,394 + Class B 2,492,830 at 2011-07-27 (Part 1a) | pre-inline layout assumed |
+| spcx_10q_2026q2_instance_trimmed.xml | matches the illustrative R1 fixture (3,612,000,000 + 2,388,000,000 at 2026-08-10) | **all counts illustrative** |
+| goog_10q_2026q2_instance_trimmed.xml | total 12,230,000,000 at 2026-07-15 (Part 1a live check 1) | **split by class illustrative** |
+| tgt_us-gaap_Revenues_20261012.json, tgt_us-gaap_CostOfGoodsAndServicesSold_20261012.json | Target FY2021–22 Q1–Q2 quarter dates; cost line only for FY2021 quarters (the review found companyfacts lacks the 10-Q cost line, R5 failure modes) | **values illustrative**, chosen so the rates reproduce the pack's unrounded −4.4 and −8.9 pp (30.0% → 25.6%, 30.4% → 21.5%, R5_gaps #5) |
+| tgt_10q_fy2022q1_instance_trimmed.xml, tgt_10q_fy2022q2_instance_trimmed.xml | FY2022 Q1/Q2 revenue and cost on one product-or-service member | **tagging layout assumed** (the live check shows Target's real one); values as above |
+| tsla_update_q4_2023_ex991_trimmed.htm, tsla_update_q4_2022_ex991_trimmed.htm | Tesla operational summaries Q4-2021 … Q4-2023: production and deliveries by model line as Tesla published them (2022 deliveries 1,313,851, 2023 1,808,581: +38%, Part 7a spec) | **storage deployed and regulatory-credit values illustrative**; accessions 0000950170-23-001409 (probe log) and a placeholder |
+| tsla_pd_q3_2022_ex991_trimmed.htm | Q3 2022 production 365,923 / deliveries 343,830 in the older "Model S/X" categories | category label is the case under test; accession placeholder |
+| rivn_q4_2024_ex991_trimmed.htm, rivn_q4_2025_ex991_trimmed.htm | Rivian deliveries 51,579 (2024) → 42,247 (2025), −18% (Part 7a spec) | **production figures, Q4 2025 quarter figures and wording illustrative**; accessions placeholders |
+| nvta_q1…q4_2020_ex991_trimmed.htm | Invitae non-GAAP gross profit per quarter with prior-year columns as printed in the probe log (S16: 26,500/19,595; 7,996/26,158; 26,793/25,803; 45,506/31,600; year 106,794/103,156); accessions from the probe log | **revenues illustrative**: 2020 quarters from R5_gaps margins (41.3%, 17.3%, 39.0%; Q4 = FY 279.6M − Q1–Q3), 2019 quarters solved so each release's own columns give PROBE_RESULTS S16's −7.0 / −31.6 / −6.7 / −2.3 pp (they sum to 216.9M vs the reported 216.8M) |
+| nvta_q4_2019_ex991_trimmed.htm, nvta_q4_2022_ex991_trimmed.htm | billable units 469,000 (2019) and 1,290,000 (2022) (M04_DESIGN_PACK worked example, R5 brief) | **sentence wording illustrative**; 2022 accession placeholder |

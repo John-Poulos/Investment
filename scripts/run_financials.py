@@ -10,6 +10,8 @@
     uv run python scripts/run_financials.py peers --no-sec   # local re-run, 0 SEC requests
     uv run python scripts/run_financials.py flags            # Part 3 live check
     uv run python scripts/run_financials.py flags --no-sec   # local re-run, 0 SEC requests
+    uv run python scripts/run_financials.py units            # Part 7a live check
+    uv run python scripts/run_financials.py units --no-sec   # local re-run, 0 SEC requests
     uv run python scripts/run_financials.py --list           # the subcommand table
 
 Subcommands: data (1a) · capex (1b) · profile (1c) · peers (2) · flags (3) · gate (4a) ·
@@ -55,6 +57,15 @@ whose text labels steps over tolerance, and the two prior 10-Ks per company (≤
 request each, large files dropped from the cache); recomputes walk, events, ratings and the
 `restatement`, `non_reliance`, `restate_delta` signals (0 requests) and prints what the
 owner looks for. `--no-sec` uses stored pages, texts and facts.
+`units` (Part 7a): for every core and promoted company, the XBRL instance of each 10-K,
+10-Q, 20-F, 40-F and XBRL 6-K of the last 3 years not read yet (one request each, 2–14 MB,
+not cached; extension and dimensional facts on the one read), the EX-99.2 of the last 4
+earnings 8-Ks (index pages usually cached); RIVN's M04 backfill once it is promoted on the
+UI ("RIVN not covered yet: promote it on the UI first" until then; D-M04-81); Invitae's
+2020–22 earnings releases (EX-99.1 only) and Target's FY2021–22 Q1–Q2 cost line
+(companyconcept, then 10-Q instances); then unit KPIs from stored text (0 requests) and
+`m04_unit_kpi` items for category breaks; prints what the owner looks for. `--no-sec`
+re-scans stored text only.
 
 Takes data/refresh.lock (one SEC process at a time). Writes
 logs/financials_<subcommand>_<YYYYMMDD-HHMMSS>.txt as it goes, with requests, MB and
@@ -91,7 +102,7 @@ SUBCOMMANDS = (
     ("cvd", "8a", "CvD assembly, health vote, M04 tab"),
     ("backtest", "8b", "calibration"),
 )
-BUILT = {"data", "capex", "profile", "peers", "flags"}
+BUILT = {"data", "capex", "profile", "peers", "flags", "units"}
 NVDA_CIK = "0001045810"
 NVDA_YEARS = range(2013, 2022)  # FY2013–FY2021: capex only under the extension tag
 WDC_CIK = "0000106040"
@@ -1348,6 +1359,414 @@ def run_flags(args, log: Log, folder: Path) -> int:
     return 0
 
 
+# --- units (Part 7a) -----------------------------------------------------------------------
+
+UNITS_TABLES = (
+    "fact_dim",
+    "unit_metric",
+    "fact",
+    "filing",
+    "refresh_state",
+    "m04_proposal",
+    "review_queue",
+)
+RIVN = ("RIVN", "0001874178")
+INVITAE = ("Invitae", "0001501134", "2020-01-01", "2023-03-31")  # FY2019 … FY2022 releases
+TARGET = ("Target", "0000027419")
+TARGET_TAGS = ("Revenues", "CostOfGoodsAndServicesSold")
+TARGET_ENDS = ("2021-05-01", "2021-07-31", "2022-04-30", "2022-07-30")
+TESLA_CIK = "0001318605"
+
+
+def units_counts(engine) -> dict[str, int]:
+    return {t: engine.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in UNITS_TABLES}
+
+
+def rivn_backfill(client, engine, corpus, now, log) -> None:
+    """RIVN after promotion (D-M04-81): the M04-needed backfill only — filing index,
+    companyfacts, latest 10-K and 10-Q, last 4 earnings releases (~25 requests). Form 4s
+    and the rest arrive with the refresh's own promoted-name backfill."""
+    from engine.sec.documents import ingest_filing
+    from engine.sec.results import Ok
+    from engine.sec.submissions import earnings_releases, stored_filings, sync_filings
+    from engine.sec.xbrl_facts import sync_facts
+
+    cik = RIVN[1]
+    s = sync_filings(client, engine, cik, now)
+    log(f"  filing index: {s if not isinstance(s, Ok) else f'{s.data.new} new filing(s)'}")
+    fx = sync_facts(client, engine, cik, now, force=True)
+    log(f"  XBRL facts: {fx if not isinstance(fx, Ok) else 'refreshed'}")
+    wanted = [f for f in stored_filings(engine, cik, forms=("10-K",))][:1]
+    wanted += [f for f in stored_filings(engine, cik, forms=("10-Q",))][:1]
+    wanted += earnings_releases(engine, cik)[:4]
+    new = 0
+    for f in wanted:
+        got = ingest_filing(client, corpus, f, now)
+        if isinstance(got, Ok):
+            new += sum(1 for d in got.data.stored if d.new)
+        else:
+            log(f"  documents {f.form} {f.accession}: {got}")
+    log(
+        f"  documents: {len(wanted)} filing(s), {new} new document(s) (latest 10-K, 10-Q, "
+        "last 4 earnings releases)"
+    )
+
+
+def target_check(client, engine, now, log, clog=None) -> None:
+    """Target FY2022 Q1–Q2 (episode, not covered): 2 companyconcept files, then the 10-Q
+    instances of quarters whose cost line companyconcept lacks (D-M04-42)."""
+    from engine.financials import units
+    from engine.sec import instance_dim
+    from engine.sec.results import Ok
+    from engine.sec.submissions import sync_filings
+    from engine.sec.xbrl_facts import CONCEPT_URL, store_concept
+
+    cik = TARGET[1]
+    for tag in TARGET_TAGS:
+        res = client.get_json(
+            CONCEPT_URL.format(cik=cik, taxonomy="us-gaap", tag=tag), ttl_s=30 * 86400
+        )
+        if not isinstance(res, Ok):
+            log(f"  Target us-gaap:{tag}: {res}")
+            continue
+        engine.execute("BEGIN")
+        seen, new = store_concept(engine, cik, res.data)
+        engine.execute("COMMIT")
+        log(f"  Target us-gaap:{tag}: {seen} facts, {new} new")
+    missing = [e for e in TARGET_ENDS if units.quarter_gm(engine, cik, e).basis != "companyfacts"]
+    if not missing:
+        log("  Target: every quarter has revenue and cost in companyfacts; no instance needed")
+        return
+    rows = engine.execute(
+        "SELECT accession, form, filed, report_date, primary_doc FROM filing "
+        "WHERE cik = ? AND form = '10-Q'",
+        (cik,),
+    ).fetchall()
+    if not rows:
+        s = sync_filings(client, engine, cik, now)
+        log(f"  Target filing index: {s if not isinstance(s, Ok) else f'{s.data.new} filings'}")
+        rows = engine.execute(
+            "SELECT accession, form, filed, report_date, primary_doc FROM filing "
+            "WHERE cik = ? AND form = '10-Q'",
+            (cik,),
+        ).fetchall()
+    for e in missing:
+        f = next((r for r in rows if r["report_date"] == e), None)
+        if f is None:
+            log(f"  Target 10-Q for {e}: not in the filing index")
+            continue
+        if instance_dim.dims_done(engine, f["accession"]):
+            continue
+        r = instance_dim.read_instance(client, engine, cik, f, now)
+        log(
+            f"  Target 10-Q {e} {f['accession']}: {r.outcome} ({r.mb:.1f} MB, "
+            f"{r.dim_new} dimensional rows, {r.ext_new} extension facts) {r.detail}".rstrip()
+        )
+
+
+def units_summary(engine, scope: dict[str, str], instance_log: dict, ex_log: dict) -> list[str]:
+    """What the owner looks for (M04_BUILD_LOG Part 7a live check)."""
+    from engine.financials import exhibits, units, units_view
+
+    lines = ["=== Summary (what the owner looks for) ==="]
+    tot_read = sum(v["read"] for v in instance_log.values())
+    tot_mb = sum(v["mb"] for v in instance_log.values())
+    fails = [x for v in instance_log.values() for x in v["problems"]]
+    lines.append(
+        f"Instances read this run: {tot_read} ({tot_mb:,.1f} MB downloaded, not cached); "
+        f"parse failures or misses: {len(fails)}"
+    )
+    lines += [f"  {x}" for x in fails[:20]]
+    lines.append("Dimensional rows per company and axis (stored; instances read in total):")
+    for ticker, cik in sorted(scope.items()):
+        per = engine.execute(
+            "SELECT axis, count(*) FROM fact_dim WHERE cik = ? GROUP BY axis ORDER BY axis", (cik,)
+        ).fetchall()
+        n_acc = engine.execute(
+            "SELECT count(DISTINCT accession) FROM fact_dim WHERE cik = ?", (cik,)
+        ).fetchone()[0]
+        lines.append(
+            f"  {ticker}: {n_acc} instance(s); "
+            + (" · ".join(f"{a.split(':')[-1]} {n:,}" for a, n in per) or "none")
+        )
+    nvda = scope.get("NVDA")
+    lines.append("NVIDIA ≥ 10% customers (expected FY2025 3 at 34%, FY2026 2 at 36% ≈ $77.7B):")
+    if nvda:
+        for c in units_view.major_customers(engine, nvda)[-4:]:
+            usd = f" ≈ ${c.at_stake_usd / 1e9:,.1f}B" if c.at_stake_usd else ""
+            lines.append(
+                f"  {c.label}: {c.count} customer(s), {c.at_stake:.0%} at stake{usd} — "
+                + ", ".join(f"{n} {p:.0%}" for n, p in c.customers)
+                + f" ({c.accession}; {c.basis})"
+            )
+    else:
+        lines.append("  NVDA not in this run")
+    other = [
+        (t, units_view.major_customers(engine, c)) for t, c in sorted(scope.items()) if t != "NVDA"
+    ]
+    lines.append(
+        "Other companies with ≥ 10% customers (latest year): "
+        + (
+            "; ".join(
+                f"{t} {cs[-1].label} {cs[-1].count} at {cs[-1].at_stake:.0%}"
+                for t, cs in other
+                if cs
+            )
+            or "none"
+        )
+    )
+    lines.append("Segments (latest annual instance; recasts and breaks):")
+    for ticker, cik in sorted(scope.items()):
+        sg = units_view.segment_table(engine, cik)
+        if sg:
+            lines.append(
+                f"  {ticker}: {len(sg.rows)} row(s) in {sg.accession}"
+                + (f"; {' '.join(sg.notes)}" if sg.notes else "")
+            )
+    tesla = scope.get("TSLA")
+    lines.append("Tesla KPI table (DS2; latest period vs a year earlier):")
+    if tesla:
+        rows = units.kpi_rows(engine, tesla)
+        for r in rows:
+            e = f"{r.earlier[0]} {r.earlier[1]:,.0f}" if r.earlier else "—"
+            ch = f"{r.change:+.1%}" if r.change is not None else "—"
+            tag = " [credit, kept separate]" if r.kind == "credit" else ""
+            lines.append(
+                f"  {r.metric}{' · ' + r.line if r.line else ''}: {e} → {r.later[0]} "
+                f"{r.later[1]:,.0f} {r.unit} ({ch}; {r.basis}){tag}"
+            )
+        if not rows:
+            lines.append("  no Tesla KPI rows in the stored releases")
+        for b in units.breaks(engine, tesla):
+            lines.append(f"  break: {b.metric} in {b.filed} — {b.text()}")
+    else:
+        lines.append("  TSLA not in this run")
+    lines.append(
+        "RIVN (D-M04-81): "
+        + (
+            f"covered; deliveries {', '.join(f'{r.later[0]} {r.later[1]:,.0f}' for r in units.kpi_rows(engine, RIVN[1]) if r.metric == 'deliveries') or 'none stated in stored text'}"  # noqa: E501
+            if RIVN[1] in scope.values()
+            else "not covered yet: promote it on the UI first"
+        )
+    )
+    lines.append("EX-99.2 found per company (last 4 earnings 8-Ks; checked · found · new):")
+    lines.append(
+        "  "
+        + (
+            " · ".join(
+                f"{t} {v['checked']}/{v['found']}/{v['stored']}" for t, v in sorted(ex_log.items())
+            )
+            or "none checked"
+        )
+    )
+    lines.append("Cover-count agreement, instance vs Part 1a R1 (multi-class filers):")
+    any_cls = False
+    for ticker, cik in sorted(scope.items()):
+        for c in units_view.class_checks(engine, cik, limit=3):
+            any_cls = True
+            lines.append(
+                f"  {ticker} {c.form} {c.filed}: instance {c.instance_total:,.0f} ("
+                + ", ".join(f"{n} {v:,.0f}" for n, v in c.instance)
+                + f") vs R1 {'—' if c.r1_total is None else f'{c.r1_total:,.0f}'}: "
+                f"{c.agree}"
+            )
+    if not any_cls:
+        lines.append("  no per-class cover facts in the stored instances")
+    lines.append(
+        "Invitae non-GAAP gross margin YoY (expected 2020Q1 −7.0, Q2 −31.6, Q3 −6.7, "
+        "Q4 −2.3 pp) and billable units (469k → 1,290k):"
+    )
+    for m in exhibits.non_gaap_margin_yoy(engine, INVITAE[1]):
+        lines.append(
+            f"  {m.label}: {m.margin:.1%} vs {m.prior:.1%} → {m.pp:+.1f} pp ({m.accession})"
+        )
+    for r in units.kpi_rows(engine, INVITAE[1]):
+        if r.metric == "billable_units":
+            e = f"{r.earlier[0]} {r.earlier[1]:,.0f}" if r.earlier else "—"
+            lines.append(f"  billable units: {e} → {r.later[0]} {r.later[1]:,.0f}")
+    lines.append("Target gross margin (expected 2022Q1 −4.4, Q2 −8.9 pp):")
+    for label, end, prior in units_view.TARGET_QUARTERS:
+        pp, cur, old = units.gm_yoy_pp(engine, TARGET[1], end, prior)
+        lines.append(
+            f"  {label}: "
+            + (
+                f"{cur.gm:.1%} vs {old.gm:.1%} → {pp:+.1f} pp ({cur.basis})"
+                if pp is not None
+                else f"{cur.basis}; prior {old.basis}"
+            )
+        )
+    return lines
+
+
+def units_run(engine, corpus, comps: dict[str, str], now, log, client=None, clog=None) -> None:
+    """The `units` work on open connections (tests inject a scratch DB and a fake client;
+    `client=None` = no SEC requests)."""
+    from engine.financials import exhibits, units, units_step
+    from engine.sec import instance_dim
+
+    scope = units_step.full_scope(engine, comps)
+    log(f"Scope: {len(scope)} core and promoted companies (tracked names: facts only, D-M04-80)")
+    if RIVN[1] not in scope.values():
+        log(
+            "RIVN not covered yet: promote it on the UI first (open /c/RIVN, Themes tab, "
+            "Track, then Promote; D-M04-81). Its backfill is skipped until then.",
+            "",
+        )
+    elif (
+        client is not None
+        and not engine.execute(
+            "SELECT 1 FROM refresh_state WHERE name = ?", (f"backfill:{RIVN[1]}",)
+        ).fetchone()
+        and not engine.execute(
+            "SELECT 1 FROM refresh_state WHERE name = ?", (f"m04_units_backfill:{RIVN[1]}",)
+        ).fetchone()
+    ):
+        log("RIVN promoted, not backfilled yet: M04 backfill (filings, facts, documents):")
+        rivn_backfill(client, engine, corpus, now, log)
+        engine.execute(
+            "INSERT INTO refresh_state (name, source_ref, fetched_at, detail) VALUES "
+            "(?, 'm04', ?, NULL) ON CONFLICT (name) DO NOTHING",
+            (f"m04_units_backfill:{RIVN[1]}", now.isoformat()),
+        )
+        log("")
+    else:
+        log("RIVN promoted and backfilled", "")
+
+    instance_log: dict[str, dict] = {}
+    ex_log: dict[str, dict] = {}
+    if client is not None:
+        since = instance_dim.backfill_since(now)
+        log(
+            f"XBRL instances (10-K, 10-Q, 20-F, 40-F, XBRL 6-K filed since {since}; one read keeps "
+            "extension and dimensional facts; files not cached):"
+        )
+        t0 = time.monotonic()
+        stop = False
+        for ticker, cik in sorted(scope.items()):
+            due = instance_dim.due_filings(engine, cik, since)
+            st = {"read": 0, "mb": 0.0, "dims": 0, "problems": []}
+            for f in due:
+                r = instance_dim.read_instance(client, engine, cik, f, now)
+                if r.outcome == "ok":
+                    st["read"] += 1
+                    st["mb"] += r.mb
+                    st["dims"] += r.dim_new
+                else:
+                    st["problems"].append(
+                        f"{ticker} {f['form']} {f['accession']}: {r.outcome} {r.detail}".rstrip()
+                    )
+                if r.throttled:
+                    stop = True
+                    break
+            instance_log[ticker] = st
+            log(
+                f"  {ticker}: {len(due)} due; read {st['read']} ({st['mb']:.1f} MB), "
+                f"{st['dims']:,} dimensional rows"
+                + (f"; {len(st['problems'])} problem(s)" if st["problems"] else "")
+            )
+            if stop:
+                log("  SEC throttle: the rest waits for the next run")
+                break
+        if clog is not None:
+            clog.seconds["XBRL instance"] += time.monotonic() - t0
+        log("")
+        log("EX-99.2 (last 4 earnings 8-Ks per company; index pages usually cached):")
+        t1 = time.monotonic()
+        for ticker, cik in sorted(scope.items()):
+            if stop:
+                break
+            ex = exhibits.fetch_ex992(client, engine, corpus, cik, now)
+            ex_log[ticker] = {"checked": ex.checked, "found": ex.found, "stored": ex.stored}
+            for x in ex.failed or []:
+                log(f"  {ticker}: {x}")
+            stop = ex.throttled
+        if clog is not None:
+            clog.seconds["other"] += time.monotonic() - t1
+        log(
+            "  "
+            + (
+                " · ".join(
+                    f"{t} {v['found']} of {v['checked']}"
+                    for t, v in sorted(ex_log.items())
+                    if v["checked"]
+                )
+                or "nothing new to check"
+            )
+        )
+        log("")
+        if not stop:
+            log(f"Invitae earnings releases {INVITAE[2]}..{INVITAE[3]} (EX-99.1 only):")
+            n, new, probs = exhibits.fetch_episode_releases(
+                client, engine, corpus, INVITAE[1], INVITAE[2], INVITAE[3], now
+            )
+            log(f"  {n} earnings 8-K(s), {new} new EX-99.1 document(s)")
+            log(*[f"  {p}" for p in probs[:10]])
+            log("Target companyconcept and 10-Q instances (FY2021–22 Q1–Q2):")
+            target_check(client, engine, now, log, clog)
+            log("")
+    else:
+        log("SEC skipped (--no-sec): stored instances, releases and facts used", "")
+
+    t2 = time.monotonic()
+    docs = rows = tables = 0
+    queued: dict[str, int] = {}
+    for ticker, cik in sorted(scope.items()) + [(INVITAE[0], INVITAE[1])]:
+        try:
+            s = units.scan_company(engine, corpus, cik, now)
+            docs, rows = docs + s.docs, rows + s.rows
+            tables += exhibits.scan_releases(engine, corpus, cik, now)
+            if cik in scope.values():
+                for k, v in units.propose_breaks(engine, cik, ticker, now).items():
+                    queued[k] = queued.get(k, 0) + v
+        except Exception as e:  # one company's error must not stop the others
+            for c in (engine, corpus):
+                if c.in_transaction:
+                    c.execute("ROLLBACK")
+            log(f"  {ticker}: error — {type(e).__name__}: {e}")
+    log(
+        f"Unit KPIs from stored text (0 requests, {time.monotonic() - t2:.1f} s): {docs} "
+        f"document(s) scanned, {rows} unit row(s) added, {tables} release-table row(s); "
+        f"m04_unit_kpi items: {', '.join(f'{k} {v}' for k, v in sorted(queued.items())) or 'none'}",
+        "",
+    )
+    log(*units_summary(engine, scope, instance_log, ex_log))
+
+
+def run_units(args, log: Log, folder: Path) -> int:
+    from engine.store.db import open_db
+    from engine.store.http import SqliteCache, SqliteFetchLog
+
+    engine = open_db("engine", folder)
+    corpus = open_db("corpus", folder, check_same_thread=False)
+    now = datetime.now(UTC)
+    mb_before, before = db_mb(folder), units_counts(engine)
+    comps = companies(engine)
+    if args.tickers:
+        wanted = {t.strip().upper() for t in args.tickers.split(",")}
+        comps = {t: c for t, c in comps.items() if t in wanted}
+    head = f"run_financials units · {now:%Y-%m-%d %H:%M} UTC · {len(comps)} companies"
+    log(head + (" · no SEC" if args.no_sec else ""), f"engine.db before: {mb_before:,.1f} MB", "")
+    client = clog = None
+    if not args.no_sec:
+        from engine.sec.client import SecClient, user_agent_from_env
+
+        clog = CountingLog(SqliteFetchLog(engine))
+        client = SecClient(user_agent_from_env(), cache=SqliteCache(corpus), log=clog)
+    units_run(engine, corpus, comps, now, log, client, clog)
+    if clog is not None:
+        log(*clog.lines())
+    else:
+        log("SEC requests: 0 (--no-sec)")
+    after = units_counts(engine)
+    log(
+        "Rows added per table: " + ", ".join(f"{t} {after[t] - before[t]:+,}" for t in UNITS_TABLES)
+    )
+    log(f"engine.db: {mb_before:,.1f} MB → {db_mb(folder):,.1f} MB")
+    corpus.close()
+    engine.close()
+    return 0
+
+
 def _main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("subcommand", nargs="?", choices=[s for s, _, _ in SUBCOMMANDS])
@@ -1380,6 +1799,8 @@ def _main() -> int:
             return run_peers(args, log, data_dir())
         if args.subcommand == "flags":
             return run_flags(args, log, data_dir())
+        if args.subcommand == "units":
+            return run_units(args, log, data_dir())
         return run_data(args, log, data_dir())
     except Exception:
         log("FAILED with a traceback:", traceback.format_exc())

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Hand-built, trimmed: MicroStrategy Q2 2011 10-Q instance (pre-inline layout), cover counts by class: Class A 8,217,394 + Class B 2,492,830 at 2011-07-27 (M04_BUILD_LOG Part 1a). -->
+<xbrli:xbrl xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:us-gaap="http://fasb.org/us-gaap/2011-01-31" xmlns:dei="http://xbrl.sec.gov/dei/2011-01-31">
+ <xbrli:context id="D2011Q2_A"><xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">0001050446</xbrli:identifier><xbrli:segment><xbrldi:explicitMember dimension="us-gaap:StatementClassOfStockAxis">us-gaap:CommonClassAMember</xbrldi:explicitMember></xbrli:segment></xbrli:entity><xbrli:period><xbrli:instant>2011-07-27</xbrli:instant></xbrli:period></xbrli:context>
+ <xbrli:context id="D2011Q2_B"><xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">0001050446</xbrli:identifier><xbrli:segment><xbrldi:explicitMember dimension="us-gaap:StatementClassOfStockAxis">us-gaap:CommonClassBMember</xbrldi:explicitMember></xbrli:segment></xbrli:entity><xbrli:period><xbrli:instant>2011-07-27</xbrli:instant></xbrli:period></xbrli:context>
+ <xbrli:unit id="Shares"><xbrli:measure>xbrli:shares</xbrli:measure></xbrli:unit>
+ <dei:EntityCommonStockSharesOutstanding contextRef="D2011Q2_A" unitRef="Shares" decimals="0">8217394</dei:EntityCommonStockSharesOutstanding>
+ <dei:EntityCommonStockSharesOutstanding contextRef="D2011Q2_B" unitRef="Shares" decimals="0">2492830</dei:EntityCommonStockSharesOutstanding>
+</xbrli:xbrl>

@@ -45,6 +45,7 @@ Updated: 2026-10-12 · Read at the start of every module build. One line each, w
 - Table cells must stay separated (tabs) in stored text or parsers read the wrong column (D-SRCH-12, D-UI-10).
 - Reported actuals and guidance share sentences; the forward verb must precede each value (D-SRCH-12).
 - Company period labels are kept as stated (fiscal vs calendar) and mapped to dates only when scoring (M00_SEARCH failure modes).
+- A fourth quarter and its fiscal year end on the same date: key stated KPI rows by period label (Q4-2025 vs FY2025), not by end date, or the year silently overwrites the quarter (M04 Part 7a, D-STO-25).
 - Probe a vendor's period parameter with an off-calendar company (Microsoft June FY, Oracle May FY) before building: Alpha Vantage's `quarter` is the company's fiscal label (D-M02-6).
 - Call transcripts mix analyst questions with management statements; parse management turns only, or analysts' numbers become "guidance" (D-M02-6).
 - An empty vendor response is "not available yet", never "none" (Alpha Vantage returned an empty transcript for a month-old call) (D-M02-6).

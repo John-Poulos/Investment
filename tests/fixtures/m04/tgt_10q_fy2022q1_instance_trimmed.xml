@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Hand-built, trimmed: Target Q1 FY2022 10-Q extracted instance. The cost line sits on a product-or-service member (layout assumed: the review found companyfacts lacks it; the live check shows the real tagging); values illustrative, chosen to reproduce the pack's −4.4 pp. -->
+<xbrli:xbrl xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:iso4217="http://www.xbrl.org/2003/iso4217" xmlns:us-gaap="http://fasb.org/us-gaap/2021" xmlns:srt="http://fasb.org/srt/2021" xmlns:tgt="http://www.target.com/20220430">
+ <xbrli:context id="c-sales"><xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">0000027419</xbrli:identifier><xbrli:segment><xbrldi:explicitMember dimension="srt:ProductOrServiceAxis">tgt:SalesMember</xbrldi:explicitMember></xbrli:segment></xbrli:entity><xbrli:period><xbrli:startDate>2022-01-30</xbrli:startDate><xbrli:endDate>2022-04-30</xbrli:endDate></xbrli:period></xbrli:context>
+ <xbrli:unit id="usd"><xbrli:measure>iso4217:USD</xbrli:measure></xbrli:unit>
+ <us-gaap:Revenues contextRef="c-sales" unitRef="usd" decimals="-6">24826000000</us-gaap:Revenues>
+ <us-gaap:CostOfGoodsAndServicesSold contextRef="c-sales" unitRef="usd" decimals="-6">18466000000</us-gaap:CostOfGoodsAndServicesSold>
+</xbrli:xbrl>

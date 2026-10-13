@@ -1,0 +1,4 @@
+{"cik":27419,"taxonomy":"us-gaap","tag":"CostOfGoodsAndServicesSold","label":"Cost of Goods and Services Sold","description":"Hand-built companyconcept fixture (see README): FY2021 quarters only; the FY2022 10-Q cost line is missing, as the review found for companyfacts.","entityName":"TARGET CORP","units":{"USD":[
+{"start":"2021-01-31","end":"2021-05-01","val":16693000000,"accn":"0000027419-21-900011","fy":2021,"fp":"Q1","form":"10-Q","filed":"2021-06-04"},
+{"start":"2021-05-02","end":"2021-07-31","val":17234000000,"accn":"0000027419-21-900021","fy":2021,"fp":"Q2","form":"10-Q","filed":"2021-09-01"}
+]}}
