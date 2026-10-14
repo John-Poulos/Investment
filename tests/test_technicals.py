@@ -389,7 +389,7 @@ def test_rule1_texts_and_tracked_names(dbs):
     engine, _ = dbs
     m04(engine, MU, "warn")
     rd = m01_rules.read_m04(engine, MU)
-    assert "cvd_state missing: Part 8a not built" in m01_rules.rule1(rd).text
+    assert "cvd_state missing: no cvd_state row" in m01_rules.rule1(rd).text
     assert m01_rules.m04_line(rd).startswith("gate warn (2026-08-01), filing current")
     trk = m01_rules.read_m04(engine, MU, covered=False)
     assert m01_rules.rule1(trk).text.startswith("qualification: not covered by M04 (D-M04-80)")
@@ -444,7 +444,7 @@ def test_pass_writes_five_rows_per_timeframe_with_info_and_sources(dbs):
         assert " v1" in r["method"] and r["ticker"] == "NVDA"
     assert got["band_z"]["value_text"] == "above_1"  # steady rise: top of the log band
     assert "upper extreme — information" in got["band_z"]["method"]
-    assert "qualification incomplete (cvd_state missing: Part 8a not built" in \
+    assert "qualification incomplete (cvd_state missing: no cvd_state row" in \
         got["band_z"]["method"]  # fmt: skip
     assert got["trend_state"]["value"] == 1 and got["trend_state"]["value_text"] == "up"
     assert got["mom_12_1"]["value_text"] == "positive"
@@ -689,7 +689,7 @@ def test_refresh_fetches_spy_without_a_cik_before_tracked_names(dbs):
     assert with_benchmark({"SPY": None}) == {"SPY": None}
     src = (ROOT / "scripts" / "run_refresh.py").read_text(encoding="utf-8")
     assert src.index("prices += financials_quality_local_step(engine, corpus, report)") < \
-        src.index("prices += technicals_local_step(engine, report)")  # fmt: skip
+        src.index("prices += technicals_local_step(engine, report, corpus)")  # fmt: skip
 
 
 def test_script_signals_no_fetch_on_injected_db(dbs, tmp_path, capsys):
@@ -707,6 +707,7 @@ def test_script_signals_no_fetch_on_injected_db(dbs, tmp_path, capsys):
     assert "MU 2026-03-27: pack band_z +0.32" in text
     assert "engine: no completed week of 2026-03-23 stored for MU" in text
     assert "SPY (benchmark, no rows) 2026-10-09" in text
+    assert text.count("SPY (benchmark, no rows)") == 1  # printed once (Part 2 cosmetic fix)
     out = capsys.readouterr().out
     assert "=== Summary" in out and "Per name" not in out  # console: summary only
 

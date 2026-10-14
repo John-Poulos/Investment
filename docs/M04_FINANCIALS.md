@@ -170,7 +170,7 @@ Liquidity and legal facts only; runs at every stage; scope by model tag (D-M04-8
   - Signals `gc_language`, `covenant_status`: the current report's most severe class (tie: the first in the report) with its quote; "none" / "silent" when the report has no such sentence (silent is not compliant); missing "no stored periodic text". Deferred (D-M04-99): the EFTS history pass (S4.7), the undrawn-credit finder (manual entry D-M04-86 stays) and the `m04_current_jump` sub-class.
 
 ### How M01 reads M04 (D27; D-M04-58 = D-M01-5; rule 4 per M01 rule 4 and S6.14)
-"Yes" in the rule-4 column is an exit warning: a warning only, the owner decides (D16).
+"Yes" in the rule-4 column is an exit warning: a warning only, the owner decides (D16). One reader implements this table: `src/engine/m01_rules.py` (M09, M11, M12 on the stored rows; the M04 tab's reading on the live CvD through `cvd.m04_rows`, in its own words; D-M09-15). Rule 4 lists every reason that applies (a gate fail with an overdue filing shows both); `insufficient_data` is no state yet (M09's label: "qualification incomplete").
 
 | M04 output | Rule 3: later tranches | Rule 7: strength beyond 2σ | Rule 4: exit warning |
 |---|---|---|---|

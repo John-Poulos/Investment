@@ -84,6 +84,7 @@ def name_result(
     mf: models_mod.ModelFile,
     spy: bars.Weekly | None,
     expected: str,
+    corpus: sqlite3.Connection | None = None,
 ) -> signals.NameResult:
     norm = normalize_cik(cik) or cik
     cut = bars.shell_cut_off(mf, norm, ticker)
@@ -91,8 +92,8 @@ def name_result(
     m04 = m01_rules.read_m04(engine, norm, covered=covered)
 
     def find(start: str, end: str):
-        return (earnings.earnings_in_window(engine, norm, start, end),
-                earnings.foreign_reports_in_window(engine, norm, start, end))  # fmt: skip
+        return (earnings.earnings_in_window(engine, norm, start, end, corpus),
+                earnings.foreign_reports_in_window(engine, norm, start, end, corpus))  # fmt: skip
 
     return signals.compute(ticker, norm, w, p, expected_as_of=expected, m04=m04,
                            find_news=find, spy=spy)  # fmt: skip
@@ -105,8 +106,10 @@ def technicals_pass(
     *,
     params: Params | None = None,
     mf: models_mod.ModelFile | None = None,
+    corpus: sqlite3.Connection | None = None,
 ) -> TechPass:
-    """M09 for every covered name (0 requests); one name's error does not stop the others."""
+    """M09 for every covered name (0 requests); one name's error does not stop the others.
+    `corpus` (read only) classifies 6-K exhibits as earnings releases (D-M09-16)."""
     p = params or Params()
     mf = mf if mf is not None else models_mod.load_safe()
     today = bars.eastern_today(now)
@@ -121,7 +124,7 @@ def technicals_pass(
             continue
         try:
             r = name_result(engine, ticker, cik, today, cal, p, covered=cik in covered, mf=mf,
-                            spy=spy, expected=expected)  # fmt: skip
+                            spy=spy, expected=expected, corpus=corpus)  # fmt: skip
             engine.execute("BEGIN")
             try:
                 n, kept = write_rows(engine, r)
@@ -181,12 +184,13 @@ def run_local_part(
     params: Params | None = None,
     params_note: str = "",
     clock: Callable[[], float] = time.monotonic,
+    corpus: sqlite3.Connection | None = None,
 ) -> list[str]:
     """The refresh hook (after prices and the M04 local passes). Never fails."""
     t0 = clock()
     p = params or Params()
     try:
-        tp = technicals_pass(engine, companies, now, params=p)
+        tp = technicals_pass(engine, companies, now, params=p, corpus=corpus)
         tp.params_note = params_note
         lines = summary_lines(tp, p)
     except Exception as e:

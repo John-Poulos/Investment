@@ -14,6 +14,11 @@
       <span>{{ 'Daily' if bar == 'D' else 'Weekly' }} bars, split- and dividend-adjusted · Tiingo · last bar {{ ps.last_date }}</span>
       <span id="stale" class="badge" hidden>stale</span>
       {% if msg %}<span class="muted">fetch: {{ msg }}</span>{% endif %}
+      <span class="overlays push" title="M09 overlays (D-UI-35): 20-week mean ± 1σ / ± 2σ of the weekly close (display only, never a trigger; D-M09-2) and the 40-week MA of completed weekly closes; on daily bars each session shows the newest completed week (stepped).">
+        <label><input type="checkbox" id="ov-band"> σ bands (20-week, price)</label>
+        <label><input type="checkbox" id="ov-ma"> 40-week MA</label>
+        <span id="ov-info" class="muted" hidden></span>
+      </span>
     </div>
     <div id="chart" class="plot" data-ticker="{{ ticker }}" data-bar="{{ bar }}"></div>
     {% else %}
@@ -51,7 +56,7 @@
 {% endblock %}
 {% block scripts %}
 {% if price_state and price_state.bars %}
-<script src="/static/vendor/lightweight-charts-5.2.1/lightweight-charts.standalone.production.js"></script>
-<script src="/static/chart.js"></script>
+<script src="{{ static('vendor/lightweight-charts-5.2.1/lightweight-charts.standalone.production.js') }}"></script>
+<script src="{{ static('chart.js') }}"></script>
 {% endif %}
 {% endblock %}

@@ -161,16 +161,22 @@ def checkpoint_line(engine, who: str, day: str, p, now: datetime) -> str:
     return "; ".join(bits)
 
 
-def run_signals(args, log: Log, folder: Path, engine=None, now: datetime | None = None) -> int:
-    """The Part 1 check. `engine` and `now` are injected by tests (never the real DB)."""
+def run_signals(
+    args, log: Log, folder: Path, engine=None, now: datetime | None = None, corpus=None
+) -> int:
+    """The Part 1 check. `engine`, `corpus` and `now` are injected by tests (never the real
+    DB). corpus.db is read only: 6-K exhibits that are earnings releases (D-M09-16)."""
     from engine.financials import models
     from engine.store.db import open_db
     from engine.technicals import params as params_mod
     from engine.technicals import signals as sig
-    from engine.technicals.step import spy_line, summary_lines, technicals_pass
+    from engine.technicals.step import summary_lines, technicals_pass
 
     own = engine is None
     engine = engine if engine is not None else open_db("engine", folder)
+    own_corpus = own and corpus is None
+    if own_corpus:
+        corpus = open_db("corpus", folder)
     now = now or datetime.now(UTC)
     t_start = time.monotonic()
     since = now.isoformat(timespec="seconds")
@@ -188,7 +194,7 @@ def run_signals(args, log: Log, folder: Path, engine=None, now: datetime | None 
         log(f"parameters: {note}")
     if not args.no_fetch:
         fetch_spy(engine, log, now)
-    tp = technicals_pass(engine, comps, now, params=p, mf=models.load_safe())
+    tp = technicals_pass(engine, comps, now, params=p, mf=models.load_safe(), corpus=corpus)
     tp.params_note = note
     log("", f"Per name (newest completed week {tp.expected_as_of}):")
     for t in sorted(tp.results):
@@ -199,10 +205,15 @@ def run_signals(args, log: Log, folder: Path, engine=None, now: datetime | None 
     miss = [f"  {r.ticker} {o.signal}: missing: {o.missing}" for r in tp.results.values()
             for o in r.rows if o.missing]  # fmt: skip
     log(*(miss or ["  none"]))
-    log("", "News moves (earnings 8-K in the rev_1m window):")
+    log("", "News moves (earnings 8-K, or a 6-K with an earnings-release exhibit, in the rev_1m "
+        "window; D-M09-16):")  # fmt: skip
     news = [f"  {r.ticker}: " + "; ".join(c.text() for c in r.news)
             for r in tp.results.values() if r.news]  # fmt: skip
     log(*(news or ["  none"]))
+    log("", "6-Ks in the rev_1m window listed only (no earnings-release exhibit stored):")
+    listed = [f"  {r.ticker}: " + "; ".join(c.text() for c in r.foreign)
+              for r in tp.results.values() if r.foreign]  # fmt: skip
+    log(*(listed or ["  none"]))
     log("", "Pack checkpoints (Yahoo; recomputed here from stored Tiingo bars, no rows written):")
     for who, day, what in CHECKPOINTS:
         log(f"  {who} {day}: pack {what}", f"    {checkpoint_line(engine, who, day, p, now)}")
@@ -213,9 +224,10 @@ def run_signals(args, log: Log, folder: Path, engine=None, now: datetime | None 
     log(f"Tiingo requests: {req} · SEC requests: 0 · {time.monotonic() - t_start:.1f} s")
     log("Rows added per table: " + ", ".join(f"{t} {after[t] - before[t]:+,}" for t in after))
     log(f"engine.db: {mb_before:,.1f} MB → {db_mb(folder):,.1f} MB")
-    log(spy_line(tp, p))
     if own:
         engine.close()
+    if own_corpus:
+        corpus.close()
     return 0
 
 

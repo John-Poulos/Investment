@@ -9,17 +9,18 @@ follow in later steps.
 
 from __future__ import annotations
 
+import hashlib
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -50,6 +51,7 @@ from engine.ui.settings import UiSettings
 from engine.ui.viewer import Viewer, current_viewer, require_owner
 
 HERE = Path(__file__).parent
+STATIC = HERE / "static"
 EXPECTED_OUTPUT_TOKENS = 1500  # allowance for the cost estimate (reply + thinking)
 
 
@@ -91,6 +93,7 @@ TABS = (
     ("financials", "Financials", True),
     ("m04", "M04", True),  # M04 Part 8a: Cycle vs Decline (D-UI-31)
     ("insiders", "Insiders", True),
+    ("technicals", "Technicals", True),  # M09 Part 2 (D-UI-35)
     ("events", "Events and filings", True),
     ("news", "News", True),  # M02 part 7a
     ("search", "Search", True),
@@ -100,6 +103,34 @@ TABS = (
 NOT_BUILT = {
     "ask": "Reserved for grounded Q&A, to be decided after the fixed analyses prove themselves.",
 }
+
+
+class RevalidatedStatic(StaticFiles):
+    """/static with `Cache-Control: no-cache`: the browser asks again (ETag, 304) instead of
+    reusing an old chart.js or app.css on its own heuristic (D-UI-35 live check 1)."""
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Response:
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+
+def static_versions(root: Path = STATIC) -> dict[str, str]:
+    """Published path -> short content hash of every static file, computed once at start."""
+    return {f.relative_to(root).as_posix(): hashlib.sha256(f.read_bytes()).hexdigest()[:10]
+            for f in sorted(root.rglob("*")) if f.is_file()}  # fmt: skip
+
+
+def static_url_for(versions: dict[str, str]) -> Callable[[str], str]:
+    """`static("chart.js")` -> "/static/chart.js?v=<hash>": a changed file is a new URL, so
+    the browser loads it after a restart of the app (cache-busting, D-UI-35)."""
+
+    def static(path: str) -> str:
+        if path not in versions:
+            raise KeyError(f"no static file {path}")
+        return f"/static/{quote(path)}?v={versions[path]}"
+
+    return static
 
 
 def fmt_number(value: object, unit: str = "currency") -> str:
@@ -145,8 +176,9 @@ OwnerDep = Annotated[Viewer, Depends(require_owner)]
 
 def create_app(settings: UiSettings) -> FastAPI:
     app = FastAPI(title="Investment engine", docs_url=None, redoc_url=None)
-    app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
+    app.mount("/static", RevalidatedStatic(directory=STATIC), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
+    templates.env.globals["static"] = static_url_for(static_versions())  # cache-busting
     templates.env.filters["num"] = fmt_number
     templates.env.globals["source_label"] = source_label  # D-M02-21 labels
     templates.env.globals["is_sec"] = is_sec
@@ -225,6 +257,9 @@ def create_app(settings: UiSettings) -> FastAPI:
             from engine.ownership.views import overview_row  # M07 Part 1 (D-UI-32)
 
             ctx["m07_overview"] = overview_row(engine, cik)
+            from engine.technicals.views import overview_row as m09_overview_row  # D-UI-35
+
+            ctx["m09_overview"] = m09_overview_row(engine, cik)
             ctx["filings"] = services.filings(engine, cik, limit=10)
             ctx["events"] = services.events(engine, cik, limit=8)
             ctx["readable"] = services.stored_accessions(
@@ -267,6 +302,12 @@ def create_app(settings: UiSettings) -> FastAPI:
 
             ctx["m07"] = m07_views.company_view(engine, cik, datetime.now(UTC).date())
             ctx["txns"] = ctx["m07"].txns
+        elif tab == "technicals":  # M09 Part 2 (D-UI-35): computed from stored bars, no writes
+            from engine.technicals import views as m09_views
+
+            p, ctx["m09_params_note"] = m09_params()
+            ctx["m09"] = m09_views.company_view(engine, corpus, cik, ticker, datetime.now(UTC),
+                                                p, m09_models())  # fmt: skip
         elif tab == "events":
             ctx["events"] = services.events(engine, cik)
             ctx["filings"] = services.filings(engine, cik)
@@ -1031,6 +1072,30 @@ def create_app(settings: UiSettings) -> FastAPI:
                 "markers": b.markers,
             }  # fmt: skip
         )
+
+    # --- M09 Part 2 (D-UI-35): chart overlays and the Technicals tab's inputs ---------------
+
+    def m09_params():
+        from engine.technicals import params as m09_params_mod
+        from engine.ui.settings import ROOT
+
+        return m09_params_mod.load_safe(ROOT / "config" / "technicals.toml")
+
+    def m09_models():
+        from engine.financials import models as models_mod
+
+        return models_mod.load_safe()
+
+    @app.get("/api/overlay/{ticker}")
+    def overlay_api(ticker: str, engine: Engine, viewer: ViewerDep, bar: str = "D") -> JSONResponse:
+        """Price-level σ bands and the 40-week MA on the chart's bars (stored bars only)."""
+        from engine.technicals import views as m09_views
+
+        ticker = ticker.upper()
+        cik = services.resolve_ticker(engine, ticker)
+        p, _ = m09_params()
+        return JSONResponse(m09_views.overlay(engine, ticker, cik, bar.upper(), datetime.now(UTC),
+                                              p, m09_models()))  # fmt: skip
 
     @app.post("/c/{ticker}/prices")
     def fetch_prices(ticker: str, engine: Engine, owner: OwnerDep) -> RedirectResponse:

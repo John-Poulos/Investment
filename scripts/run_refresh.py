@@ -272,7 +272,7 @@ def ownership_local_step(engine, report) -> str:
     return "\n" + "\n".join(lines) + "\n"
 
 
-def technicals_local_step(engine, report) -> str:
+def technicals_local_step(engine, report, corpus=None) -> str:
     """M09 Part 1 local pass (0 requests beyond SPY's daily price in `prices_step`), after
     the M04 local passes so the gate, filing status and CvD are current: band_z, price_band,
     trend_state, mom_12_1 and rev_1m for every covered name (D-M09-1…9). Never fails."""
@@ -282,7 +282,7 @@ def technicals_local_step(engine, report) -> str:
     try:
         params, note = load_safe(ROOT / "config" / "technicals.toml")
         lines = run_local_part(engine, companies_of(report), datetime.now(UTC), params=params,
-                               params_note=note)  # fmt: skip
+                               params_note=note, corpus=corpus)  # fmt: skip
     except Exception as e:  # must not break the run report
         lines = [f"M09 technicals — local pass: error — {type(e).__name__}: {e}"]
     return "\n" + "\n".join(lines) + "\n"
@@ -570,7 +570,7 @@ def _run(args, engine, folder):
     prices += financials_quality_local_step(engine, corpus, report)
     prices += financials_cvd_local_step(engine, report)
     prices += ownership_local_step(engine, report)  # M07 after the M04 local steps
-    prices += technicals_local_step(engine, report)
+    prices += technicals_local_step(engine, report, corpus)  # 6-K releases read from corpus
     text = format_report(report) + calls + prices
     logs = ROOT / "logs"
     logs.mkdir(exist_ok=True)

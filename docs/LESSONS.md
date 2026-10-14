@@ -81,6 +81,7 @@ Updated: 2026-10-13 · Read at the start of every module build. One line each, w
 - Show basis or labels only when the source stated them; store `unspecified` (D-SRCH-20).
 - Review policy: real information the program cannot store yet stays open for its future module (D-UI-15).
 - Never re-case names ("NVIDIA CORP" → "Nvidia Corp" by title-casing): show the SEC registry name when resolved, else the name as the filing states it (D-M02-46).
+- Static assets are cache-busted: templates link them through `static('…')` (`/static/<file>?v=<content hash>`, computed at app start) and `/static` sends `Cache-Control: no-cache`; a bare `/static/…` link let the browser reuse an old chart.js after a code change (M09 Part 2 live check 1, D-UI-35).
 
 ## Process
 - A store of code-found passages needs a re-read path from day one: rules change after every live log; keep first-seen dates and never delete an answer key (D-M02-37, D-M02-40).
@@ -88,6 +89,7 @@ Updated: 2026-10-13 · Read at the start of every module build. One line each, w
 - Mock up each screen with real stored data before building it (D-UI-4).
 - Regex and `\n` edits through shell (sed, heredoc Python) lose their backslashes — hit twice more in part 5b; use the Edit tool for any string with a backslash.
 - Windows PowerShell 5.1 `Set-Content -Encoding utf8` adds a BOM and mangles non-ASCII read through the console code page (part 6, twice); edit with the Edit tool or a Python script file, never PowerShell text cmdlets.
+- PowerShell double-quoted here-strings (`@" … "@`) eat backticks (Markdown code marks in docstrings vanish) and expand `$`; a scripted replace uses single-quoted `@' … '@` or the Edit tool (M09 Part 2).
 - Python's `Path.write_text` on Windows writes CRLF (text mode translates `\n`); a scripted edit then turns an LF file into CRLF. Pass `newline="\n"` (M04 Part 4a).
 - Quarter fixtures must be entered as filed: 10-Q cash flows are year-to-date, and the engine derives Q4 as fiscal year − nine months; discrete 3-month facts for Q2–Q3 leave Q4 and TTM underivable (M04 Part 4a).
 - A scheduled job's lock needs an owner and a heartbeat, not an age: a task killed at its limit leaves the file behind (D-M02-51, -53).

@@ -16,9 +16,14 @@ answered), `guidance_removed` (value `removed`, last 12 months; rule 4).
   STRUCTURAL_DECLINE or CYCLE_PLUS_DAMAGE. Gate fail, incomplete or not applicable (ETV
   `fund`, D-M04-35) → not qualified; `cvd_state` missing → "qualification incomplete"
   (D-M09-4); tracked names → "not covered by M04" (D-M04-80). MSTR: no special rule (D-M04-8).
+  `insufficient_data` (D-M04-102) is no state yet: read as `cvd_state` missing (D-M09-15).
 - Rule 7 (D27, D-M01-5): strength beyond 2σ only with gate pass or warn, no overdue filing,
   CvD = CYCLICAL_TROUGH and no open capex-funded runway review (D-M04-38).
-- Rule 3 (tranches) and rule 4 (exit warnings) per the M04 table.
+- Rule 3 (tranches) and rule 4 (exit warnings) per the M04 table; a stale filing reads
+  `first_tranche` (the first tranche may use the carried state, D-M04-61).
+
+The single M01 reader (M09 Part 2, D-M09-15): the M04 tab's reading (`cvd.m01_reading`)
+decides through these functions on the live CvD (`cvd.m04_rows`) and keeps its own wording.
 """
 
 from __future__ import annotations
@@ -31,7 +36,10 @@ from engine.sec.identity import normalize_cik
 
 PASS = ("pass", "warn")
 DAMAGE = ("STRUCTURAL_DECLINE", "CYCLE_PLUS_DAMAGE")
-NO_CVD = "Part 8a not built"  # the reason while no `cvd_state` row exists
+NO_CVD = "no cvd_state row (the M04 CvD pass has not run for this name)"  # Part 8a merged
+# An active grid with a question below 2 present rows (D-M04-102): the row carries the text
+# with a "missing: …" method; read as no state yet (D-M09-15).
+INSUFFICIENT = "insufficient_data"
 
 
 @dataclass(frozen=True)
@@ -69,12 +77,19 @@ class M04Rows:
 
     @property
     def cvd_state(self) -> str | None:
-        return self.cvd.text if self.cvd else None
+        """The effective CvD state; None when missing or `insufficient_data` (no state yet)."""
+        if self.cvd is None or self.cvd.text == INSUFFICIENT:
+            return None
+        return self.cvd.text
 
     @property
     def cvd_missing(self) -> str | None:
         if self.cvd is None:
             return NO_CVD
+        if self.cvd.text == INSUFFICIENT:
+            m = self.cvd.method or ""
+            why = m[len("missing: ") :].split(";")[0] if m.startswith("missing: ") else ""
+            return f"{INSUFFICIENT} — {why or 'fewer than 2 rows present in Q1/Q2'}"
         return self.cvd.missing
 
     @property
@@ -117,19 +132,24 @@ def read_m04(
     out.filing = _latest(engine, norm, "filing_status", as_of)
     out.cvd = _latest(engine, norm, "cvd_state", as_of)
     out.runway = _latest(engine, norm, "runway_q", as_of)
+    out.guidance_removed = guidance_removed(engine, norm, as_of)
+    return out
+
+
+def guidance_removed(engine: sqlite3.Connection, cik: str, as_of: str | None) -> str | None:
+    """The as_of of a `guidance_removed` = removed row in the 12 months to `as_of` (rule 4)."""
     day = date.fromisoformat(as_of) if as_of else date.today()
     rem = engine.execute(
         "SELECT as_of FROM signal WHERE cik = ? AND module_id = 'M04' AND signal = "
         "'guidance_removed' AND timeframe = 'MY' AND value_text = 'removed' AND as_of <= ? "
         "AND as_of >= ? ORDER BY as_of DESC LIMIT 1",
-        (norm, day.isoformat(), (day - timedelta(days=365)).isoformat()),
+        (normalize_cik(cik) or cik, day.isoformat(), (day - timedelta(days=365)).isoformat()),
     ).fetchone()
-    out.guidance_removed = rem[0] if rem else None
-    return out
+    return rem[0] if rem else None
 
 
 def m04_line(r: M04Rows) -> str:
-    """ "gate warn (2026-08-01), filing current, cvd_state missing: Part 8a not built"."""
+    """ "gate warn (2026-08-01), filing current, cvd_state NO_SLOWDOWN (2026-08-01)"."""
     parts = []
     if r.gate is None:
         parts.append("gate missing")
@@ -212,22 +232,22 @@ def rule3(r: M04Rows) -> Reading:
                        "(D-M04-56, -58)")  # fmt: skip
     if cvd not in ("CYCLICAL_TROUGH", "NO_SLOWDOWN", "STUMBLE"):
         return Reading("blocked", f"blocked: unknown CvD state {cvd}")
-    stale = "; stale filing: later tranches wait (D-M04-61)" if r.filing and \
-        r.filing.text == "stale" else ""  # fmt: skip
-    return Reading("blocked" if stale else "allowed",
-                   f"{'allowed' if not stale else 'first tranche only'}: CvD {cvd}, gate {g}"
-                   + stale)  # fmt: skip
+    if r.filing and r.filing.text == "stale":  # D-M04-61; `first_tranche` (D-M09-15)
+        return Reading("first_tranche", f"first tranche only: CvD {cvd}, gate {g}; stale "
+                       "filing: later tranches wait (D-M04-61)")  # fmt: skip
+    return Reading("allowed", f"allowed: CvD {cvd}, gate {g}")
 
 
 def rule4(r: M04Rows) -> list[str]:
-    """Exit-warning reasons (warnings only, D16)."""
+    """Exit-warning reasons (warnings only, D16), every one that applies; guidance first
+    (the order the M04 tab has shown since Part 8a)."""
     out = []
+    if r.guidance_removed:
+        out.append(f"guidance_removed {r.guidance_removed} (quietly removed targets, S1.7)")
     if r.gate_state == "fail":
         out.append("survival gate fail (S6.14)")
     if r.overdue:
         out.append("filing overdue (D-M04-61)")
     if r.cvd_state in DAMAGE:
         out.append(f"CvD {r.cvd_state} (M01 rule 4, S6.14)")
-    if r.guidance_removed:
-        out.append(f"guidance_removed {r.guidance_removed} (quietly removed targets, S1.7)")
     return out
