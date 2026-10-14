@@ -13,7 +13,7 @@ promoted, tracked), when the owner maps its CUSIP in the config `[cusips]` table
 its issuer name is ambiguous and one candidate is ours ("possibly ours", stored unresolved
 with the CUSIP shown). Every other row is left out and counted in the log, so it never
 reaches `fin_holding`, M02's K1 edges or `m02_13f_issuer` items; the manager's filer CIK
-is recorded as `m07_manager:<cik>` and M02's views skip it (D-M02-62). A manager that is
+is recorded as `m07_manager:<cik>` and M02's views skip it (D-M02-63). A manager that is
 also one of our companies stays an M02 filer (all rows, read by M02's financing step).
 
 **Refresh.** The daily index marks a followed manager due when it lists a new 13F-HR

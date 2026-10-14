@@ -320,7 +320,7 @@ def financing_edges(engine: sqlite3.Connection) -> list[Edge]:
         "AND coalesce(h.shares, 1) != 0 AND coalesce(h.pct_class, 1) != 0 AND "
         + thirteenf.not_followed("h.filer_cik")
     ):  # a 0% schedule reports an exit: no stake (D-M02-47); followed managers are M07's
-        # (D-M02-62)
+        # (D-M02-63)
         out.append(
             Edge(
                 "K1",

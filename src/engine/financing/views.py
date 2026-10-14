@@ -122,7 +122,7 @@ def _holding_rows(engine: sqlite3.Connection, cik: str) -> list[tuple[FinRow, fl
             )
             out.append((row, float(r["value_usd"] or 0)))
     # other filers' 13F rows naming this company (their latest quarter only); followed
-    # managers' rows are on M07's Insiders tab, not here (D-M02-62)
+    # managers' rows are on M07's Insiders tab, not here (D-M02-63)
     for r in engine.execute(
         "SELECT h.* FROM fin_holding h WHERE h.source = '13F' AND h.issuer_cik = ? AND "
         "h.filer_cik != ? AND h.status = 'automatic' AND h.period = (SELECT max(period) FROM "

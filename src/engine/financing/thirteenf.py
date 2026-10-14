@@ -15,7 +15,7 @@ Followed managers (M07 Part 2, D-SEC-28): `read_filing` / `store_rows` take a `k
 filter, so a manager's rows of companies that are not ours are never stored (and never
 queued as `m02_13f_issuer`); a manager's filer CIK is recorded in `refresh_state` as
 `m07_manager:<cik>` and M02's views and review items skip those filers (`not_followed`,
-D-M02-62).
+D-M02-63).
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ FOLLOWED_STATE = "m07_manager:"
 
 
 def not_followed(column: str = "filer_cik") -> str:
-    """SQL condition: the filer is not a followed manager (D-M02-62: M02's K1 edges, Money
+    """SQL condition: the filer is not a followed manager (D-M02-63: M02's K1 edges, Money
     flow rows and review items skip the managers M07 follows)."""
     n = len(FOLLOWED_STATE)
     return (f"{column} NOT IN (SELECT substr(name, {n + 1}) FROM refresh_state WHERE "

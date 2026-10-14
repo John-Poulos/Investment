@@ -70,7 +70,7 @@ def issuer_items(engine: sqlite3.Connection, now: datetime) -> int:
         f"f.filer_cik = h.filer_cik AND f.status = 'read') AND "
         f"{thirteenf.not_followed('h.filer_cik')} GROUP BY c6"
     ):  # only issuers in a filer's latest quarter: older-only holdings (often delisted) wait;
-        # followed managers' rows are M07's (D-M02-62)
+        # followed managers' rows are M07's (D-M02-63)
         payload = {
             "issuer": r["name"],
             "cusip": r["cusip"],
@@ -100,7 +100,7 @@ def check_items(engine: sqlite3.Connection, now: datetime) -> int:
     n = 0
     for r in engine.execute(
         f"SELECT * FROM fin_holding WHERE status = 'held' AND {thirteenf.not_followed()}"
-    ):  # followed managers' held rows are shown on M07's panel, not queued (D-M02-62)
+    ):  # followed managers' held rows are shown on M07's panel, not queued (D-M02-63)
         payload = {
             "holding_id": r["holding_id"],
             "source": r["source"],
