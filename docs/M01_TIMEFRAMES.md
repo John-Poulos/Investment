@@ -1,6 +1,6 @@
 # M01 — Timeframe profiles
 
-Status: reviewed 2026-10-07 (D27) · Updated: 2026-10-13 · Outline headings: Type of investing by time frame · Depends on: M00, M04 (CvD), M11 · Sources: S12, S19, S26, S28–S31
+Status: reviewed 2026-10-07 (D27) · Updated: 2026-10-13 · Outline headings: Type of investing by time frame · Depends on: M00, M04 (CvD), M05 (`capex_demand`), M11 · Sources: S12, S19, S26, S28–S31
 
 ## Purpose
 Defines the parameter profile each timeframe applies across all modules. Profiles change weights and recommendations, never visibility (D10). Profiles and bar sizes can be switched on the fly (D12). MY first; PT and ST later.
@@ -46,7 +46,7 @@ A holding = core lots under one primary profile + optional overlays (M12 options
 1. Entry needs the fundamental screen (R3), the confluence threshold (D13), and price in the entry zone.
 2. The entry plan offers lump sum or tranches, weighing available funds, conviction and regime; the owner decides.
 3. Every tranche after the first needs all three: CvD = CYCLICAL_TROUGH (or no slowdown), survival gate pass (M04), and the 1–2σ add trigger on the position's profile of record.
-4. Exit warnings fire on: CvD moving to CYCLE_PLUS_DAMAGE or STRUCTURAL_DECLINE; a survival-gate fail (S6.14) or an overdue filing (D-M04-61); missed milestones or quietly removed targets (R19; M04's `guidance_removed`, S1.7); killswitch hits (R23); valuation ceiling if the owner sets one. M04 red-flag warnings are listed among the `exit_warning` reasons and never block (D-M04-21, -60). Warnings only (D16).
+4. Exit warnings fire on: CvD moving to CYCLE_PLUS_DAMAGE or STRUCTURAL_DECLINE; a survival-gate fail (S6.14) or an overdue filing (D-M04-61); missed milestones or quietly removed targets (R19; M04's `guidance_removed`, S1.7); killswitch hits (R23); valuation ceiling if the owner sets one. M04 red-flag warnings and M05's `capex_demand` = AHEAD_OF_DEMAND (capex surging into falling revenue, D-M05-4) are listed among the `exit_warning` reasons and never block (D-M04-21, -60; D-M01-7). Warnings only (D16).
 5. Thesis review after each 10-Q/10-K; on-track milestones with a flat price → "early," hold (R4).
 6. Event alerts (8-K, opportunistic Form 4, guidance change, killswitch) surface immediately (R16).
 7. Band depth is reported as σ below the 20-week mean with no cap. Beyond 2σ grades as a stronger signal only when CvD = CYCLICAL_TROUGH and the survival gate passes (gauge shown, not required, D-M04-62; read per D-M01-5); in any other state the depth is shown as a warning with no added strength (D27).
@@ -56,7 +56,7 @@ A holding = core lots under one primary profile + optional overlays (M12 options
 **Reading M04's CvD state (built M04 Part 8a, D-M04-56, -58, -61, -103).** `cvd_state` (`value_text`) is the effective state: the computed one, or the owner's answer on an `m04_cvd` item, which replaces it while the computed state stays the same (the method says "owner answer …"). Its `method` ends with M04's own reading ("M01: rule 3 tranches: … · rule 7 strength: … · rule 4 exit warning: …"), which rules 3, 4 and 7 apply as built:
 - **Rule 3 (tranches):** allowed on CYCLICAL_TROUGH and NO_SLOWDOWN with a gate pass or warn, and on STUMBLE once the owner has answered it; blocked on AMBIGUOUS and an unanswered STUMBLE ("until you answer the m04_cvd item"), on `insufficient_data` (an active CvD with fewer than 2 present rows in a question; no item, D-M04-102), on CYCLE_PLUS_DAMAGE and STRUCTURAL_DECLINE, on an overdue filing, and on a gate fail, incomplete or not applicable (the gate overrides the grid). Stale (a period ended unfiled): the first tranche may use the carried state, later tranches wait for the filing.
 - **Rule 7 (strength beyond 2σ):** only CYCLICAL_TROUGH with a gate pass or warn and no open capex-funded runway review (D-M04-38); never needs the overreaction gauge (D-M04-62; the gauge is deferred in the MVP).
-- **Rule 4 (exit warning):** CYCLE_PLUS_DAMAGE, STRUCTURAL_DECLINE (computed or answered), a gate fail, an overdue filing and a core `guidance_removed` in the last 12 months; red-flag warnings (`distress_score` distress, open non-reliance, restatement 4.02 / escalated, `special_items`, `eq_cash`, `negative_equity`) are listed and never block.
+- **Rule 4 (exit warning):** CYCLE_PLUS_DAMAGE, STRUCTURAL_DECLINE (computed or answered), a gate fail, an overdue filing and a core `guidance_removed` in the last 12 months; red-flag warnings (`distress_score` distress, open non-reliance, restatement 4.02 / escalated, `special_items`, `eq_cash`, `negative_equity`) and M05's AHEAD_OF_DEMAND (D-M01-7) are listed and never block.
 - `cvd_confidence` (lower of the two winning shares) and `cvd_coverage_q1` / `_q2` are shown beside the state; NO_SLOWDOWN writes them as missing ("not active").
 
 ## Failure modes
@@ -76,6 +76,7 @@ A holding = core lots under one primary profile + optional overlays (M12 options
 - D-M01-4 (2026-10-07): σ bands not capped at 2σ; beyond 2σ is a stronger signal only when CvD and survival gates pass (owner, D27).
 - D-M01-6 (2026-10-12, M04 closing C.1a = D-M04-76): Rule 1 first entry also needs a survival-gate pass (warn included), no overdue filing, and CvD not STRUCTURAL_DECLINE or CYCLE_PLUS_DAMAGE (R3 "fundamentally qualified", M04 side).
 - D-M01-5 (2026-10-12, M04 review 6.8a = D-M04-58): Only CvD = CYCLICAL_TROUGH with a survival-gate pass (pass with warn included, D-M04-31) adds rule-7 strength; NO_SLOWDOWN allows tranches (rule 3); AMBIGUOUS, CYCLE_PLUS_DAMAGE, STRUCTURAL_DECLINE and an overdue filing block tranches; STUMBLE is blocked until the owner resolves the `m04_cvd` review. A gate of "not applicable" reads as not-pass (D-M04-35); a capex-funded name in review below 6 quarters allows rule-3 adds but not rule-7 strength (D-M04-38).
+- D-M01-7 (2026-10-13, MVP sitting 2, Q05.4a = D-M05-4; amends rule 4): M05's `capex_demand` = AHEAD_OF_DEMAND (capex ÷ revenue > 1.5× its own 3-year average while revenue falls — the D-M04-64 test — or capex expanding while TTM revenue falls and no bookings line rises) is listed among the `exit_warning` reasons, as M04's red flags are, and never blocks an entry or a tranche. Why: outline CAPEX 5 (capex without demand destroys value); Intel 2021–24 (S-new-M05-10); warnings only (D16). The reason list lives in one place (`src/engine/m01_rules.py`, MVP_PLAN item 3), so M11's `exit_warning` reads it without a second copy.
 
 ## Open questions
 - PT and ST columns — later phase.

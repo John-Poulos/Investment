@@ -1,0 +1,151 @@
+# M08 — Sentiment & valuation
+
+Status: MVP design decided 2026-10-13 (sitting 2, D-M08-1…7; owner amendment on standard metrics → D32); Part 1 next (wave W4) · Updated: 2026-10-13 · Outline headings: PEG (items 1–2); Analysts Price Targets and Upgrades (items 1–4); Technical Analysis item 1 (cheap is not a buy) · Depends on: M00 (`fact`, `facts_as_of`, `price_bar`, D13 writer), M04 Parts 1a–4a, 8a (`market_value`, `_Book.point`, `close_on`, `split_note`, stage, peers, model tags, `filing_status`, `survival_gate`, `cvd_state`, `cvd.turning_points`), M02 (Alpha Vantage client and budget, D-M02-20) · Sources: S11, S18, S35, S68, S163, S-new-M08-1…45 (provisional IDs from `docs/M08_DESIGN_PACK.md` "New sources"; numbered into SOURCES.md at Part 1, after M09's S-new-M09-n if those are still unnumbered)
+
+Research: `docs/M08_DESIGN_PACK.md`; MVP cut: `docs/mvp/M08_MVP_BRIEF.md`; cross-module plan: `docs/mvp/MVP_PLAN.md`. Thresholds marked † are sourced starting values, never tuned on the watchlist alone (D32), calibrated at tuning. Missing data stays missing (`method` = "missing: <reason>"), never zero (D-M04-9). Research signals, not advice; a valuation reading is never a sell signal (D16).
+
+## Purpose
+How expensive is the stock against its own history — on the standard measures every investor uses and on the headline measure that fits its stage — and which way are analysts moving their estimates? Binding: R6 (PEG only when EPS > 0 and growth > 0; a sales-based fallback; flag cyclicals), R15 (revisions and dispersion, not price-target levels; S11), D10 (every measure visible everywhere), D32 (standard measures for every company; rules must generalise beyond the watchlist), M01 (analysts weigh low in MY; rule 4's valuation ceiling needs M11 positions, deferred).
+
+Departures from the outline (brief): Analysts item 2 "spread of targets" → spread of EPS estimates (R15; no free target feed); Analysts item 5 "crowded consensus" deferred (M02's crowding flag D-M02-10 and the analyst count stand in); Ownership item 4 (short interest) is M07's (D-M07-8).
+
+## Inputs
+| Data | Source (stored in; code) | Grade | Refresh |
+|---|---|---|---|
+| Revenue, gross profit, operating and net income, diluted EPS and weighted shares, D&A, OCF, capex, cash and investments, debt concepts, preferred, equity, `crypto_fair_value`, `shares_cover` | `fact` via `facts_as_of` (`sec/asof.py`; XBRL 6-K for 20-F filers; INFQ de-SPAC boundary); `sec/xbrl_facts.py` | A | Per new filing |
+| Noncontrolling interest | `MinorityInterest` added to `EXTRA_CONCEPTS` (Part 1, D-SEC-29; read from stored `fact`, no parser bump; peers only after their next companyfacts fetch) | A | Same |
+| Market cap | `financials/distress.py` `market_value()` = cover shares × raw close (`shares.close_on`, 5-day tolerance; `shares.split_note` split guard) | A (D-M04-82) | Daily prices |
+| Debt and cash | `financials/debt.py` `_Book.point()` (made public in Part 1); an absent optional line counts as none and is named (D-M04-90) | A | Per filing |
+| Dividends per share | `price_bar.div_cash` (Tiingo, raw, ex-date) | A | Daily |
+| Stage, model tags, peers | `company_stage` + `stage.confirmed()` (Part 1c); `config/company_models.toml` (MSTR `asset_treasury`, ETV `fund`, INFQ `spac_shell` before 2026-02-13); `peers.confirmed_peers()` | Owner / A | On confirmation |
+| M04 rows read, not rebuilt | `filing_status`, `survival_gate`, `cvd_state`, `net_debt_ebitda` via `signals.latest_signal` | per M04 | Per M04 run |
+| Turning points for the NEP window | `financials/cvd.py` `turning_points` (5 pp reversal, D-M04-54, -100) | A | Per filing |
+| Analyst estimates (FY1, FY2: average, high, low, count, 7/30/60/90-day-ago averages, up/down revisions) | Alpha Vantage `EARNINGS_ESTIMATES` → `estimate_snapshot` (Part 2, migration 0041; DS19) | B | Weekly per company |
+| Next report date (walk-down window) | cadence estimate from `company_releases` in `calls/calendar.py` (Part 2; MVP_PLAN item 4) | C | Per release |
+| Owner overrides | `config/valuation.toml` (headline per company, cyclical flag) | Owner | On edit |
+
+## Signals out
+Every row: `cik` key (ticker for display, D-M04-74), `module_id = "M08"`, numbers in `value`, codes and bands in `value_text` (D-M04-9), one row per timeframe, `as_of` = the close date used, `source_ref` = newest accession "+N" with the close named in `method`, grade = weakest deciding input. ✓ = may carry weight once D13 weights exist; info = weight 0. One computation serves every profile (D10).
+
+**Headline and analyst rows**
+
+| Signal | value / value_text | Meaning | MY | PT | ST | Grade |
+|---|---|---|---|---|---|---|
+| `valuation_multiple` | the headline multiple; text when no value: `not_meaningful`, `stage_unconfirmed`, `fair_value_earnings`, `not_applicable` | Stage headline (D-M08-1): intro/growth EV/S; mature P/E TTM; shake-out and cyclical (flag overrides stage) EV ÷ normalized EBIT; decline EV/EBIT; MSTR mNAV. Measure, stage and "EV incomplete" (when the value is P/S) in `method` | ✓ | ✓ | info | A |
+| `valuation_pctile` | 0–100 | Headline's percentile in its own quarterly history (≥ 20 points, first-filed values, recomputed each run); peer percentile in `method` when ≥ 5 confirmed peers have stored prices, not scored (D-M08-2) | ✓ | ✓ | info | A |
+| `peg` | ratio; band `≤1` / `1–2` / `>2`, or a reason code | R6 PEG on the vendor basis (D-M08-4, -5); trailing 3-year GAAP EPS CAGR in `method`, never substituted; R6's sales fallback = the EV/S row and its percentile (Part 2) | ✓ | ✓ | info | B (vendor growth) |
+| `est_revision` | % (FY1 30-day revision); `up` / `flat` / `down` / `not_meaningful` | R15 direction (D-M08-6). `method`: FY1/FY2 30- and 90-day revisions, breadth (up − down) ÷ count, dispersion (high − low) ÷ \|avg\| when count ≥ 3, the count, "vendor basis", walk-down window (Part 2) | ✓ low (M01) | ✓ | ✓ | B |
+
+PEG reason codes, first failing check wins, all failing checks in `method`: `fair_value_earnings`, `eps_nonpositive`, `cyclical`, `growth_missing`, `base_nonpositive`, `growth_nonpositive`, `growth_above_cap`.
+
+**Standard rows (owner amendment, D-M08-1, D32).** Computed and written for every company in every timeframe, whatever its stage, flag or routing; info (weight 0) unless the row is the company's headline, whose weight `valuation_multiple` carries. Each row's `method` carries its own-history percentile where ≥ 20 quarterly points exist ("own pctile 63 of 41 quarters"; else "pctile missing: n/20 quarters"), the inputs and their dates. A denominator ≤ 0 → `not_meaningful` with no value (D-SRCH-15).
+
+| Signal | value | Definition | Part |
+|---|---|---|---|
+| `val_pe_ttm` | multiple | Close ÷ (TTM GAAP net income attributable ÷ latest diluted weighted shares) | 1 |
+| `val_pe_fwd` | multiple | Close ÷ FY1 consensus EPS, "vendor basis (non-GAAP)" | 2 |
+| `val_ev_ebitda` | multiple | EV ÷ TTM (operating income + D&A); D&A untagged → missing, tags checked named | 1 |
+| `val_ev_ebit` | multiple | EV ÷ TTM operating income | 1 |
+| `val_ev_sales` | multiple | EV ÷ TTM revenue | 1 |
+| `val_ev_gp` | multiple | EV ÷ TTM gross profit | 1 |
+| `val_ps` | multiple | Market cap ÷ TTM revenue (the "EV incomplete" fallback, case 4) | 1 |
+| `val_pb` | multiple | Market cap ÷ parent equity | 1 |
+| `val_p_fcf` | multiple | Market cap ÷ TTM (OCF − total capex) (D-M04-6: consumers use total capex) | 1 |
+| `val_fcf_yield` | % (signed) | TTM (OCF − total capex) ÷ market cap; negative shown as negative | 1 |
+| `val_div_yield` | % | TTM cash dividends per share (`div_cash` ex-dates, split guard) ÷ close; 0 only when 12 months of stored bars show no dividend, fewer bars → missing | 1 |
+| `val_ev_nebit` | multiple | EV ÷ normalized EBIT (cycle base, rule 4) | 1 |
+| `val_p_neps` | multiple | Close ÷ normalized EPS (rule 4) | 1 |
+
+EV = market cap + debt (current and noncurrent; finance leases as tagged, labelled) + preferred + noncontrolling interest − cash − short-term investments; operating leases excluded ("EV ex operating leases"). An EV component that `_Book.point()` cannot state → every EV row "missing: EV incomplete (<component>)".
+
+Missing rows: "missing: no close within 5 days of <date>", "missing: not applicable (fund, D-M04-8)", "missing: shell period (before 2026-02-13)", "missing: no estimate snapshot (budget / no coverage)". M11's starting vote map names `est_revision` as M08's vote (M11 brief Q11.4a); the vote line is settled at sitting 5.
+
+## Timeframe parameters
+One computation for every profile; profiles differ in weight (above).
+
+| Parameter | Value (MVP) |
+|---|---|
+| TTM | Sum of the last 4 quarters from first-filed values; Q4 = FY − 9M (M00_SEC_DATA); annual filers "as of FY" |
+| Own-history percentile | Quarter-ends with a close within 5 days; ≥ 20 points† |
+| Peer percentile | ≥ 5† confirmed peers with stored prices; shown, not scored |
+| Cyclical flag window | Last 10 fiscal years (fewer → labelled; < 5 → not computed) |
+| PEG growth cap | 0 < g ≤ 50%† |
+| Estimate snapshot | Weekly per company, ≤ 3 calls a day |
+| `est_revision` flat band | Set at Part 2 (starting value, e.g. \|x\| < 0.5%†) |
+| Walk-down window | ≤ 30† days before the next report (S-new-M08-16) |
+
+## Rules
+1. **As-of (pack S1.3).** At date d: raw `close` on or before d (5-day tolerance) × cover shares last filed on or before d (scaled by splits since, `split_note`) ÷ fundamentals filed on or before d (`facts_as_of`). Never `adj_close` for market caps.
+2. **Standard rows first (D-M08-1, D32).** Every standard row is computed for every company before routing; routing only picks which measure becomes `valuation_multiple` and carries weight. Nothing is hidden (D10).
+3. **Headline routing (D-M08-1)** by M04's confirmed stage: introduction and growth → EV/S (EV/GP beside); mature → P/E TTM (EV/EBIT beside); shake-out → EV ÷ normalized EBIT; decline → EV/EBIT (P/B beside). The cyclical flag overrides the stage, including an unconfirmed one (MU). Stage unconfirmed and not cyclical → value NULL, `stage_unconfirmed`, every timeframe info. A headline denominator ≤ 0 → `not_meaningful` (the standard rows still show the alternatives). EV incomplete → P/S as the value, "EV incomplete" in `method`. Owner override per company in `config/valuation.toml`.
+4. **Normalized earnings power (D-M08-3)** — shared helper `src/engine/financials/nep.py`, one definition for M08 now and M04's deferred gauge later (8b: `normalized_ep_*`, `overreaction_gap`). Window: trough to trough on 5 pp turning points (`cvd.turning_points`, the cycle dates CvD uses; D-M04-54, -83), from the earlier confirmed trough year up to the year before the later one (endpoint convention confirmed at Part 1); no completed cycle → the longest available history, labelled (D-M04-83). Normalized EBIT = cycle-average revenue × cycle-average operating margin (ratio of sums); the current-revenue base (cycle-average margin × TTM revenue, M04's gauge base, D-M04-54) beside it in `method`. Normalized EPS = cycle-average net income attributable ÷ latest diluted weighted shares (split-safe; default, confirmed at Part 1). Reported basis in the MVP; the ex-items basis (D-M04-66) arrives with 8b. M04's own `normalized_ep_*` rows stay "deferred (MVP, D31)".
+5. **Cyclical flag (D-M08-3, R6; MVP_PLAN item 5).** Computed: a GAAP diluted EPS sign change in the last 10 fiscal years, or an operating-margin range (max − min) ≥ 30 pp† over the same years; owner override (`cyclical = true / false`, reason) in `config/valuation.toml`, which wins. M08 owns this company-level flag; M06's class is renamed `through_cycle`; M04 keeps its CvD states. Effects: headline EV ÷ normalized EBIT (P ÷ normalized EPS beside it); trailing P/E labelled "inverts at cycle extremes"; PEG `cyclical`. With CYCLICAL_TROUGH a high trailing P/E reads "trough earnings", not "expensive".
+6. **PEG (D-M08-4, -5).** Forward P/E (close ÷ FY1 consensus EPS) ÷ (100 × g), g = FY2 ÷ FY1 consensus − 1, all vendor basis, labelled; scored only when 0 < g ≤ 50%†; above it `growth_above_cap` with the uncapped PEG in `method` (not scored) and EV/S shown. Trailing 3-year GAAP EPS CAGR beside it, never substituted. No consensus → `growth_missing`.
+7. **Estimates (D-M08-6).** One `EARNINGS_ESTIMATES` call per company a week (core + promoted, ETV excluded, ≈ 16 a week), ≤ 3 a day in the logon run after transcripts; every vendor field stored from the first snapshot; FY1/FY2 mapped by the vendor's period-end `date` (MU, NVDA, MSFT off-calendar). Count < 3 → no dispersion; \|avg\| < $0.10 or a sign change → revision `not_meaningful`; null vendor counts → missing, never 0. A missed snapshot → missing, listed in the run report.
+8. **MSTR (D-M08-7).** Headline = mNAV = market cap ÷ `CryptoAssetFairValue`, labelled "crypto exposure" (S1); PEG `fair_value_earnings`; the standard rows are still computed (D32) and `val_pe_ttm` carries `value_text` `fair_value_earnings` ("EPS moves with bitcoin under ASU 2023-08"). ETV (`fund`): `not_applicable`.
+9. **Cheap is not a buy (outline TA 1).** A low headline percentile (line set at Part 1 as a starting value†) with a gate fail, or CvD STRUCTURAL_DECLINE / CYCLE_PLUS_DAMAGE, adds "value-trap risk" to `method`. An expensive reading is context, never a sell signal (D16).
+10. **Series breaks.** INFQ: shell periods excluded by the de-SPAC boundary; a recast (FY2025 net income −66.9M vs −32.2M) → one series per TTM, the break flagged. GFS (20-F): quarters from XBRL 6-K where filed, else annual "as of FY". Filing stale or overdue → "as of <period>" plus M04's `filing_status`.
+
+## Failure modes
+| Input or indicator | How it can mislead | Guard |
+|---|---|---|
+| **Tech-heavy watchlist** | Most of the 16 watchlist names are tech or semiconductors (BA, TSLA, SPCX and ETV aside); stage routing, the 30 pp cyclical line and the 50% PEG cap were worked on MU, NVDA and INFQ, so rules fitted here may fail on banks, utilities, retailers, industrials | Standard rows for every company whatever the routing (D32); thresholds are sourced starting values (†), not fitted; each rule below names its evidence |
+| Cyclical flag: EPS sign change | One loss year (a 2020 shutdown, a one-off write-down) flags a steady company; evidence for the rule is one memory case (MU) and the PEG trap note (S18) | Owner override in toml; the flag reason (which year, which test) in `method`; trailing P/E still shown (D32 flag: evidence is tech-only) |
+| Cyclical flag: margin range | Low-margin businesses (retail, distribution) never reach 30 pp while still cyclical; high-margin software can swing 30 pp on one charge | Same; both tests shown with their values |
+| P/E, EV/EBIT | Negative or near-zero denominator | `not_meaningful` (D-SRCH-15) |
+| P/E for financials, REITs | Earnings and EV are not the standard measures there (banks: P/B; REITs: FFO) | M04 routes `financial`, untagged FF12 group 11 and `reit` (D-M04-8); P/B always shown; FFO deferred |
+| EV | Missing debt or leases understate EV; a lease-inclusive debt tag plus lease liabilities double-counts | "EV incomplete" → EV rows missing, headline P/S; finance leases labelled; operating leases excluded |
+| EV/EBITDA | D&A untagged (MSFT: no D&A tag found, M05 pack) | Missing with the tags checked named, never estimated |
+| TTM EPS summed from quarters | Share counts change; Q4 not reported | TTM net income ÷ latest diluted shares; Q4 = FY − 9M |
+| Past market caps | `adj_close` and as-filed shares predate splits | Raw close × split-scaled shares (rule 1) |
+| Own-history percentile | Short history (SPCX, INFQ); a structural change (AI ramp) reads "expensive" for years | ≥ 20 points, else missing; beside M04 trends; never a sell signal (D16) |
+| Peer percentile | Inherits peer quality (D19, S163); SK hynix and TSMC not SEC filers | Shown, not scored; "missing: n priced peers" |
+| Normalized EBIT and EPS | Window choice moves the figure (MU FY2019–24 15.2% margin vs a trough-to-trough window); no completed cycle in XBRL | One window rule (D-M04-83) shared with M04; the window and both bases in `method`; "longest history, no completed cycle" labelled |
+| Trailing P/E on a cyclical | Low at the peak (MU 6.8× in Oct 2022), high at the trough (146× in Oct 2024) | Cyclical headline on normalized EBIT; "inverts at cycle extremes" label |
+| PEG | Treats short-run growth as long-run (S-new-M08-6); ramps give tiny PEGs (NVDA 0.18) | 50% cap, uncapped figure shown; rough ranking only |
+| Vendor consensus | Non-GAAP basis; optimistic long-term growth; walk-down before reports (S-new-M08-16) | "vendor basis" label; trailing GAAP CAGR beside; walk-down window note |
+| Estimate coverage | INFQ, SPCX, GFS unprobed; vendor fields null | `growth_missing`, missing rows, low coverage shown (Analysts item 4) |
+| MSTR earnings | Move with bitcoin (ASU 2023-08, S-new-M08-42) | mNAV headline; `fair_value_earnings` |
+| Dividend yield | A special dividend inflates TTM; a split inside 12 months misstates per-share cash | Split guard; special dividends shown as stated (labelled at tuning) |
+| Cheap reading | Value trap in a decline | "value-trap risk" with gate or CvD (rule 9) |
+
+## Decisions
+- D-M08-1 (2026-10-13, sitting 2, Q08.1a **with owner amendment**): the headline routes by M04's confirmed stage (pack S1.1 table; rule 3), the cyclical flag overrides the stage, an unconfirmed stage reads `stage_unconfirmed` (value NULL, every timeframe info), owner override per company in `config/valuation.toml`. **Amendment (owner: "keep the traditional metrics like P/E; don't overfit the metrics to this small sample of mostly tech companies, or the app won't work for other companies"):** every company always gets the standard measures computed and shown — P/E TTM (GAAP), forward P/E (vendor basis, labelled), EV/EBITDA, EV/EBIT, EV/Sales, EV/Gross profit, P/B, P/FCF (on total capex), dividend yield and FCF yield (plus P/S and the two normalized rows) — each with its own-history percentile where ≥ 20 quarters exist, regardless of routing; routing chooses only the headline (`valuation_multiple`) and its weight and never hides a standard row (D10); standard rows are info (weight 0) unless they are the headline. Recorded as the general rule **D32**. Why: reuses M04's stage and review (D-M04-7, -12); earnings price best where positive (S-new-M08-1); value measures carry the return evidence (S-new-M08-2, -3, S35).
+- D-M08-2 (2026-10-13, Q08.2a): score the own-history percentile (≥ 20 quarterly points, first-filed values, recomputed each run); show the peer percentile only where ≥ 5 confirmed peers already have stored prices, not scored; no new price fetch (peer price backfill, Q08.2b, deferred). Why: zero new requests while 7 peer sets are open; peer comparisons inherit peer quality (S163, D19; DS8 limits).
+- D-M08-3 (2026-10-13, Q08.3b — **changed from the brief's recommendation** because the owner deferred 8a's NEP and gauge): M08 computes normalized earnings power itself, as the shared helper `financials/nep.py` that M04's deferred 8b gauge later reuses (rule 4: cycle-average revenue × cycle-average operating margin, trough to trough on 5 pp turning points per D-M04-54, -83). Cyclical flag = a GAAP EPS sign change in 10 fiscal years or an operating-margin range ≥ 30 pp†, owner override in toml (rule 5); M08 owns the company-level flag, M06 renames its class `through_cycle`, NEP windows stay M04's rule (MVP_PLAN item 5, confirmed). Cyclical headline = EV ÷ normalized EBIT, with P ÷ normalized EPS beside it. Why: one NEP definition and window across modules (D-M04-54, -83) without waiting for 8b; Micron's 146× trailing vs 38× normalized on 2024-10-04 shows the trailing number misleads (S-new-M08-9); profitability mean-reverts (M04 pack S-new-55); R6 "flag cyclicals" (S18). D32: the flag's evidence is one memory company; the override and both test values are shown.
+- D-M08-4 (2026-10-13, Q08.4a): PEG = forward P/E (close ÷ FY1 consensus) ÷ FY1→FY2 consensus growth, all on the vendor basis, labelled; trailing 3-year GAAP EPS CAGR beside it, never substituted. Why: one basis; the outline asks for expected EPS growth; forward earnings price best (S-new-M08-1); applies R6.
+- D-M08-5 (2026-10-13, Q08.5a): PEG scored only when 0 < g ≤ 50%†; above it `growth_above_cap`, the uncapped PEG in `method` (not scored) and EV/S shown. Why: PEG treats short-run growth as long-run growth and fails worst on ramps (S-new-M08-6); outline PEG item 1 wants PEG for S-curve names, so the uncapped figure stays visible (D10).
+- D-M08-6 (2026-10-13, Q08.6a; MVP_PLAN item 6 confirmed): Alpha Vantage `EARNINGS_ESTIMATES` once a week per company (≈ 16 calls a week: core + promoted, ETV excluded; ≤ 3 a day in the logon run, after transcripts), stored in `estimate_snapshot` (Part 2). Budget split of the 25-a-day key: transcripts keep 20, M08 ≤ 3 a day, M12 1 a week (after the MVP), probes from the spare; M02 stays the budget owner (D-M02-20). Why: the only free source of revisions and dispersion (R15; S-new-M08-19, -14, -15); each call carries the 7/30/60/90-day-ago averages, so revisions work from the first snapshot.
+- D-M08-7 (2026-10-13, Q08.7a): MSTR headline = mNAV = market cap ÷ `CryptoAssetFairValue`, labelled "crypto exposure" (scope S1); P/E and PEG read `fair_value_earnings` (the standard P/E row keeps its value with that label, D-M08-1). Why: its EPS moves with bitcoin under ASU 2023-08 (S-new-M08-42); the tag is mapped; matches M04's `asset_treasury` (D-M04-8).
+
+## Deferred to tuning
+- R1: earnings yield vs DGS10 (new FRED fetch, S-new-M08-45); valuation ceiling (M01 rule 4, needs M11 positions); operating leases in EV (after the first live log); peer price backfill (Q08.2b); FFO for REITs.
+- R2: cyclical review queue (the toml override stands in); ex-items NEP basis (D-M04-66, with 8b); history cache if the percentiles get slow.
+- R3: Finnhub `rec_change_3m`, `eps_surprise`, guidance-vs-estimate notes (more calls and a review kind); revenue revisions (outline Analysts item 3) and revisions past 90 days (need weeks of own snapshots; every vendor field is stored from day one).
+- Outline Analysts item 5 crowded consensus (M02 crowding and the analyst count stand in).
+- R4: short interest and FINRA short volume (M07, D-M07-8, DS18). R5: options skew and IV (DS5, Q5, with M12). R6: news attention and tone (store began 2026-10-12; Gemini needs 100 blind labels); weights wait for D13 weights.
+
+## Build parts
+Pre-assigned in `docs/mvp/MVP_PLAN.md` (waves W4, W5; main checkout side); parts of one module never run in parallel. Part decisions continue at D-M08-8.
+
+**Part 1: Valuation core, standard rows and the NEP helper (0 network requests)** — branch `m08-part1`, wave W4 (main checkout, merges first), no migration expected (if one is needed it takes the next number at merge, MVP_PLAN rule), D-SEC-29 (`MinorityInterest`), D-UI-36 (Valuation tab); D-M08-1…7 from sitting 2, parts from 8 (+ next free D-M04 for `financials/nep.py`, which M04's deferred 8b gauge reuses).
+- Code: `src/engine/financials/nep.py` (window from `cvd.turning_points`, normalized EBIT on both bases, normalized EPS; pure functions on stored facts); new package `src/engine/valuation/`: `measures.py` (EV and every standard row), `asof.py` (quarter-end points, rule 1), `pctile.py` (own and peer percentiles), `cyclical.py` (flag and override), `route.py` (headline), `step.py` (local pass after the M07 step, short write transactions; MVP_PLAN local-step order), `views.py`; `debt._Book` made public; `MinorityInterest` in `EXTRA_CONCEPTS`; `config/valuation.toml`; owner script `scripts/run_valuation.py value [--no-sec]`.
+- Signals: `valuation_multiple`, `valuation_pctile` and every standard row except `val_pe_fwd`. Tables: none expected (quarter-end history recomputed each run from `fact` and `price_bar`). Review kinds: none.
+- UI: company tab "Valuation": the headline with stage and reason, every standard row with its percentile, the cyclical flag and its test values, NEP window and both bases, "value-trap risk" and missing reasons; one Overview line. Mock-up first with MU and INFQ on scratch data (D-UI-4, port 8799).
+- Fixtures: MU 10-K dates with the pack's closes as fixture prices (6.8×, n/m, 146.1×, 24.7×; NEP FY2019–24 15.2% margin, $3.82B on current revenue; normalized P/E 38.0× on the pack's average EPS), NVDA split and TTM P/E ≈ 29.0×, INFQ recast and P/S 60.6×, MSTR mNAV, negative equity, EV ≤ 0, D&A untagged, no dividend vs short bars, a non-tech synthetic company (a one-loss-year industrial for the flag override; a low-margin cyclical below 30 pp) per D32.
+
+**Part 2: Estimates and PEG** — branch `m08-part2`, wave W5, migration `0041_m08_estimates`, D-STO-31, D-UI-38 (Estimates block), DS19 (analyst estimates).
+- Code: `calls/alpha_vantage.py` gains `EARNINGS_ESTIMATES` (key never logged; budget per D-M08-6); `valuation/estimates.py` (snapshot rotation, revisions, breadth, dispersion), `valuation/peg.py`; `calls/calendar.py` (next-report cadence estimate, grade C; M12 later adds IR and vendor dates); `val_pe_fwd`.
+- Table: `estimate_snapshot` (cik, ticker, horizon, period_end, every vendor field, fetched_at). Review kinds: none. UI: "Estimates" block on the Valuation tab.
+- Fixtures: the IBM demo response (byte-exact; FY2026 −0.07% → `flat`, dispersion 4.5%; FY2027 g = 6.8%), a no-coverage reply, a sign-change case, null counts.
+
+## Live checks (owner runs, sends the log)
+- Part 1: `uv run python scripts/run_valuation.py value --no-sec`: 0 SEC or API requests, under a minute. The owner checks the MU 2022–25 rows against stored closes, NVDA ≈ 29×, INFQ P/S, MSTR mNAV, GFS quarterly vs annual, every standard row present (or missing with a reason) for all names, and the cyclical flags with their test values (expected: MU flagged; any non-memory name flagged is checked for D32).
+- Part 2: `uv run python scripts/run_valuation.py estimates --probe INFQ,SPCX,GFS,MU,MSFT`: 5 Alpha Vantage requests, 15 s apart, about 1.5 minutes. The owner checks coverage, fiscal mapping and null fields.
+
+## Open questions
+- Row cadence: one row set per completed week (M09's `technicals/bars.py` close) plus on a new filing, with the tab computing today's line live, is the Part 1 default (daily rows would add about 40 rows per company a day); confirm at the mock-up.
+- NEP endpoint convention (trough years included once) and normalized EPS (average net income ÷ latest diluted shares vs average EPS): Part 1 build decisions.
+- `est_revision` flat band and the "value-trap" percentile line: starting values at build (D6 for any that count).
+- Vote line for M11 (`est_revision` in M11's starting map vs `valuation_multiple`): sitting 5.
+- Every † value: calibration at tuning, not on the watchlist alone (D32).

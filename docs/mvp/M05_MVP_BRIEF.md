@@ -1,4 +1,5 @@
 # M05 Capex & future spend — MVP brief
+**Decided 2026-10-13 → docs/M05_FUTURE_SPEND.md** (D-M05-1…8; Q05.1a–Q05.8a; Q05.4a's M01 rule-4 amendment = D-M01-7; Q05.7a answers M02's open item = D-M02-62). Kept as the sitting record.
 Updated 2026-10-13 · Source: docs/M05_DESIGN_PACK.md (research) · Status: for owner decision (one sitting)
 
 Research signals, not advice. † = starting value, uncalibrated. Every signal is labelled "hypothesis, not backtested".
