@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<edgarSubmission xmlns="http://www.sec.gov/edgar/thirteenffiler" xmlns:com="http://www.sec.gov/edgar/common">
+  <headerData>
+    <submissionType>13F-HR</submissionType>
+    <filerInfo>
+      <liveTestFlag>LIVE</liveTestFlag>
+      <filer>
+        <credentials>
+          <cik>0001067983</cik>
+        </credentials>
+      </filer>
+      <periodOfReport>06-30-2024</periodOfReport>
+    </filerInfo>
+  </headerData>
+  <formData>
+    <coverPage>
+      <reportCalendarOrQuarter>06-30-2024</reportCalendarOrQuarter>
+      <isAmendment>false</isAmendment>
+      <filingManager>
+        <name>Berkshire Hathaway Inc</name>
+        <address>
+          <com:street1>3555 Farnam Street</com:street1>
+          <com:city>Omaha</com:city>
+          <com:stateOrCountry>NE</com:stateOrCountry>
+          <com:zipCode>68131</com:zipCode>
+        </address>
+      </filingManager>
+      <reportType>13F HOLDINGS REPORT</reportType>
+      <form13FFileNumber>028-04545</form13FFileNumber>
+    </coverPage>
+    <summaryPage>
+      <otherIncludedManagersCount>14</otherIncludedManagersCount>
+      <tableEntryTotal>17</tableEntryTotal>
+      <tableValueTotal>219948000000</tableValueTotal>
+      <isConfidentialOmitted>true</isConfidentialOmitted>
+    </summaryPage>
+  </formData>
+</edgarSubmission>

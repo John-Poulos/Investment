@@ -302,7 +302,7 @@ def sync_manager(
         out.status = "failed"
         out.problems.append(f"filing list: {fs}")
         return out
-    out.problems += [f"submissions page {p}" for p in fs.data.failed]
+    out.problems += [f"submissions page {p}" for p in fs.data.pages_failed]
     load_entity(client, engine, m.cik, now)  # name from the cached submissions file
     out.listed_13f = engine.execute(
         "SELECT count(*) FROM filing f JOIN filing_cik c ON c.accession = f.accession WHERE "
@@ -339,11 +339,7 @@ def plan(engine: sqlite3.Connection, m: Manager, ours: dict[str, str], now: date
                    f"(index, cover, table)" + (f" + {refs} reference filing(s) × 3" if refs else "")
                    + f" ≈ {n}+ requests")  # fmt: skip
     detail = json.loads(synced[0] or "{}")
-    pages = (
-        int(detail.get("pages") or 0)
-        - len(detail.get("loaded") or ())
-        - len(detail.get("skipped") or ())
-    )
+    pages = len(detail.get("pages_failed") or ())  # loaded pages are read once, then skipped
     due = thirteenf.due(engine, m.cik, now)
     refs = reference_filings(engine, m.cik) if reference else []
     n = 1 + max(pages, 0) + 3 * (len(due) + len(refs))
@@ -776,6 +772,16 @@ def _fingerprint(engine: sqlite3.Connection, managers: list[Manager], ours: dict
     ).fetchone()
     return json.dumps({"filers": ciks, "f13": list(f13), "hold": list(hold),
                        "ours": sorted(ours), "cfg": cfg.text})  # fmt: skip
+
+
+def record_pass(engine: sqlite3.Connection, managers: list[Manager], ours: dict[str, str],
+                cfg: ManagersConfig, now: datetime) -> None:  # fmt: skip
+    engine.execute(
+        "INSERT INTO refresh_state (name, source_ref, fetched_at, detail) VALUES (?, 'M07', "
+        "?, ?) ON CONFLICT (name) DO UPDATE SET fetched_at = excluded.fetched_at, "
+        "detail = excluded.detail",
+        (PASS_STATE, iso(now), _fingerprint(engine, managers, ours, cfg)),
+    )
 
 
 def run_local_part(

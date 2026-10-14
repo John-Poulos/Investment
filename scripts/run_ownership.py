@@ -4,9 +4,24 @@
     uv run python scripts/run_ownership.py insiders --history --dry-run # count only, 0 requests
     uv run python scripts/run_ownership.py insiders --history           # the 4th year (D-M07-1)
     uv run python scripts/run_ownership.py insiders                     # cache misses + probe
+    uv run python scripts/run_ownership.py managers --dry-run           # count only, 0 requests
+    uv run python scripts/run_ownership.py managers                     # followed managers' 13F
+    uv run python scripts/run_ownership.py managers --no-sec            # signal pass, 0 requests
     uv run python scripts/run_ownership.py --list                       # the subcommand table
 
-Subcommands: insiders (Part 1) · managers (Part 2, not built yet).
+Subcommands: insiders (Part 1) · managers (Part 2).
+
+`managers` (Part 2, D-SEC-28, D-M07-18…): for each manager in `config/m07_managers.toml`
+1. resolves the filer CIK (config; else a stored company of that exact name; else one EDGAR
+   company search — never with `--no-sec` or `--dry-run`);
+2. syncs its filing list (1 submissions request + each older page once) and reads every
+   13F-HR of the last 8 quarters not read yet (index, cover, table: 3 requests each), plus the
+   pack's two Berkshire reference filings (`--no-reference` skips them), behind the
+   keep-filter: only rows of our companies (core, promoted, tracked) are stored; the largest
+   rows left out are listed in the log;
+3. the signal pass (0 requests): `followed_manager_13f` per company and filing day;
+4. the reference: Berkshire → AAPL 2024-06-30, cut 789,368,450 → 400,000,000.
+`--dry-run` prints the request count per manager (0 requests, nothing written).
 
 `insiders` (Part 1), for the core and promoted companies (the tracked tier stores no Form 4s):
 1. Re-parses every stored Form 4 at parser form4-2 (holding lines, D-SEC-27) from the HTTP
@@ -47,9 +62,9 @@ sys.path.insert(0, str(ROOT / "src"))
 
 SUBCOMMANDS = (
     ("insiders", "1", "Form 4 re-parse and history, CMP classes, buy / sale / net-flow signals"),
-    ("managers", "2", "followed managers' 13F (not built)"),
+    ("managers", "2", "followed managers' 13F-HR: filing sync, keep-filter, followed_manager_13f"),
 )
-BUILT = {"insiders"}
+BUILT = {"insiders", "managers"}
 COUNTED = ("form4_doc", "insider_txn", "form4_holding", "insider_class", "signal",
            "refresh_state", "fetch_log")  # fmt: skip
 REFERENCE = (
@@ -102,11 +117,24 @@ def fetch_type(url: str) -> str:
     return "other"
 
 
+def fetch_type_13f(url: str) -> str:
+    if "data.sec.gov/submissions" in url:
+        return "submissions"
+    if "browse-edgar" in url:
+        return "company search"
+    if url.endswith(("-index.htm", "-index.html")):
+        return "13F filing index"
+    if url.endswith(".xml"):
+        return "13F XML (cover, table)"
+    return "other"
+
+
 class CountingLog:
     """Wraps the fetch log: requests sent, cache hits and bytes per fetch type."""
 
-    def __init__(self, inner) -> None:
+    def __init__(self, inner, classify=None) -> None:
         self.inner = inner
+        self.classify = classify or fetch_type
         self.sent: dict[str, int] = defaultdict(int)
         self.cached: dict[str, int] = defaultdict(int)
         self.bytes: dict[str, int] = defaultdict(int)
@@ -114,7 +142,7 @@ class CountingLog:
 
     def write(self, url, outcome, detail, status, from_cache, at) -> None:
         self.inner.write(url, outcome, detail, status, from_cache, at)
-        kind = fetch_type(url)
+        kind = self.classify(url)
         if from_cache:
             self.cached[kind] += 1
             return
@@ -472,6 +500,193 @@ def run_insiders(args, log: Log, folder: Path) -> int:
     return 0
 
 
+# --- managers (Part 2) ---------------------------------------------------------------------
+
+MANAGER_COUNTED = ("filing", "fin_13f", "fin_holding", "signal", "refresh_state", "fetch_log")
+REF_EXPECT = ("Berkshire → AAPL, 13F-HR for 2024-06-30 filed 2024-08-14 (0000950123-24-008740 vs "
+              "0000950123-24-005622): 789,368,450 → 400,000,000 sh, cut −389,368,450 (−49.3%); "
+              "5.15% → 2.63% of shares outstanding (covers 2024-04-19, 2024-07-19)")  # fmt: skip
+
+
+def covered(engine) -> dict[str, str]:
+    """cik → ticker of the core, promoted and tracked companies (the keep-filter's set)."""
+    from engine.themes import tiers
+
+    out = {c: t for t, c in companies(engine).items()}
+    for m in tiers.members(engine):
+        out.setdefault(m.cik, m.ticker)
+    return out
+
+
+def managers_run(
+    engine,
+    ours: dict[str, str],
+    now: datetime,
+    log,
+    *,
+    client=None,
+    dry_run: bool = False,
+    reference: bool = True,
+    path: Path | None = None,
+) -> dict:
+    """The `managers` work on open connections (tests inject scratch DBs and a fake client).
+    `client=None` = no SEC requests (stored data only). Returns a small result dict."""
+    from engine.financing import issuers
+    from engine.ownership import managers as mg
+    from engine.ownership.step import money
+
+    path = path or mg.CONFIG
+    cfg = mg.load_config(path)
+    result: dict = {"planned": 0, "syncs": {}, "pass": None, "managers": []}
+    for p in cfg.problems:
+        log(f"  manager list: {p}")
+    if not cfg.managers:
+        log("", SUMMARY_MARK + " ===", f"No managers in {path}; nothing to do.")
+        return result
+    log(f"1. Managers ({path.name}): {len(cfg.managers)}")
+    resolved = []
+    for m in cfg.managers:
+        r = mg.resolve(engine, m, None if dry_run else client)
+        resolved.append(r)
+        log(f"  {r.name}: CIK {r.cik or '—'} ({r.how})" + (f" · {r.note}" if r.note else "")
+            + (" — write this CIK into the config" if r.cik and r.how != "config"
+               else ""))  # fmt: skip
+    result["managers"] = resolved
+    log('  "CEO of equity": not identified (DESIGN Q3, D-M07-7); not followed', "")
+    cmap, cprob = mg.cusip_targets(engine, cfg, ours)
+    for p in cprob:
+        log(f"  {p}")
+
+    if dry_run:
+        log("Dry run: requests the sync would send (0 requests now, nothing written)")
+        total = 0
+        for m in resolved:
+            n, how = mg.plan(engine, m, ours, now, reference=reference)
+            total += n
+            log(f"  {m.name}: {how}")
+        result["planned"] = total
+        log("", SUMMARY_MARK + " ===",
+            f"Manager sync would send about {total} SEC requests (~{total / 5:.0f} s at 5/s) for "
+            f"{len(resolved)} manager(s) (+1 company search per manager without a CIK).",
+            "Run it: uv run python scripts/run_ownership.py managers")  # fmt: skip
+        return result
+
+    # 2. filing sync and 13F reads
+    if client is None:
+        log("2. Filing sync: skipped (--no-sec); stored 13F rows only", "")
+    else:
+        log(f"2. Filing sync and 13F-HR reads (last {mg.thirteenf.QUARTERS} quarters"
+            + (", plus the pack's reference filings" if reference else "") + ")")  # fmt: skip
+        names = issuers.Names(engine)
+        t0 = time.monotonic()
+        for m in resolved:
+            s = mg.sync_manager(client, engine, m, ours, cmap, names, now, reference=reference)
+            result["syncs"][m.name] = s
+            log(f"  {m.name}: {s.status}; 13F-HR filings listed {s.listed_13f}; read now "
+                f"{len(s.reads)}")  # fmt: skip
+            for r in s.reads:
+                log(f"    {r.form} {r.accession} filed {r.filed}: {r.kept} row(s) of ours stored "
+                    f"({r.held} held by a check, {r.unresolved} unresolved), {r.skipped} not ours "
+                    "(not stored)")  # fmt: skip
+                for p in r.problems:
+                    log(f"    FAILED {p}" if "throttle" in p else f"    problem: {p}")
+            for p in s.problems:
+                log(f"    problem: {p}")
+            top = sorted(s.skipped_rows, key=lambda x: -x.value)[:10]
+            if top:
+                log(f"    largest rows not stored (not ours; kept in this log only), "
+                    f"{len(s.skipped_rows)} in all:")  # fmt: skip
+                for x in top:
+                    log(f"      {x.issuer} · {x.title} · CUSIP {x.cusip}"
+                        + (f" · {x.put_call}" if x.put_call else "")
+                        + f" · {money(x.value)}")  # fmt: skip
+            if s.throttled:
+                log("  SEC throttle: stopped; re-run later (every step is safe to repeat)")
+                break
+        log(f"  ({time.monotonic() - t0:.1f} s)", "")
+
+    # 3. signal pass (local)
+    followed = [m for m in resolved if m.cik]
+    sp = mg.signal_pass(engine, followed, ours)
+    mg.record_pass(engine, followed, ours, cfg, now)
+    result["pass"] = sp
+    log(f"3. Signal pass (0 requests): {sum(len(v) for v in sp.events.values())} event(s) on "
+        f"{sp.days} company-day(s); `followed_manager_13f` rows written {sp.written}, removed "
+        f"{sp.deleted}")  # fmt: skip
+    for m in followed:
+        ps = mg.periods(engine, m.cik)
+        log(f"  {m.name}: {len(ps)} quarter(s) stored"
+            + (f", {ps[0].period} (baseline) to {ps[-1].period}" if ps else ""))  # fmt: skip
+        for cik, evs in sorted(sp.events.items(), key=lambda kv: ours.get(kv[0], kv[0])):
+            for e in evs:
+                if e.filer == m.cik:
+                    log(f"    {ours.get(cik) or cik} {e.line()}")
+        held = engine.execute(
+            "SELECT issuer_name, cusip, period, status, check_note FROM fin_holding WHERE "
+            "source = '13F' AND filer_cik = ? AND status IN ('held', 'unresolved') ORDER BY period",
+            (m.cik,),
+        ).fetchall()
+        for h in held:
+            log(f"    {h['status']}: {h['issuer_name']} (CUSIP {h['cusip']}) {h['period']} — "
+                f"{h['check_note'] or 'no note'}")  # fmt: skip
+    log("")
+
+    # 4. reference
+    log("4. Reference (pack, S243): " + REF_EXPECT)
+    ref = next((e for e in sp.events.get("0000320193", []) if e.filer == mg.BERKSHIRE
+                and e.period == "2024-06-30"), None)  # fmt: skip
+    ref_line = ("  found: " + ref.line()) if ref else (
+        "  found: not stored (Berkshire not synced, AAPL not covered, or the reference filings "
+        "not read)")  # fmt: skip
+    log(ref_line, "")
+    log(SUMMARY_MARK + " ===",
+        "Managers: " + "; ".join(f"{m.name} {m.cik or 'unresolved'}" for m in resolved),
+        *(f"  {n}: {s.status}, {len(s.reads)} 13F-HR read, "
+          f"{sum(r.kept for r in s.reads)} rows of ours stored, "
+          f"{sum(r.skipped for r in s.reads)} not ours" for n, s in result["syncs"].items()),
+        f"Signal rows written {sp.written}, removed {sp.deleted}",
+        ref_line.strip())  # fmt: skip
+    return result
+
+
+def run_managers(args, log: Log, folder: Path) -> int:
+    from engine.store.db import open_db
+    from engine.store.http import SqliteFetchLog
+
+    engine = open_db("engine", folder)
+    corpus = open_db("corpus", folder, check_same_thread=False)
+    now = datetime.now(UTC)
+    mb_before = db_mb(folder)
+    before = {t: engine.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in MANAGER_COUNTED}
+    ours = covered(engine)
+    mode = "dry run" if args.dry_run else "no SEC" if args.no_sec else "SEC"
+    log(f"run_ownership managers · {now:%Y-%m-%d %H:%M} UTC · {len(ours)} covered companies · "
+        f"{mode}" + ("" if args.no_reference else " · reference filings on"),
+        f"engine.db before: {mb_before:,.1f} MB", "")  # fmt: skip
+    client = clog = None
+    if not (args.no_sec or args.dry_run):
+        from engine.sec.client import SecClient, user_agent_from_env
+        from engine.store.http import SqliteCache
+
+        clog = CountingLog(SqliteFetchLog(engine), classify=fetch_type_13f)
+        client = SecClient(user_agent_from_env(), cache=SqliteCache(corpus), log=clog)
+    t0 = time.monotonic()
+    managers_run(engine, ours, now, log, client=client, dry_run=args.dry_run,
+                 reference=not args.no_reference)  # fmt: skip
+    if clog is not None:
+        clog.seconds["total"] = time.monotonic() - t0
+        log(*clog.lines())
+    else:
+        log("SEC requests: 0 (" + ("--dry-run" if args.dry_run else "--no-sec") + ")")
+    after = {t: engine.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in MANAGER_COUNTED}
+    log("Rows added per table: " + ", ".join(f"{t} {after[t] - before[t]:+,}"
+                                             for t in MANAGER_COUNTED))  # fmt: skip
+    log(f"engine.db: {mb_before:,.1f} MB → {db_mb(folder):,.1f} MB")
+    corpus.close()
+    engine.close()
+    return 0
+
+
 def _main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("subcommand", nargs="?", choices=[s for s, _, _ in SUBCOMMANDS])
@@ -481,6 +696,9 @@ def _main() -> int:
     ap.add_argument("--dry-run", action="store_true",
                     help="with --history: print the exact request count only")  # fmt: skip
     ap.add_argument("--no-probe", action="store_true", help="skip the Massive probe request")
+    ap.add_argument("--no-reference", action="store_true",
+                    help="managers: skip the pack's two Berkshire reference 13F-HRs "
+                         "(6 requests)")  # fmt: skip
     ap.add_argument("--tickers", help="comma-separated subset (default: core + promoted)")
     ap.add_argument("--list", action="store_true", help="print the subcommand table")
     args = ap.parse_args()
@@ -500,6 +718,8 @@ def _main() -> int:
     log = Log(ROOT / "logs" / f"ownership_{args.subcommand}_{stamp}.txt")
     print(f"run_ownership {args.subcommand}: working; full detail goes to {log.path}")
     try:
+        if args.subcommand == "managers":
+            return run_managers(args, log, data_dir())
         return run_insiders(args, log, data_dir())
     except Exception:
         log("FAILED with a traceback:", traceback.format_exc())

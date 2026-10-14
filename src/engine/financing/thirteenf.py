@@ -332,19 +332,32 @@ def _close(engine: sqlite3.Connection, cik: str | None, period: str) -> float | 
     return float(row[0]) if row and row[0] is not None else None
 
 
-def _prior_shares(engine, cik: str, cusip: str, period: str) -> float | None:
+def _prior_shares(
+    engine, cik: str, cusip: str, period: str, put_call: str = "", issuer_cik: str | None = None
+) -> float | None:
+    """The prior quarter's shares of the same kind of row (a call row is not compared with
+    the common shares, D-M07-19), scaled by the issuer's splits between the two quarters."""
     row = engine.execute(
-        "SELECT shares FROM fin_holding WHERE source = '13F' AND filer_cik = ? AND cusip = ? "
-        "AND period < ? AND status != 'wrong' ORDER BY period DESC LIMIT 1",
-        (cik, cusip, period),
+        "SELECT shares, period FROM fin_holding WHERE source = '13F' AND filer_cik = ? AND "
+        "cusip = ? AND put_call = ? AND period < ? AND status != 'wrong' ORDER BY period DESC "
+        "LIMIT 1",
+        (cik, cusip, put_call or "", period),
     ).fetchone()
-    return float(row[0]) if row and row[0] is not None else None
+    if not row or row[0] is None:
+        return None
+    if not issuer_cik:
+        return float(row[0])
+    from engine.financials.shares import splits_after
+
+    before, _ = splits_after(engine, issuer_cik, row[1])
+    after, _ = splits_after(engine, issuer_cik, period)
+    return float(row[0]) * (before / after if after else 1.0)
 
 
 def checks(engine, cik: str, row: Row, issuer_cik: str | None, period: str) -> list[str]:
     """Why a row is held (empty = passes)."""
     out = []
-    prior = _prior_shares(engine, cik, row.cusip, period)
+    prior = _prior_shares(engine, cik, row.cusip, period, row.put_call, issuer_cik)
     if prior and row.shares and row.shares > JUMP * prior:
         out.append(f"shares {row.shares:,.0f} > {JUMP}× the prior quarter's {prior:,.0f}")
     price = None if row.put_call or row.share_type == "PRN" else _close(engine, issuer_cik, period)
