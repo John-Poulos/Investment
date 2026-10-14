@@ -178,7 +178,7 @@ def _sig_rows(
                 "display only: never a trigger, never a vote (D-M09-2 amendment)",
             ]
         elif s == "trend_state" and tr is not None:
-            row.value, row.state = f"{tr.value:+d}", o.text
+            row.value, row.state = (f"{tr.value:+d}" if tr.value else "0"), o.text
             row.details = [
                 f"40-week MA {tr.ma:.2f}, ma_distance {tr.ma_distance:+.1%}",
                 f"slope {tr.slope:+.2%} over {p.slope_weeks} weeks; position {tr.position}"

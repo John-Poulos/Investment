@@ -389,7 +389,7 @@ def test_rule1_texts_and_tracked_names(dbs):
     engine, _ = dbs
     m04(engine, MU, "warn")
     rd = m01_rules.read_m04(engine, MU)
-    assert "cvd_state missing: Part 8a not built" in m01_rules.rule1(rd).text
+    assert "cvd_state missing: no cvd_state row" in m01_rules.rule1(rd).text
     assert m01_rules.m04_line(rd).startswith("gate warn (2026-08-01), filing current")
     trk = m01_rules.read_m04(engine, MU, covered=False)
     assert m01_rules.rule1(trk).text.startswith("qualification: not covered by M04 (D-M04-80)")
@@ -444,7 +444,7 @@ def test_pass_writes_five_rows_per_timeframe_with_info_and_sources(dbs):
         assert " v1" in r["method"] and r["ticker"] == "NVDA"
     assert got["band_z"]["value_text"] == "above_1"  # steady rise: top of the log band
     assert "upper extreme — information" in got["band_z"]["method"]
-    assert "qualification incomplete (cvd_state missing: Part 8a not built" in \
+    assert "qualification incomplete (cvd_state missing: no cvd_state row" in \
         got["band_z"]["method"]  # fmt: skip
     assert got["trend_state"]["value"] == 1 and got["trend_state"]["value_text"] == "up"
     assert got["mom_12_1"]["value_text"] == "positive"

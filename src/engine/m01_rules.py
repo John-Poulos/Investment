@@ -36,7 +36,7 @@ from engine.sec.identity import normalize_cik
 
 PASS = ("pass", "warn")
 DAMAGE = ("STRUCTURAL_DECLINE", "CYCLE_PLUS_DAMAGE")
-NO_CVD = "Part 8a not built"  # the reason while no `cvd_state` row exists
+NO_CVD = "no cvd_state row (the M04 CvD pass has not run for this name)"  # Part 8a merged
 # An active grid with a question below 2 present rows (D-M04-102): the row carries the text
 # with a "missing: …" method; read as no state yet (D-M09-15).
 INSUFFICIENT = "insufficient_data"
@@ -149,7 +149,7 @@ def guidance_removed(engine: sqlite3.Connection, cik: str, as_of: str | None) ->
 
 
 def m04_line(r: M04Rows) -> str:
-    """ "gate warn (2026-08-01), filing current, cvd_state missing: Part 8a not built"."""
+    """ "gate warn (2026-08-01), filing current, cvd_state NO_SLOWDOWN (2026-08-01)"."""
     parts = []
     if r.gate is None:
         parts.append("gate missing")
