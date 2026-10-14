@@ -9,6 +9,7 @@
   --warn: #854f0b; --warn-bg: #faeeda;
   --flag: #8a8983; --hl: #fff2a8;
   --band: #7a4fb0; --ma: #b7791f;
+  --band-fill-2: rgba(122, 79, 176, 0.07); --band-fill-1: rgba(122, 79, 176, 0.09); /* σ zones, stacked */
   --radius: 6px;
   --font: "Segoe UI", system-ui, sans-serif; --mono: Consolas, ui-monospace, monospace;
 }
@@ -22,6 +23,7 @@
     --warn: #fac775; --warn-bg: #412402;
     --flag: #85847d; --hl: #5c4a00;
     --band: #b799e0; --ma: #e0a84a;
+    --band-fill-2: rgba(183, 153, 224, 0.08); --band-fill-1: rgba(183, 153, 224, 0.10);
   }
 }
 * { box-sizing: border-box; }

@@ -9,17 +9,18 @@ follow in later steps.
 
 from __future__ import annotations
 
+import hashlib
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -50,6 +51,7 @@ from engine.ui.settings import UiSettings
 from engine.ui.viewer import Viewer, current_viewer, require_owner
 
 HERE = Path(__file__).parent
+STATIC = HERE / "static"
 EXPECTED_OUTPUT_TOKENS = 1500  # allowance for the cost estimate (reply + thinking)
 
 
@@ -103,6 +105,34 @@ NOT_BUILT = {
 }
 
 
+class RevalidatedStatic(StaticFiles):
+    """/static with `Cache-Control: no-cache`: the browser asks again (ETag, 304) instead of
+    reusing an old chart.js or app.css on its own heuristic (D-UI-35 live check 1)."""
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Response:
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+
+def static_versions(root: Path = STATIC) -> dict[str, str]:
+    """Published path -> short content hash of every static file, computed once at start."""
+    return {f.relative_to(root).as_posix(): hashlib.sha256(f.read_bytes()).hexdigest()[:10]
+            for f in sorted(root.rglob("*")) if f.is_file()}  # fmt: skip
+
+
+def static_url_for(versions: dict[str, str]) -> Callable[[str], str]:
+    """`static("chart.js")` -> "/static/chart.js?v=<hash>": a changed file is a new URL, so
+    the browser loads it after a restart of the app (cache-busting, D-UI-35)."""
+
+    def static(path: str) -> str:
+        if path not in versions:
+            raise KeyError(f"no static file {path}")
+        return f"/static/{quote(path)}?v={versions[path]}"
+
+    return static
+
+
 def fmt_number(value: object, unit: str = "currency") -> str:
     """Display a stored value; None stays '—' (missing is never zero)."""
     if value is None:
@@ -146,8 +176,9 @@ OwnerDep = Annotated[Viewer, Depends(require_owner)]
 
 def create_app(settings: UiSettings) -> FastAPI:
     app = FastAPI(title="Investment engine", docs_url=None, redoc_url=None)
-    app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
+    app.mount("/static", RevalidatedStatic(directory=STATIC), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
+    templates.env.globals["static"] = static_url_for(static_versions())  # cache-busting
     templates.env.filters["num"] = fmt_number
     templates.env.globals["source_label"] = source_label  # D-M02-21 labels
     templates.env.globals["is_sec"] = is_sec

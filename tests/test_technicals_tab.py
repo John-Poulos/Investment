@@ -443,3 +443,81 @@ def test_overview_row_reads_the_newest_stored_rows(dbs):
     r = views.overview_row(engine, tt.SPCX)
     assert r["as_of"] == tt.LAST_FRIDAY
     assert r["band_z"]["missing"] == "insufficient_history (18/20)"
+
+
+# --- live check 1: cache-busted static files, long histories (D-UI-35) -------------------------
+
+
+def test_static_urls_are_versioned_and_revalidated(tmp_path, monkeypatch):
+    import re
+
+    from engine.ui import app as app_mod
+
+    def fill(engine, corpus):
+        tt.put_weeks(engine, "MSTR", tt.uptrend(30), cik=tt.MSTR)
+
+    with _app(tmp_path, monkeypatch, fill, {"MSTR": tt.MSTR}) as c:
+        page = c.get("/c/MSTR?tab=overview").text
+        themes_page = c.get("/themes").text
+        urls = re.findall(r'(?:href|src)="(/static/[^"]+)"', page)
+        got = {u: c.get(u) for u in urls}
+        plain = c.get("/static/chart.js")
+    versions = app_mod.static_versions()
+    assert len(urls) == 3  # app.css, the vendor bundle, chart.js
+    for u, r in got.items():
+        path, _, v = u.removeprefix("/static/").partition("?v=")
+        assert re.fullmatch(r"[0-9a-f]{10}", v) and versions[path] == v, u
+        assert r.status_code == 200 and r.headers["cache-control"] == "no-cache"
+    assert f'href="/static/app.css?v={versions["app.css"]}"' in themes_page
+    assert plain.headers["cache-control"] == "no-cache" and plain.headers["etag"]
+    # a changed file is a new URL
+    (tmp_path / "s").mkdir()
+    f = tmp_path / "s" / "chart.js"
+    f.write_text("a", encoding="utf-8")
+    before = app_mod.static_url_for(app_mod.static_versions(tmp_path / "s"))("chart.js")
+    f.write_text("b", encoding="utf-8")
+    after = app_mod.static_url_for(app_mod.static_versions(tmp_path / "s"))("chart.js")
+    assert before != after and before.startswith("/static/chart.js?v=")
+    with pytest.raises(KeyError):
+        app_mod.static_url_for(versions)("missing.js")
+
+
+def test_shading_colours_and_primitive_are_shipped():
+    from engine.ui.app import STATIC
+
+    css = (STATIC / "app.css").read_text(encoding="utf-8")
+    js = (STATIC / "chart.js").read_text(encoding="utf-8")
+    for var in ("--band-fill-2", "--band-fill-1"):
+        assert css.count(f"{var}:") == 2, var  # light and dark (D-UI-5)
+        assert f'"{var}"' in js
+    assert "attachPrimitive" in js and ".catch(" in js and "FALLBACK" in js
+
+
+def test_overlay_api_on_a_long_split_adjusted_series(tmp_path, monkeypatch):
+    import math
+
+    n = 2000  # ~38 years of weeks; split-adjusted closes start near 0.1 (AAPL, MU)
+    closes = [0.1 * 1.004**k * (1 + 0.05 * math.sin(k / 3)) for k in range(n)]
+
+    def fill(engine, corpus):
+        tt.put_weeks(engine, "AAPL", closes, cik="0000320193")
+
+    with _app(tmp_path, monkeypatch, fill, {"AAPL": "0000320193"}) as c:
+        got = {b: (c.get(f"/api/overlay/AAPL?bar={b}"), c.get(f"/api/bars/AAPL?bar={b}").json())
+               for b in ("D", "W")}  # fmt: skip
+    for b, (r, chart) in got.items():
+        assert r.status_code == 200, b
+        s = r.json()["series"]
+        times = {x["time"] for x in chart["bars"]}
+        # daily: from week 20's Friday on, plus the partial week's sessions (stepped)
+        want = n - 19 if b == "W" else 1 + 5 * (n - 20) + len(tt.PARTIAL)
+        assert len(s["mean"]) == want, b
+        assert len(s["ma"]) == len(s["mean"]) - (20 if b == "W" else 100), b
+        for k, pts in s.items():
+            ts = [p["time"] for p in pts]
+            assert ts == sorted(set(ts)) and set(ts) <= times, (b, k)
+            assert all(math.isfinite(p["value"]) for p in pts), (b, k)
+        for i in range(len(s["mean"])):
+            row = [s[k][i]["value"] for k in ("p2", "p1", "mean", "m1", "m2")]
+            assert row == sorted(row, reverse=True)
+        assert s["mean"][0]["value"] < 0.2 and s["mean"][-1]["value"] > 100

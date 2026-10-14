@@ -81,6 +81,7 @@ Updated: 2026-10-13 · Read at the start of every module build. One line each, w
 - Show basis or labels only when the source stated them; store `unspecified` (D-SRCH-20).
 - Review policy: real information the program cannot store yet stays open for its future module (D-UI-15).
 - Never re-case names ("NVIDIA CORP" → "Nvidia Corp" by title-casing): show the SEC registry name when resolved, else the name as the filing states it (D-M02-46).
+- Static assets are cache-busted: templates link them through `static('…')` (`/static/<file>?v=<content hash>`, computed at app start) and `/static` sends `Cache-Control: no-cache`; a bare `/static/…` link let the browser reuse an old chart.js after a code change (M09 Part 2 live check 1, D-UI-35).
 
 ## Process
 - A store of code-found passages needs a re-read path from day one: rules change after every live log; keep first-seen dates and never delete an answer key (D-M02-37, D-M02-40).
