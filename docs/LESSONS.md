@@ -88,6 +88,7 @@ Updated: 2026-10-13 · Read at the start of every module build. One line each, w
 - Mock up each screen with real stored data before building it (D-UI-4).
 - Regex and `\n` edits through shell (sed, heredoc Python) lose their backslashes — hit twice more in part 5b; use the Edit tool for any string with a backslash.
 - Windows PowerShell 5.1 `Set-Content -Encoding utf8` adds a BOM and mangles non-ASCII read through the console code page (part 6, twice); edit with the Edit tool or a Python script file, never PowerShell text cmdlets.
+- PowerShell double-quoted here-strings (`@" … "@`) eat backticks (Markdown code marks in docstrings vanish) and expand `$`; a scripted replace uses single-quoted `@' … '@` or the Edit tool (M09 Part 2).
 - Python's `Path.write_text` on Windows writes CRLF (text mode translates `\n`); a scripted edit then turns an LF file into CRLF. Pass `newline="\n"` (M04 Part 4a).
 - Quarter fixtures must be entered as filed: 10-Q cash flows are year-to-date, and the engine derives Q4 as fiscal year − nine months; discrete 3-month facts for Q2–Q3 leave Q4 and TTM underivable (M04 Part 4a).
 - A scheduled job's lock needs an owner and a heartbeat, not an age: a task killed at its limit leaves the file behind (D-M02-51, -53).
