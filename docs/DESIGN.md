@@ -19,7 +19,7 @@ Updated 2026-10-12 · Basis: investment_strategy.txt (a guideline, not a spec) �
 - The engine produces signals and warnings; the owner makes final calls (D8, D16).
 
 ## Docs
-In docs/: DESIGN.md · SOURCES.md · DATA_SOURCES.md (data needs & gaps register) · LESSONS.md (cross-module lessons, read at every build) · M04_BUILD_LOG.md (M04 build parts) · M02_BUILD_LOG.md (M02 build parts and notes) · MODULE_TEMPLATE.md · M00_SEC_DATA.md · M00_STORAGE.md · M00_SEARCH.md · M00_UI.md · M01_TIMEFRAMES.md · M02_THEMES.md · M04_FINANCIALS.md · M07_OWNERSHIP.md · M09_TECHNICALS.md · mvp/ (MVP_PLAN.md, the M0x_MVP_BRIEF.md briefs) · Repo root: CLAUDE.md (Claude Code memory; loads DESIGN.md)
+In docs/: DESIGN.md · SOURCES.md · DATA_SOURCES.md (data needs & gaps register) · LESSONS.md (cross-module lessons, read at every build) · M04_BUILD_LOG.md (M04 build parts) · M02_BUILD_LOG.md (M02 build parts and notes) · MODULE_TEMPLATE.md · M00_SEC_DATA.md · M00_STORAGE.md · M00_SEARCH.md · M00_UI.md · M01_TIMEFRAMES.md · M02_THEMES.md · M04_FINANCIALS.md · M05_FUTURE_SPEND.md · M07_OWNERSHIP.md · M08_VALUATION.md · M09_TECHNICALS.md · mvp/ (MVP_PLAN.md, the M0x_MVP_BRIEF.md briefs) · Repo root: CLAUDE.md (Claude Code memory; loads DESIGN.md)
 
 ## Scope and data
 - **S1** v1 covers US-listed equities and options. Crypto is out of scope.
@@ -50,10 +50,10 @@ In docs/: DESIGN.md · SOURCES.md · DATA_SOURCES.md (data needs & gaps register
 | M02 | Investment area & money flow | M02_THEMES.md |
 | M03 | Leaders & S-curve | — |
 | M04 | Financials & red flags | M04_FINANCIALS.md |
-| M05 | Capex & future spend | — |
+| M05 | Capex & future spend | M05_FUTURE_SPEND.md |
 | M06 | Moat | — |
 | M07 | Ownership & insiders | M07_OWNERSHIP.md |
-| M08 | Sentiment & valuation | — |
+| M08 | Sentiment & valuation | M08_VALUATION.md |
 | M09 | Technicals | M09_TECHNICALS.md |
 | M10 | Macro & narrative | — |
 | M11 | Thesis, sizing & killswitch | — |
@@ -74,6 +74,7 @@ In docs/: DESIGN.md · SOURCES.md · DATA_SOURCES.md (data needs & gaps register
 - **D28** Grounded pipeline revised (owner 2026-10-07): Python searches and extracts; Gemini runs only on request, on the refined data set, to find trends; every output carries verifiable sources to the user (M00_SEARCH D-SRCH-6…9).
 - **D29** UI per M00_UI.md (owner approved 2026-10-08, was P10): local Python-rendered web app (FastAPI, Jinja2, htmx, Lightweight Charts), this PC only, shareability rules U1–U7; Tiingo free tier for daily prices. (P10)
 - **D31** MVP path (owner, 2026-10-13): build every module at a basic level first (2–4 signals each, on stored data, same storage and evidence rules), then use the engine and return for tuning, calibration and the deferred parts; design packs are research, cut to an MVP brief per module and decided in one owner sitting each. M04 MVP core = Parts 0–4a, 6, 7a done + 4b-lite + 8a; 5, 7b, 8b deferred.
+- **D32** Generalise beyond the watchlist (owner, 2026-10-13, sitting 2): the engine must work for companies outside today's small, mostly-tech watchlist. Standard, widely used measures are always computed and shown for every company (e.g. M08's P/E, EV/EBITDA, P/B, yields), and stage-, model- or industry-specific routing changes only which measure is the headline and its weight, never what is shown (D10). Thresholds are sourced starting values (†), never tuned on the watchlist alone; every brief and module doc flags a rule whose evidence is tech-only (or one industry or one company) as a D9 failure mode. First applied in M08 (D-M08-1) and M05.
 - **D30** M02 design per M02_THEMES.md D-M02-5…16 (owner, design review 2026-10-08/09): capex guidance positive for spender and suppliers; call guidance via Alpha Vantage, else IR documents honouring site terms (browser-download inbox); supplier evidence ladder L0–L3 first; code mines phrases, Gemini names and labels, owner confirms; capped per-item digest with crowding flag; tracked tier (toml core + promoted); tracked prices in a 3-day rotation (PC off overnight); Finnhub/Massive + IR RSS + 11 trade-press feeds + arXiv/USAspending/Federal Register/Congress.gov; 8 seed themes; build parts 1–7.
 
 ## Approved revisions for modules without docs yet
