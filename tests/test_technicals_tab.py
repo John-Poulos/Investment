@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime
+
+import pytest
 
 from engine import m01_rules
 from engine.financials import cvd
-from engine.technicals import earnings, step
+from engine.technicals import bands, earnings, step, views
 from tests import test_financials_8a as t8a
 from tests import test_technicals as tt
 
@@ -267,3 +270,176 @@ def test_script_lists_6k_news_and_listed_6ks(dbs, tmp_path):
     news = text.split("News moves", 1)[1].split("6-Ks in the rev_1m window", 1)
     assert "GFS: 6-K 0001709048-26-000040" in news[0]
     assert "GFS: 6-K item 6-K 0001709048-26-000041" in news[1].split("Pack checkpoints")[0]
+
+
+# --- chart overlays (D-M09-2 amendment, D-M09-17) ---------------------------------------------
+
+
+def test_weekly_overlay_latest_week_equals_the_stored_price_band_row(dbs):
+    engine, _ = dbs
+    closes = tt.uptrend(60)
+    tt.put_weeks(engine, "NVDA", closes, cik=tt.NVDA)  # + a partial week far off the band
+    tt.run_pass(engine, {"NVDA": tt.NVDA})
+    ov = views.overlay(engine, "NVDA", tt.NVDA, "W", tt.NOW, tt.P, tt.NO_MODELS)
+    assert ov["as_of"] == tt.LAST_FRIDAY and ov["bar"] == "W"
+    s = ov["series"]
+    assert len(s["mean"]) == 60 - 19 and len(s["ma"]) == 60 - 39
+    assert s["mean"][-1]["time"] == "2026-10-05"  # the chart's Monday key; partial week: none
+    stored = tt.rows(engine, tt.NVDA, "price_band")[0]
+    assert s["mean"][-1]["value"] == pytest.approx(stored["value"], abs=1e-4)
+    b = bands.band_at(closes)
+    lv = b.levels()
+    for k, key in (("m2", "-2"), ("m1", "-1"), ("p1", "+1"), ("p2", "+2")):
+        assert s[k][-1]["value"] == pytest.approx(lv[key], abs=1e-4)
+        assert f"{lv[key]:.2f}" in stored["method"]
+    assert s["ma"][-1]["value"] == pytest.approx(sum(closes[-40:]) / 40, abs=1e-4)
+    assert s["mean"][0]["time"] == "2025-12-29"  # week 20 of 60 (Monday key)
+
+
+def test_daily_overlay_steps_on_completed_weeks(dbs):
+    engine, _ = dbs
+    closes = tt.uptrend(60)
+    tt.put_weeks(engine, "NVDA", closes, cik=tt.NVDA)
+    ov = views.overlay(engine, "NVDA", tt.NVDA, "D", tt.NOW, tt.P, tt.NO_MODELS)
+    ma = {p["time"]: p["value"] for p in ov["series"]["ma"]}
+    last = sum(closes[-40:]) / 40
+    prev = sum(closes[-41:-1]) / 40
+    assert ma["2026-10-09"] == pytest.approx(last, abs=1e-4)  # Friday completes the week
+    assert ma["2026-10-08"] == pytest.approx(prev, abs=1e-4)  # Thursday: last week's MA
+    assert ma["2026-10-05"] == pytest.approx(prev, abs=1e-4)
+    assert ma["2026-10-13"] == pytest.approx(last, abs=1e-4)  # partial week: the newest MA
+    mean = {p["time"]: p["value"] for p in ov["series"]["mean"]}
+    assert mean["2026-10-12"] == mean["2026-10-09"]
+    assert "2026-01-02" in mean and "2026-01-01" not in mean  # first band on week 20's Friday
+
+
+def test_overlay_without_bars_and_with_a_shell_cut_off(dbs):
+    engine, _ = dbs
+    ov = views.overlay(engine, "NONE", None, "W", tt.NOW, tt.P, tt.NO_MODELS)
+    assert ov["as_of"] is None and all(not x for x in ov["series"].values())
+    tt.put_weeks(engine, "INFQ", [10.0 + (k % 3) for k in range(80)], cik=tt.INFQ)
+    ov = views.overlay(engine, "INFQ", tt.INFQ, "W", tt.NOW, tt.P, tt.infq_models())
+    assert ov["cut_off"] == "2026-02-13"
+    assert ov["series"]["mean"][0]["time"] >= "2026-02-09" and not ov["series"]["ma"]
+
+
+# --- the Technicals tab (D-UI-35) ---------------------------------------------------------------
+
+
+def _app(tmp_path, monkeypatch, fill, tickers):
+    from fastapi.testclient import TestClient
+
+    from engine.store.db import open_db
+    from engine.ui import app as app_mod
+    from engine.ui.settings import UiSettings
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return tt.NOW if tz else tt.NOW.replace(tzinfo=None)
+
+    monkeypatch.setattr(app_mod, "datetime", Clock)
+    data = tmp_path / "data"
+    engine = open_db("engine", data)
+    corpus = open_db("corpus", data)
+    for t, cik in tickers.items():
+        engine.execute("INSERT OR IGNORE INTO ticker (ticker, cik, valid_from, source) VALUES "
+                       "(?, ?, '2000-01-01', 't')", (t, cik))  # fmt: skip
+    fill(engine, corpus)
+    engine.commit()
+    corpus.commit()
+    engine.close()
+    corpus.close()
+    watch = tmp_path / "watchlist.toml"
+    watch.write_text(f"[watchlist]\ntickers = {list(tickers)!r}\n".replace("'", '"'),
+                     encoding="utf-8")  # fmt: skip
+    return TestClient(app_mod.create_app(UiSettings(data_dir=data, watchlist=watch)))
+
+
+def test_technicals_tab_renders_signals_history_r17_and_6k_news(tmp_path, monkeypatch):
+    MSTR, SPCX = tt.MSTR, tt.SPCX
+
+    def fill(engine, corpus):
+        closes = tt.uptrend(60, g=0.995) + [40.0]  # a sharp drop below the band
+        tt.put_weeks(engine, "MSTR", closes, cik=MSTR)
+        tt.m04(engine, MSTR, "pass", cvd="CYCLICAL_TROUGH")
+        tt.put_weeks(engine, "SPCX", tt.uptrend(18), cik=SPCX)
+        tt.put_weeks(engine, "GFS", [100.0] * 30 + tt.rev_closes(), cik=GFS)
+        six_k(engine, "0001709048-26-000040", "2026-09-29", "2026-09-29T07:00:00.000Z")
+        doc(corpus, "0001709048-26-000040", "gfs-ex991.htm", RELEASE)
+        tt.put_weeks(engine, "SPY", tt.uptrend(60, start=500, g=1.003))
+        step.technicals_pass(engine, {"MSTR": MSTR}, tt.NOW, params=tt.P, mf=tt.NO_MODELS)
+
+    with _app(tmp_path, monkeypatch, fill, {"MSTR": MSTR, "SPCX": SPCX, "GFS": GFS}) as c:
+        html = c.get("/c/MSTR?tab=technicals").text
+        spcx = c.get("/c/SPCX?tab=technicals").text
+        gfs = c.get("/c/GFS?tab=technicals").text
+        over = c.get("/c/MSTR?tab=overview").text
+        chart = c.get("/c/MSTR?tab=technicals&bar=W").text
+        ov = c.get("/api/overlay/MSTR?bar=W").json()
+    for want in (
+        "Technicals (M09) — MSTR",
+        "Newest completed week 2026-10-09",
+        "qualified (gate pass, filing current, CvD CYCLICAL_TROUGH)",
+        "M04 reading: gate pass (2026-08-01), filing current, cvd_state CYCLICAL_TROUGH",
+        "beyond 2σ: stronger",
+        "R17: decline risk: about 40% of Russell 3000 stocks",
+        "below_2",
+        "pullback_sigma",
+        "falling-knife context",
+        "−2σ",
+        "40-week MA",
+        "SPY trend up (2026-10-09",
+        "SPY 12-1 +",
+        "turnover not checked (deferred)",
+        "stored row 2026-10-09 matches",
+        "Last 12 completed weeks",
+        "✓ lead (timing)",
+    ):
+        assert want in html, want
+    assert "object at 0x" not in html and "None" not in html.split("Last 12")[1]
+    assert html.count("<tr>") >= 12
+    for want in ("missing: insufficient_history (18/20)", "missing: insufficient_history (18/45)",
+                 "not stored yet", "qualification incomplete (survival_gate missing"):  # fmt: skip
+        assert want in spcx, want
+    assert "object at 0x" not in spcx
+    assert "news_move" in gfs and "earnings-release exhibit EX-99.1 gfs-ex991.htm" in gfs
+    assert "drift expected" in gfs and "object at 0x" not in gfs
+    assert "Technicals (M09)" in over and "band" in over and "below_2" in over
+    assert "?tab=technicals" in over
+    assert 'id="ov-band"' in chart and 'id="ov-ma"' in chart
+    assert ov["as_of"] == "2026-10-09" and ov["series"]["mean"]
+
+
+def test_technicals_tab_missing_rows_without_prices_and_for_a_tracked_name(tmp_path, monkeypatch):
+    from engine.themes import tiers
+
+    ORCL = "0001341439"
+
+    def fill(engine, corpus):
+        tt.put_weeks(engine, "CORE", [1.0, 1.0])
+        tiers.add_tracked(engine, ORCL, "ORCL", reason="t", theme_key=None, by="owner",
+                          now=tt.NOW)  # fmt: skip
+        tt.put_daily(engine, "ORCL", tt.week_rows(tt.uptrend(40), skip={"2026-10-09"}), cik=ORCL)
+
+    with _app(tmp_path, monkeypatch, fill, {"GFS": GFS, "ORCL": ORCL}) as c:
+        none = c.get("/c/GFS?tab=technicals").text
+        orcl = c.get("/c/ORCL?tab=technicals").text
+        over = c.get("/c/GFS?tab=overview").text
+    assert "Every row is missing: no stored prices." in none
+    assert none.count("missing: no stored prices") >= 5
+    assert "No completed weekly bars stored for GFS." in none
+    assert "qualification: not covered by M04 (D-M04-80)" in orcl
+    assert "as_of older than 2026-10-09" in orcl and "Newest completed week 2026-10-02" in orcl
+    assert "object at 0x" not in none + orcl
+    assert "Technicals (M09)" not in over  # nothing stored for GFS yet
+
+
+def test_overview_row_reads_the_newest_stored_rows(dbs):
+    engine, _ = dbs
+    assert views.overview_row(engine, tt.NVDA) is None
+    tt.put_weeks(engine, "SPCX", tt.uptrend(18), cik=tt.SPCX)
+    tt.run_pass(engine, {"SPCX": tt.SPCX})
+    r = views.overview_row(engine, tt.SPCX)
+    assert r["as_of"] == tt.LAST_FRIDAY
+    assert r["band_z"]["missing"] == "insufficient_history (18/20)"

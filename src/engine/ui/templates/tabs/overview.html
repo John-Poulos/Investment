@@ -11,13 +11,24 @@
     </table>
     {% else %}<p class="empty">No company record stored yet.</p>{% endif %}
     <h2 style="margin-top:16px">Signals</h2>
-    {% if m07_overview %}
+    {% if m07_overview or m09_overview %}
     <table class="data">
+      {% if m07_overview %}
       <tr><th>Insiders (M07)</th><td>
         {% if m07_overview.buy %}latest buy {{ m07_overview.buy.as_of }}: {{ m07_overview.buy.usd }} ({{ m07_overview.buy.text }}){% else %}no open-market buy stored{% endif %}
         · net flow MY{% if m07_overview.net %} {{ m07_overview.net.as_of }}: {% if m07_overview.net.text %}{{ m07_overview.net.text }} {{ m07_overview.net.usd }}{% else %}<span class="muted">{{ m07_overview.net.missing.split(';')[0] }}</span>{% endif %}{% else %}: not computed yet{% endif %}
         · <a href="/c/{{ ticker }}?tab=insiders">Insiders tab</a>
       </td></tr>
+      {% endif %}
+      {% if m09_overview %}{% set t = m09_overview %}
+      <tr><th>Technicals (M09)</th><td>
+        week to {{ t.as_of }}:
+        {% for key, label in [('band_z', 'band'), ('trend_state', 'trend'), ('mom_12_1', '12-1'), ('rev_1m', '1-month')] %}{% set s = t.get(key) %}
+        {{ label }} {% if not s %}<span class="muted">not computed</span>{% elif s.missing %}<span class="muted">missing: {{ s.missing }}</span>{% elif key == 'mom_12_1' %}{{ '%+.1f' | format(s.value * 100) }}% {{ s.text }}{% elif key == 'trend_state' %}{{ s.text }}{% else %}{{ '%+.2f' | format(s.value) }} {{ s.text }}{% endif %}{{ ' ·' if not loop.last }}
+        {% endfor %}
+        · <a href="/c/{{ ticker }}?tab=technicals">Technicals tab</a>
+      </td></tr>
+      {% endif %}
     </table>
     {% else %}
     <p class="empty">No module emits signals yet (D13). They appear here as modules are built.</p>

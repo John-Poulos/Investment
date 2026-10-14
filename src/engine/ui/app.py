@@ -91,6 +91,7 @@ TABS = (
     ("financials", "Financials", True),
     ("m04", "M04", True),  # M04 Part 8a: Cycle vs Decline (D-UI-31)
     ("insiders", "Insiders", True),
+    ("technicals", "Technicals", True),  # M09 Part 2 (D-UI-35)
     ("events", "Events and filings", True),
     ("news", "News", True),  # M02 part 7a
     ("search", "Search", True),
@@ -225,6 +226,9 @@ def create_app(settings: UiSettings) -> FastAPI:
             from engine.ownership.views import overview_row  # M07 Part 1 (D-UI-32)
 
             ctx["m07_overview"] = overview_row(engine, cik)
+            from engine.technicals.views import overview_row as m09_overview_row  # D-UI-35
+
+            ctx["m09_overview"] = m09_overview_row(engine, cik)
             ctx["filings"] = services.filings(engine, cik, limit=10)
             ctx["events"] = services.events(engine, cik, limit=8)
             ctx["readable"] = services.stored_accessions(
@@ -267,6 +271,12 @@ def create_app(settings: UiSettings) -> FastAPI:
 
             ctx["m07"] = m07_views.company_view(engine, cik, datetime.now(UTC).date())
             ctx["txns"] = ctx["m07"].txns
+        elif tab == "technicals":  # M09 Part 2 (D-UI-35): computed from stored bars, no writes
+            from engine.technicals import views as m09_views
+
+            p, ctx["m09_params_note"] = m09_params()
+            ctx["m09"] = m09_views.company_view(engine, corpus, cik, ticker, datetime.now(UTC),
+                                                p, m09_models())  # fmt: skip
         elif tab == "events":
             ctx["events"] = services.events(engine, cik)
             ctx["filings"] = services.filings(engine, cik)
@@ -1031,6 +1041,30 @@ def create_app(settings: UiSettings) -> FastAPI:
                 "markers": b.markers,
             }  # fmt: skip
         )
+
+    # --- M09 Part 2 (D-UI-35): chart overlays and the Technicals tab's inputs ---------------
+
+    def m09_params():
+        from engine.technicals import params as m09_params_mod
+        from engine.ui.settings import ROOT
+
+        return m09_params_mod.load_safe(ROOT / "config" / "technicals.toml")
+
+    def m09_models():
+        from engine.financials import models as models_mod
+
+        return models_mod.load_safe()
+
+    @app.get("/api/overlay/{ticker}")
+    def overlay_api(ticker: str, engine: Engine, viewer: ViewerDep, bar: str = "D") -> JSONResponse:
+        """Price-level σ bands and the 40-week MA on the chart's bars (stored bars only)."""
+        from engine.technicals import views as m09_views
+
+        ticker = ticker.upper()
+        cik = services.resolve_ticker(engine, ticker)
+        p, _ = m09_params()
+        return JSONResponse(m09_views.overlay(engine, ticker, cik, bar.upper(), datetime.now(UTC),
+                                              p, m09_models()))  # fmt: skip
 
     @app.post("/c/{ticker}/prices")
     def fetch_prices(ticker: str, engine: Engine, owner: OwnerDep) -> RedirectResponse:

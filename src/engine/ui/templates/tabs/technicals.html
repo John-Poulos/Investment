@@ -1,0 +1,58 @@
+{# M09 Part 2 (D-UI-35): built to the MVP brief; the owner reviews it at the live check. Information only: no review kinds. #}
+{% set v = m09 %}
+<h2>Technicals (M09) — {{ v.ticker }}</h2>
+<p class="note">Newest completed week {{ v.as_of }}{% if v.as_of != v.expected_as_of %} (the calendar's newest is {{ v.expected_as_of }}){% endif %} · weekly bars from stored Tiingo adjusted closes, last daily bar {{ v.last_bar or 'none' }} · parameters {{ v.version }}{% if m09_params_note %} · <span class="warn">{{ m09_params_note }}</span>{% endif %}. Computed here by the refresh's own functions (0 requests, nothing written); M09 never fires a buy on its own and has no technical exit signal (D16).</p>
+{% if v.lag %}<p class="warnbox">{{ v.lag }}</p>{% endif %}
+{% if v.missing %}<p class="warnbox">Every row is missing: {{ v.missing }}.</p>{% endif %}
+
+<table class="data" style="margin-bottom:8px">
+  <tr><th>Qualification (R3, D-M09-4)</th><td>{% if v.qual %}<b class="{% if v.qual_state == 'qualified' %}buy{% elif v.qual_state == 'not_qualified' %}sell{% endif %}">{{ v.qual }}</b>{% else %}<span class="muted">qualification incomplete (M04 rows not read)</span>{% endif %}{% if v.m04_line %}<br><span class="muted">M04 reading: {{ v.m04_line }}</span>{% endif %}<br><span class="muted">Context for the mean-reversion readings (band_z, rev_1m), never a deciding input of the grade; the value is shown either way.</span></td></tr>
+  {% if v.rule7 %}<tr><th>Beyond 2σ (M01 rule 7)</th><td>{{ v.rule7 }}</td></tr>{% endif %}
+</table>
+{% if v.r17 %}<p class="warnbox">R17: {{ v.r17_note }}</p>{% endif %}
+
+<div style="overflow-x:auto">
+<table class="data">
+  <tr><th>Signal</th><th>MY</th><th>PT</th><th>ST</th><th class="num">Value</th><th>Zone / state</th><th>Detail</th><th>as_of</th><th>Stored</th></tr>
+  {% for r in v.rows %}
+  <tr title="{{ r.method }}">
+    <td>{{ r.label }}</td>
+    {% for role in r.roles %}<td class="{% if role.startswith('✓') %}{% else %}muted{% endif %}" style="white-space:nowrap">{{ role }}</td>{% endfor %}
+    {% if r.missing %}
+    <td class="num">—</td><td colspan="2" class="muted">missing: {{ r.missing }}</td>
+    {% else %}
+    <td class="num">{{ r.value }}</td>
+    <td class="{% if r.state in ('below_2', 'below_1', 'down', 'negative', 'extended_down') %}sell{% elif r.state in ('up', 'positive') %}buy{% endif %}">{{ r.state or '' }}</td>
+    <td>
+      {% for d in r.details %}{{ d }}{% if not loop.last %}<br>{% endif %}{% endfor %}
+      {% for n in r.notes %}<br><span class="warn">{{ n }}</span>{% endfor %}
+      {% for acc, text in r.filings %}<br><a href="{{ sec_filing_url(v.cik, acc) }}" target="_blank" rel="noopener">{{ text }}</a>{% endfor %}
+    </td>
+    {% endif %}
+    <td style="white-space:nowrap">{{ r.as_of }}</td>
+    <td class="{% if not r.stored_ok %}muted{% endif %}">{{ r.stored }}</td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+<p class="note">Hover a row for its full method text (the same text the refresh stores in <code>signal.method</code>). ✓ = may carry weight once D13 weights exist; info = weight 0 (D10: every output is shown in every timeframe). band_z = z of ln(close) vs the 20-week mean of ln(close), M01's band (D27, D-M09-2), with pullback_sigma beside it; price_band is the price-level band of the chart overlay (display only). Zones: z ≤ −2 below_2, −2 &lt; z ≤ −1 below_1, 1 ≤ z &lt; 2 above_1, z ≥ 2 above_2; above_* = "upper extreme — information" for M12, never a sell signal (D-M09-3). Trend: up = above a rising 40-week MA, down = below a falling MA, else flat; the position flips after 2 closes (D-M09-5). rev_1m: |z| ≥ 2 extended; an earnings 8-K, or a 6-K with an earnings-release exhibit, in the window → news_move (D-M09-11, -16). Normal-model bands; hit rates uncalibrated.</p>
+
+<h2 style="margin-top:16px">Last {{ v.history | length }} completed weeks</h2>
+{% if v.history %}
+<div style="overflow-x:auto">
+<table class="data">
+  <tr><th>Week (last session)</th><th class="num">Close</th><th>band_z</th><th class="num">pullback σ</th><th>price band −2σ · mean · +2σ</th><th>trend_state</th><th class="num">mom_12_1</th><th>rev_1m</th></tr>
+  {% for h in v.history %}
+  <tr>
+    <td>{{ h.as_of }}</td>
+    <td class="num">{{ '%.2f' | format(h.close) if h.close is not none else '—' }}</td>
+    {% for key in ('band_z', 'pullback', 'price_band', 'trend_state', 'mom_12_1', 'rev_1m') %}
+    {% set miss = h.missing.get(key) or (h.missing.get('band_z') if key == 'pullback' else none) %}
+    <td class="{% if key in ('pullback', 'mom_12_1') %}num {% endif %}{% if key == 'band_z' and h.zone and h.zone.startswith('below') %}sell{% endif %}">{% if h.cells.get(key) %}{{ h.cells[key] }}{% elif miss %}<span class="muted">missing: {{ miss }}</span>{% else %}—{% endif %}</td>
+    {% endfor %}
+  </tr>
+  {% endfor %}
+</table>
+</div>
+<p class="note">Recomputed week by week from stored bars with the same functions (the store keeps one row set per week from the first run on, D-M09-13); adjusted closes, so a dividend or split refetch rewrites older weeks here (rule 8). Qualification is read for the newest week only.</p>
+{% else %}<p class="empty">No completed weekly bars stored for {{ v.ticker }}.</p>{% endif %}
