@@ -394,7 +394,12 @@ def write_rows(engine: sqlite3.Connection, r: NameResult) -> tuple[int, int]:
             sources=o.sources,
         )
         if o.missing is not None:
-            if _has_value(engine, r.cik, o.signal, o.as_of):
+            # only a stale price store keeps a stored value (M09's rule, D-M09-13); a missing
+            # row computed from stored facts replaces it (live check 2: AVGO's stale P/E and
+            # GFS's EV rows from the earlier rules were kept)
+            if o.missing.startswith("no close within") and _has_value(
+                engine, r.cik, o.signal, o.as_of
+            ):
                 kept += 1
                 continue
             n += write_signal(**common, method=o.method, missing=o.missing)

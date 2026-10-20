@@ -922,15 +922,23 @@ def test_pass_writes_one_row_set_per_completed_week_and_a_rerun_updates_it(dbs):
     assert any("headlines: val_pe_ttm" in x for x in step.summary_lines(vp))
 
 
-def test_a_missing_row_never_overwrites_a_stored_value(dbs):
+def test_missing_from_facts_replaces_a_stored_value_a_stale_price_store_keeps_it(dbs):
     engine, _ = dbs
     a = "0000000304"
     quarterly_co(engine, a, "KEEP")
     step.valuation_pass(engine, {"KEEP": a}, NOW, mf=NO_MODELS)
+    # live check 2: a rule (or the facts) now giving missing replaces the old value
     engine.execute("DELETE FROM fact WHERE cik = ? AND tag = 'Revenues'", (a,))
     vp = step.valuation_pass(engine, {"KEEP": a}, NOW, mf=NO_MODELS)
-    assert vp.kept > 0
-    assert rows_of(engine, a, "val_ps")[0]["value"] is not None
+    assert vp.kept == 0
+    assert rows_of(engine, a, "val_ps")[0]["value"] is None
+    # a stale price store moves the week back: the stored week's values stay (D-M09-13)
+    pb = {r["as_of"]: r["value"] for r in rows_of(engine, a, "val_pb")}
+    assert pb.get("2026-10-09") is not None
+    engine.execute("DELETE FROM price_bar WHERE symbol = 'KEEP' AND date >= '2026-10-01'")
+    step.valuation_pass(engine, {"KEEP": a}, NOW, mf=NO_MODELS)
+    after = {r["as_of"]: r["value"] for r in rows_of(engine, a, "val_pb")}
+    assert after["2026-10-09"] == pb["2026-10-09"]
 
 
 def test_refresh_runs_m08_after_m07_and_before_m09():
