@@ -1,0 +1,13 @@
+# M08 fixtures (Part 1)
+
+Hand-built, not recorded: Claude may not call SEC or read `data\` (CLAUDE.md). Byte-exact once
+written (D24). Closes are the pack's (Yahoo, S-new-M08-43 = S289) used as fixture prices; the
+live check compares the engine with stored Tiingo closes.
+
+| File | Figures and their source | Placeholders |
+|---|---|---|
+| mu_fy2014_25.json | MU fiscal years FY2014–FY2025: revenue, gross profit, operating income, net income, diluted EPS, diluted weighted shares ($M, M), recalled from Micron's 10-Ks at build (**unverified**; revenue FY2019–24 sums to the pack's 143,955 and average EPS FY2019–24 is the pack's 2.688; operating income sums to 24,313, not the pack's 21,923 — an open item for the live check); 10-K filing dates 2022-10-07, 2023-10-06, 2024-10-04, 2025-10-03 and the pack's closes on them ($52.91, $69.96, $102.25, $187.83; M08 brief worked example); balance sheet FY2022–25 (cash, short-term investments, noncurrent and current debt, equity), FY D&A, OCF, capex (FY2022–24 approximate from the 10-Ks; **FY2025 balance sheet illustrative**); cover counts on the 10-K covers (approximate) | accession numbers (built in the test from CIK and filed date); filed dates before FY2022 and fiscal year ends approximate (Thursday nearest 31 August) |
+| (generated in tests/test_valuation.py) `load_nvda` | Synthetic in NVIDIA's shape: quarterly diluted EPS 0.76, 1.08, 1.30, 1.76, 2.39, 2.46 on 24,400M diluted shares, entered as filed (10-Q year-to-date, FY2026 10-K), so TTM EPS = 7.91 (pack) and P/E 29.0× at the pack's $229.28 (2026-10-09); the 2024 10:1 split as a price-bar split factor on 2024-06-10 with a pre-split cover count 2,460M (2024-05-17) | net income = EPS × shares; revenue, balance sheet and closes other than $229.28 illustrative |
+| (generated) `load_infq` | INFQ (pack): revenue FY2025 31,108k, H1 2025 13,472k, H1 2026 23,445k → TTM 41.081M; cover 225,357,052 (10-Q filed 2026-08-18); close $11.04; FY2025 net income first filed −32.2M then −66.9M (brief case 10) | Q1 2025, 9M 2025, Q1 2026 revenue (6,000k, 21,000k, 11,000k) chosen to be consistent; equity, diluted shares, the 10-K/A date |
+| (generated) MSTR, ETV | mNAV on CryptoAssetFairValue 60,000M, 280M shares at $300 (illustrative); ETV a `fund` | all values illustrative |
+| (generated) `annual_co`, `quarterly_co` | Synthetic edge cases: negative equity, EV ≤ 0, D&A untagged, debt tagged then not, never-tagged debt, dividends across a 2:1 split, short bars; D32 non-tech companies (a one-loss-year industrial, a low-margin retailer); a quarterly filer with rising closes for the own-history percentile and the pass | all values illustrative |

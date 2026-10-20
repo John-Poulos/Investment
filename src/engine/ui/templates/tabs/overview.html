@@ -11,7 +11,7 @@
     </table>
     {% else %}<p class="empty">No company record stored yet.</p>{% endif %}
     <h2 style="margin-top:16px">Signals</h2>
-    {% if m07_overview or m09_overview %}
+    {% if m07_overview or m09_overview or m08_overview %}
     <table class="data">
       {% if m07_overview %}
       <tr><th>Insiders (M07)</th><td>
@@ -27,6 +27,14 @@
         {{ label }} {% if not s %}<span class="muted">not computed</span>{% elif s.missing %}<span class="muted">missing: {{ s.missing }}</span>{% elif key == 'mom_12_1' %}{{ '%+.1f' | format(s.value * 100) }}% {{ s.text }}{% elif key == 'trend_state' %}{{ s.text }}{% else %}{{ '%+.2f' | format(s.value) }} {{ s.text }}{% endif %}{{ ' ·' if not loop.last }}
         {% endfor %}
         · <a href="/c/{{ ticker }}?tab=technicals">Technicals tab</a>
+      </td></tr>
+      {% endif %}
+      {% if m08_overview %}{% set v8 = m08_overview %}{% set h8 = v8.get('valuation_multiple') %}{% set p8 = v8.get('valuation_pctile') %}
+      <tr><th>Valuation (M08)</th><td>
+        week to {{ v8.as_of }}:
+        {% if not h8 %}<span class="muted">headline not computed</span>{% elif h8.missing %}<span class="muted">headline missing: {{ h8.missing }}</span>{% elif h8.value is not none %}{{ h8.what }}{% else %}{{ h8.text }}{% endif %}
+        · own pctile {% if not p8 %}<span class="muted">not computed</span>{% elif p8.missing %}<span class="muted">missing: {{ p8.missing }}</span>{% else %}{{ '%.0f' | format(p8.value) }}{% endif %}
+        · <a href="/c/{{ ticker }}?tab=valuation">Valuation tab</a>
       </td></tr>
       {% endif %}
     </table>

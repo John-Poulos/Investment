@@ -305,6 +305,22 @@ def ours_of(report) -> dict[str, str]:
     return out
 
 
+def valuation_local_step(engine, report) -> str:
+    """M08 Part 1 local pass after the M07 steps and before M09 (0 requests; MVP_PLAN refresh
+    order): every standard valuation row, the cyclical flag, the headline and its own-history
+    percentile for every covered name, one row set per completed week (D-M08-8). Never fails."""
+    from engine.valuation.params import load_safe
+    from engine.valuation.step import run_local_part
+
+    try:
+        params, note = load_safe(ROOT / "config" / "valuation.toml")
+        lines = run_local_part(engine, companies_of(report), datetime.now(UTC), params=params,
+                               params_note=note)  # fmt: skip
+    except Exception as e:  # must not break the run report
+        lines = [f"M08 valuation — local pass: error — {type(e).__name__}: {e}"]
+    return "\n" + "\n".join(lines) + "\n"
+
+
 def technicals_local_step(engine, report, corpus=None) -> str:
     """M09 Part 1 local pass (0 requests beyond SPY's daily price in `prices_step`), after
     the M04 local passes so the gate, filing status and CvD are current: band_z, price_band,
@@ -605,6 +621,7 @@ def _run(args, engine, folder):
     prices += financials_cvd_local_step(engine, report)
     prices += ownership_local_step(engine, report)  # M07 after the M04 local steps
     prices += managers_local_step(engine, report)  # M07 Part 2 (followed managers)
+    prices += valuation_local_step(engine, report)  # M08 Part 1 after M07, before M09
     prices += technicals_local_step(engine, report, corpus)  # 6-K releases read from corpus
     text = format_report(report) + calls + prices
     logs = ROOT / "logs"
