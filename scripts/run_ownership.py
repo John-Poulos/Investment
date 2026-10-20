@@ -616,6 +616,8 @@ def managers_run(
     if sp.rescaled:
         log(f"  stored 13F filings found in thousands after {mg.thirteenf.DOLLARS_FROM} and "
             f"rescaled ×1000 (rows re-checked): {sp.rescaled}")  # fmt: skip
+    if sp.released:
+        log(f"  held rows that now pass the checks (re-checked, 0 requests): {sp.released}")
     for m in followed:
         ps = mg.periods(engine, m.cik)
         log(f"  {m.name}: {len(ps)} quarter(s) stored"

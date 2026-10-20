@@ -448,6 +448,14 @@ def test_filer_reporting_thousands_after_2023_is_rescaled(world, make_client):
     ])  # fmt: skip
     routes |= duq_filing(engine, "d-d", "13F-HR", "2025-08-14", "2025-06-30", [
         ("NVIDIA CORPORATION", "COM", NV, 132_000_000, 1_100_000, ""),
+        ("ALPHABET INC", "CAP STK CL A", GA, 20_000, 100, ""),
+    ])  # fmt: skip
+    # live check 3: a 10× share jump holds a row only when no price confirms its value
+    engine.execute("INSERT INTO price_bar (symbol, date, close, volume, split_factor, source, "
+                   "fetched_at) VALUES ('NVDA', '2025-09-30', 120, 1, 1, 't', 'x')")  # fmt: skip
+    routes |= duq_filing(engine, "d-j", "13F-HR", "2025-11-14", "2025-09-30", [
+        ("NVIDIA CORPORATION", "COM", NV, 1_320_000_000, 11_000_000, ""),
+        ("ALPHABET INC", "CAP STK CL A", GA, 400_000, 2_000, ""),
     ])  # fmt: skip
     names = issuers.Names(engine)
     s = mg.ManagerSync(mg.Manager("Duquesne Family Office LLC", DUQ), "synced")
@@ -467,6 +475,12 @@ def test_filer_reporting_thousands_after_2023_is_rescaled(world, make_client):
     assert "values filed in thousands" in k["check_note"]
     assert (d["value_usd"], d["status"], d["scale"], d["check_note"]) == (
         132_000_000, "automatic", 1, None)  # fmt: skip
+    j = {r["issuer_name"]: r for r in engine.execute(
+        "SELECT * FROM fin_holding WHERE accession = 'd-j'")}  # fmt: skip
+    assert j["NVIDIA CORPORATION"]["status"] == "automatic"  # 10× but priced: confirmed
+    assert j["ALPHABET INC"]["status"] == "held"  # 20× and no stored GOOG price
+    assert "20× the prior" not in j["ALPHABET INC"]["check_note"]
+    assert "10× the prior quarter's 100" in j["ALPHABET INC"]["check_note"]
     # rows stored before the fix: rescaled locally (0 requests) and re-checked
     engine.execute("UPDATE fin_holding SET value_usd = 120000, status = 'held', check_note = "
                    "'value' WHERE accession = 'd-k'")  # fmt: skip
@@ -501,13 +515,22 @@ def test_same_day_managers_aggregate_mixed():
 def test_held_row_gives_missing_never_a_direction(world, make_client):
     engine, _, _ = world
     sync_brk(engine, make_client)
-    engine.execute("UPDATE fin_holding SET status = 'held', check_note = 'value vs close' WHERE "
-                   "period = '2024-06-30'")  # fmt: skip
-    mg.signal_pass(engine, [mg.Manager("Berkshire Hathaway Inc", BRK)], OURS)
+    # a filing-level hold is kept by the re-check (it is not a row check)
+    engine.execute("UPDATE fin_holding SET status = 'held', check_note = 'the filing''s rows do "
+                   "not add up to its stated total' WHERE period = '2024-06-30'")  # fmt: skip
+    brk = mg.Manager("Berkshire Hathaway Inc", BRK)
+    assert mg.signal_pass(engine, [brk], OURS).released == 0
     row = engine.execute("SELECT * FROM signal WHERE cik = ? AND as_of = '2024-08-14' AND "
                          "timeframe = 'MY'", (AAPL,)).fetchone()  # fmt: skip
     assert row["value"] is None and row["value_text"] is None
     assert row["method"].startswith("missing: Berkshire Hathaway Inc: row held by a check")
+    # a row held by a rule that no longer holds it (live check 3) is released locally
+    engine.execute("UPDATE fin_holding SET check_note = 'shares > 10×' WHERE period = "
+                   "'2024-06-30'")  # fmt: skip
+    assert mg.signal_pass(engine, [brk], OURS).released > 0
+    row = engine.execute("SELECT * FROM signal WHERE cik = ? AND as_of = '2024-08-14' AND "
+                         "timeframe = 'MY'", (AAPL,)).fetchone()  # fmt: skip
+    assert row["value_text"] == "cut"
 
 
 def test_manager_holding_none_of_ours(world, make_client):

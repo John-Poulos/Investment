@@ -8,8 +8,10 @@ before 2023-01-03 and dollars after. One issuer can have several rows (other man
 → summed by CUSIP, title and put/call. The row sum must equal `tableValueTotal`.
 
 Checks before a row is stored automatically (else held for review, `m02_fin_check`):
-the filing's row sum matches its total; shares no more than 10× the prior quarter's;
-value within 25% of shares × the stored closing price when the issuer has prices.
+the filing's row sum matches its total; value within 25% of shares × the stored closing
+price when the issuer has prices; shares no more than 10× the prior quarter's unless that
+price check confirms them (D-M02-46 amendment). A filing made after 2023-01-03 whose priced
+rows are all ≈ 1/1000 of shares × close is read in thousands (D-SEC-28 amendment).
 
 Followed managers (M07 Part 2, D-SEC-28): `read_filing` / `store_rows` take a `keep`
 filter, so a manager's rows of companies that are not ours are never stored (and never
@@ -357,16 +359,20 @@ def _prior_shares(
 def checks(engine, cik: str, row: Row, issuer_cik: str | None, period: str) -> list[str]:
     """Why a row is held (empty = passes)."""
     out = []
-    prior = _prior_shares(engine, cik, row.cusip, period, row.put_call, issuer_cik)
-    if prior and row.shares and row.shares > JUMP * prior:
-        out.append(f"shares {row.shares:,.0f} > {JUMP}× the prior quarter's {prior:,.0f}")
     price = None if row.put_call or row.share_type == "PRN" else _close(engine, issuer_cik, period)
+    priced = False  # the value agrees with shares × close: the share count is confirmed
     if price and row.shares:
         implied = row.shares * price
         if implied and abs(row.value / implied - 1) > PRICE_TOLERANCE:
             out.append(
                 f"value ${row.value:,.0f} vs shares × close ${implied:,.0f} (close ${price:,.2f})"
             )
+        else:
+            priced = bool(implied)
+    prior = _prior_shares(engine, cik, row.cusip, period, row.put_call, issuer_cik)
+    # a share jump alone does not hold a priced row (owner, M07 Part 2 live check 3, D-M02-46)
+    if prior and row.shares and row.shares > JUMP * prior and not priced:
+        out.insert(0, f"shares {row.shares:,.0f} > {JUMP}× the prior quarter's {prior:,.0f}")
     return out
 
 
@@ -428,6 +434,32 @@ def rescale_stored(engine: sqlite3.Connection) -> int:
                 "holding_id = ?",
                 (r.value, status, check, h["holding_id"]),
             )
+        n += 1
+    return n
+
+
+def recheck_followed(engine: sqlite3.Connection) -> int:
+    """Followed managers' held rows re-run through `checks` (0 requests) after a check rule
+    changed; a row that now passes becomes automatic, other notes are kept. M02 filers' held
+    rows are left to their `m02_fin_check` review items. Returns the rows released."""
+    n = 0
+    for h in engine.execute(
+        f"SELECT * FROM fin_holding WHERE source = '13F' AND status = 'held' AND issuer_cik IS "
+        f"NOT NULL AND NOT ({not_followed()})"
+    ).fetchall():
+        note = h["check_note"] or ""
+        if "do not add up" in note:
+            continue  # a filing-level problem, not a row check
+        r = Row(h["issuer_name"], h["title"], h["cusip"], h["value_usd"], h["shares"],
+                h["share_type"], h["put_call"] or "")  # fmt: skip
+        notes = checks(engine, h["filer_cik"], r, h["issuer_cik"], h["period"])
+        if notes:
+            continue
+        kept = [x for x in note.split("; ") if x.startswith("values filed in thousands")]
+        engine.execute(
+            "UPDATE fin_holding SET status = 'automatic', check_note = ? WHERE holding_id = ?",
+            ("; ".join(kept) or None, h["holding_id"]),
+        )
         n += 1
     return n
 

@@ -723,6 +723,7 @@ class SignalPass:
     days: int = 0
     skipped: str = ""
     rescaled: int = 0  # stored filings found to be in thousands (thirteenf.rescale_stored)
+    released: int = 0  # held rows that pass the current checks (thirteenf.recheck_followed)
 
 
 def signal_pass(engine: sqlite3.Connection, managers: list[Manager], ours: dict[str, str],
@@ -734,6 +735,7 @@ def signal_pass(engine: sqlite3.Connection, managers: list[Manager], ours: dict[
         engine.execute("BEGIN")
         try:
             out.rescaled = thirteenf.rescale_stored(engine)
+            out.released = thirteenf.recheck_followed(engine)
             engine.execute("COMMIT")
         except Exception:
             engine.execute("ROLLBACK")
@@ -839,6 +841,7 @@ def run_local_part(
         engine.execute("BEGIN")
         try:
             rescaled = thirteenf.rescale_stored(engine)  # before the fingerprint (it changes rows)
+            released = thirteenf.recheck_followed(engine)
             engine.execute("COMMIT")
         except Exception:
             engine.execute("ROLLBACK")
@@ -850,6 +853,8 @@ def run_local_part(
             return [f"{head}: unchanged (no new 13F rows of {len(managers)} manager(s))"]
         if rescaled:
             head += f"; {rescaled} stored filing(s) found in thousands, rescaled"
+        if released:
+            head += f"; {released} held row(s) now pass the checks"
         sp = signal_pass(engine, managers, ours)
         engine.execute(
             "INSERT INTO refresh_state (name, source_ref, fetched_at, detail) VALUES (?, 'M07', "
