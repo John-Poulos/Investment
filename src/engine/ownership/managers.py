@@ -335,8 +335,10 @@ def sync_manager(
     keep = keep_filter(names, ours, cmap)
     todo = thirteenf.due(engine, m.cik, now)
     if reference:
+        # live check 1: `seen` was built from `todo` itself, so every due filing was dropped
         seen = {f["accession"] for f in todo}
-        todo = reference_filings(engine, m.cik) + [f for f in todo if f["accession"] not in seen]
+        extra = [f for f in reference_filings(engine, m.cik) if f["accession"] not in seen]
+        todo = sorted(todo + extra, key=lambda f: (f["filed"], f["accession"]))
     _read_due(client, engine, m, todo, keep, names, now, out)
     if not out.throttled:
         out.status = "synced"
@@ -364,7 +366,9 @@ def plan(engine: sqlite3.Connection, m: Manager, ours: dict[str, str], now: date
     detail = json.loads(synced[0] or "{}")
     pages = len(detail.get("pages_failed") or ())  # loaded pages are read once, then skipped
     due = thirteenf.due(engine, m.cik, now)
-    refs = reference_filings(engine, m.cik) if reference else []
+    accs = {f["accession"] for f in due}
+    refs = [f for f in reference_filings(engine, m.cik) if f["accession"] not in accs] if (
+        reference) else []  # fmt: skip
     n = 1 + max(pages, 0) + 3 * (len(due) + len(refs))
     return n, (f"1 submissions request (fresh) + {max(pages, 0)} page(s) + {len(due)} unread "
                f"13F-HR × 3" + (f" + {len(refs)} reference filing(s) × 3" if refs else "")

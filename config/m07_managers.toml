@@ -22,7 +22,7 @@ note = "Warren Buffett"
 
 [[manager]]
 name = "Duquesne Family Office LLC"
-cik = ""  # placeholder: not in the repo's code or docs; resolved by name at the live check
+cik = "0001536411"  # EDGAR company search, live check 2026-10-19
 note = "Stanley Druckenmiller"
 
 # "CEO of equity" (outline, Ownership item 2) is not identified yet (DESIGN Q3, D-M07-7);

@@ -139,7 +139,7 @@ def test_config_placeholder_and_real_config_loads(world):
         ("Duquesne Family Office LLC", None),
     ]
     real = mg.load_config(mg.CONFIG)  # the committed owner file
-    assert [m.cik for m in real.managers] == [BRK, None] and not real.problems
+    assert [m.cik for m in real.managers] == [BRK, "0001536411"] and not real.problems
     assert "CEO of equity" in real.text  # DESIGN Q3 stays open, not added
     broken = cfg.parent / "bad.toml"
     broken.write_text("[[manager]\n", encoding="utf-8")
@@ -209,6 +209,13 @@ def test_berkshire_apple_cut_reference(world, make_client):
     st = engine.execute("SELECT method FROM signal WHERE cik = ? AND signal = ? AND timeframe = "
                         "'ST' AND as_of = '2024-08-14'", (AAPL, mg.SIGNAL)).fetchone()  # fmt: skip
     assert st["method"].endswith("info (weight 0)")
+
+
+def test_reference_on_still_reads_the_due_filings(world, make_client):
+    # live check 1: with reference filings on, every due filing was dropped (0 recent reads)
+    engine, _, _ = world
+    s, _ = sync_brk(engine, make_client, reference=True)  # OLD is inside NOW's 8 quarters
+    assert [r.accession for r in s.reads] == [OLD, REF_Q1, REF_Q2]
 
 
 def test_reference_filings_outside_the_8_quarters(world, make_client):
