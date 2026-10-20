@@ -114,8 +114,17 @@ def _src(p: AsOfPoint, what: str) -> Source:
     return Source(p.accession, p.filed, "A", what)
 
 
-def twelve(pts: Points, concept: str) -> tuple[AsOfPoint | None, str]:
-    """The newest 12-month point: TTM, else a newer fiscal year ("as of FY")."""
+STALE_DAYS = 100  # a 12-month value ending more than about a quarter before the newest report
+
+
+def _newest_flow(pts: Points) -> str | None:
+    """The newest period end of any reported flow (quarter, TTM or fiscal year)."""
+    ends = [e for c in ("revenue", "net_income", "operating_income")
+            for t in ("Q", "TTM", "FY") for e in pts(c, t)]  # fmt: skip
+    return max(ends) if ends else None
+
+
+def _twelve_any(pts: Points, concept: str) -> tuple[AsOfPoint | None, str]:
     ttm, fy = pts(concept, "TTM"), pts(concept, "FY")
     t = ttm[max(ttm)] if ttm else None
     f = fy[max(fy)] if fy else None
@@ -124,6 +133,21 @@ def twelve(pts: Points, concept: str) -> tuple[AsOfPoint | None, str]:
     if f is not None and (t is None or f.end > t.end):
         return f, f"fiscal year to {f.end} (as of FY)"
     return t, f"TTM to {t.end}"
+
+
+def twelve(pts: Points, concept: str) -> tuple[AsOfPoint | None, str]:
+    """The newest 12-month point: TTM, else a newer fiscal year ("as of FY"). A point
+    ending more than STALE_DAYS before the newest reported flow is not used (live check 1:
+    AVGO's P/E read FY2024 net income because FY2025 was missing): missing, see `no12`."""
+    p, lab = _twelve_any(pts, concept)
+    newest = _newest_flow(pts)
+    if (
+        p is not None
+        and newest
+        and (date.fromisoformat(newest) - date.fromisoformat(p.end)).days > STALE_DAYS
+    ):
+        return None, ""
+    return p, lab
 
 
 def _same_end(pts: Points, concept: str, end: str) -> AsOfPoint | None:
@@ -149,6 +173,14 @@ def no12(pts: Points, concept: str, excluded: dict[str, int] | None = None) -> s
     so its facts are the shell's and left out, D-M04-8)."""
     q = pts(concept, "Q")
     name = concept.replace("_", " ")
+    old, old_lab = _twelve_any(pts, concept)
+    newest = _newest_flow(pts)
+    if old is not None and newest and old.end < newest:
+        return (
+            f"12-month {name} stale: the newest is {old_lab}, the company has reported "
+            f"through {newest}, and no newer 12 months can be derived (a fiscal year or "
+            "quarter missing)"
+        )
     if q:
         return (
             f"no 12-month {name}: {len(q)} quarter(s) stored to {max(q)}, not four contiguous, "
@@ -175,14 +207,12 @@ def _ev(pts: Points, book: Book, cap: float, end: str) -> tuple[float | None, st
     if debt is None:
         tagged = [e for d in (book.ltd, book.ltd_total, book.dc, book.ltdc, book.stb) for e in d]
         last = max(tagged) if tagged else None
-        if last is not None and (date.fromisoformat(end) - date.fromisoformat(last)).days <= 730:
+        if last is None:  # live check 1 (GFS has debt): untagged is missing, never zero
+            return None, "", "debt untagged (no debt tag ever stored)", srcs
+        if (date.fromisoformat(end) - date.fromisoformat(last)).days <= 730:
             return None, "", f"debt (tagged until {last}, not at {end})", srcs
         debt = 0.0
-        notes.append(
-            f"debt none (last tagged {last}, over 2 years before: taken as none, named)"
-            if last
-            else "debt none (no debt tag ever stored: taken as none, named)"
-        )
+        notes.append(f"debt none (last tagged {last}, over 2 years before: taken as none, named)")
     else:
         lt = near_point(book.ltd, end)
         lease = (

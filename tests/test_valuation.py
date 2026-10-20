@@ -496,8 +496,12 @@ def test_infq_ps_606_with_ev_incomplete_the_recast_and_the_shell_period(dbs):
     assert r.headline.measure == "val_ps" and r.headline.value == pytest.approx(60.6, abs=0.05)
     rows = {o.signal: o for o in r.rows}
     assert "EV incomplete" in rows["valuation_multiple"].method
-    assert rows["val_pe_ttm"].text == "not_meaningful"
-    assert "series break: net income 2025-12-31 recast -32M → -67M" in rows["val_ps"].method
+    # net income has FY2025 only, two quarters behind revenue's TTM: stale, not used (live
+    # check 1, the AVGO case)
+    assert rows["val_pe_ttm"].missing.startswith("12-month net income stale: the newest is "
+                                                 "fiscal year to 2025-12-31")  # fmt: skip
+    # the net-income recast note goes with the net income, which is stale here (not used)
+    assert "series break: net income" not in rows["val_ps"].method
     shell = step.evaluate(engine, "INFQ", INFQ, "2025-12-31", TODAY, P, MF, with_peers=False)
     assert shell.snap.missing == "shell period (before 2026-02-13)"
     assert {o.signal: o for o in shell.rows}["val_ps"].missing == "shell period (before 2026-02-13)"
@@ -650,7 +654,7 @@ def test_negative_equity_ev_at_or_below_zero_and_da_untagged(dbs):
     assert s.m("val_ps").value == pytest.approx(5.0)  # P/S does not need EV
 
 
-def test_debt_tagged_earlier_but_not_now_is_ev_incomplete_never_tagged_is_none(dbs):
+def test_debt_tagged_earlier_but_not_now_is_ev_incomplete_never_tagged_is_missing(dbs):
     engine, _ = dbs
     a = "0000000103"
     annual_co(engine, a, "GAPD", [base(2024), base(2025, debt=None)])
@@ -660,8 +664,9 @@ def test_debt_tagged_earlier_but_not_now_is_ev_incomplete_never_tagged_is_none(d
     b = "0000000104"
     annual_co(engine, b, "NODEBT", [base(2024, debt=None), base(2025, debt=None)])
     s = snapshot(Known(engine, b, TODAY), "2026-10-09")
-    assert s.ev == pytest.approx(5000 * M - 200 * M)
-    assert "debt none (no debt tag ever stored: taken as none, named)" in s.ev_text
+    # live check 1 (GFS has debt but no stored debt tag): untagged is missing, never zero
+    assert s.ev is None and s.ev_missing == "debt untagged (no debt tag ever stored)"
+    assert s.m("val_ps").value is not None  # P/S does not need EV
 
 
 def test_dividend_yield_zero_with_a_full_year_missing_with_short_bars_split_scaled(dbs):
