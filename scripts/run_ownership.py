@@ -617,6 +617,7 @@ def managers_run(
         ps = mg.periods(engine, m.cik)
         log(f"  {m.name}: {len(ps)} quarter(s) stored"
             + (f", {ps[0].period} (baseline) to {ps[-1].period}" if ps else ""))  # fmt: skip
+        log(*(f"    {x}" for x in mg.window_lines(engine, m.cik, now)))
         for cik, evs in sorted(sp.events.items(), key=lambda kv: ours.get(kv[0], kv[0])):
             for e in evs:
                 if e.filer == m.cik:
@@ -674,8 +675,7 @@ def run_managers(args, log: Log, folder: Path) -> int:
     managers_run(engine, ours, now, log, client=client, dry_run=args.dry_run,
                  reference=not args.no_reference)  # fmt: skip
     if clog is not None:
-        clog.seconds["total"] = time.monotonic() - t0
-        log(*clog.lines())
+        log(*clog.lines(), f"  elapsed: {time.monotonic() - t0:.1f} s")
     else:
         log("SEC requests: 0 (" + ("--dry-run" if args.dry_run else "--no-sec") + ")")
     after = {t: engine.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in MANAGER_COUNTED}

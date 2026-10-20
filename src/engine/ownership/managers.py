@@ -255,6 +255,29 @@ def _read_due(
             return
 
 
+def window_lines(engine: sqlite3.Connection, cik: str, now: datetime) -> list[str]:
+    """Why a manager's last-8-quarter reads came out as they did (0 requests): the window
+    start, stored 13F filings inside it, the unread ones, and the newest stored filings with
+    their read status (M07 Part 2 live check 1: 0 recent filings read, cause not visible)."""
+    since = (now.date() - timedelta(days=92 * thirteenf.QUARTERS + 50)).isoformat()
+    newest = engine.execute(
+        "SELECT f.accession, f.form, f.filed, t.status FROM filing f JOIN filing_cik c ON "
+        "c.accession = f.accession LEFT JOIN fin_13f t ON t.accession = f.accession WHERE "
+        "c.cik = ? AND f.form LIKE '13F%' ORDER BY f.filed DESC, f.accession DESC LIMIT 5",
+        (cik,),
+    ).fetchall()
+    inside = engine.execute(
+        "SELECT count(*) FROM filing f JOIN filing_cik c ON c.accession = f.accession WHERE "
+        "c.cik = ? AND f.form IN ('13F-HR', '13F-HR/A') AND f.filed >= ?",
+        (cik, since),
+    ).fetchone()[0]
+    out = [f"13F-HR window: filed since {since}; stored in window {inside}, unread "
+           f"{len(thirteenf.due(engine, cik, now))}; newest stored 13F filings:"]  # fmt: skip
+    out += [f"  {r['filed']} · {r['form']} · {r['accession']} · {r['status'] or 'not read'}"
+            for r in newest] or ["  none"]  # fmt: skip
+    return out
+
+
 def reference_filings(engine: sqlite3.Connection, cik: str) -> list[sqlite3.Row]:
     accs = REFERENCE.get(cik, ())
     if not accs:

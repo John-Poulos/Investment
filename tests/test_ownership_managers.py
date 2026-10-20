@@ -220,6 +220,11 @@ def test_reference_filings_outside_the_8_quarters(world, make_client):
     assert [r.accession for r in s.reads] == [REF_Q1, REF_Q2]
     n, how = mg.plan(engine, mg.Manager("B", BRK), OURS, late, reference=True)
     assert n == 1 and "0 unread" in how
+    lines = mg.window_lines(engine, BRK, late)  # the live check's diagnostic, 0 requests
+    assert lines[0].startswith("13F-HR window: filed since 2024-08-18; stored in window 0, "
+                               "unread 0")  # fmt: skip
+    assert lines[1] == f"  2024-08-14 · 13F-HR · {REF_Q2} · read"
+    assert lines[-1].endswith(f"{OLD} · not read")
 
 
 def test_m02_does_not_see_followed_manager_rows(world, make_client):
