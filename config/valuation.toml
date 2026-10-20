@@ -31,3 +31,10 @@ pctile = 20.0              # † headline own percentile at or below → "value-
 # ticker = "XYZ"
 # cyclical = false
 # reason = "one loss year (2020 shutdown), not a cyclical business"
+
+# Owner, M08 Part 1 live check 1 (2026-10-20, option a): flagged only by its FY2022 loss
+# (a non-operating Rivian write-down; operating-margin range 8.8 pp). Keep, edit or remove.
+[[company]]
+ticker = "AMZN"
+cyclical = false
+reason = "one non-operating loss year (FY2022 Rivian mark-down), not a cyclical business"

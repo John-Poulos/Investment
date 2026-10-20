@@ -476,19 +476,22 @@ def snapshot(
         w, ttm_revenue=rev_v, ttm_label=rev_lab, shares=shares, shares_label=shares_lab or ""
     )
     n = s.nep
-    nb = n.nebit_cycle
+    # owner, M08 Part 1 live check 1 (amends D-M08-3): the headline divides by the
+    # current-revenue base (cycle-average margin × 12-month revenue); on cycle-average revenue
+    # a 19-year window made growers read 150–350×. The cycle-average base stays beside it.
+    nb = n.nebit_current
     ev_row(
         "val_ev_nebit",
         nb,
-        f"NEP: {n.missing}",
+        f"NEP: {n.missing}" if n.missing else f"NEP current-revenue base: {no12(pts, 'revenue')}",
         n.sources[-3:],
-        f"normalized EBIT ({w.span}, cycle-average revenue)",
+        f"normalized EBIT ({w.span}, cycle-average margin × {rev_lab or 'TTM'} revenue)",
     )
-    if out["val_ev_nebit"].value is not None and n.nebit_current:
+    if out["val_ev_nebit"].value is not None and n.nebit_cycle:
         out["val_ev_nebit"].detail += (
-            f"; on the current-revenue base {money(n.nebit_current)}: {s.ev / n.nebit_current:.1f}×"
-            if n.nebit_current > 0
-            else "; current-revenue base ≤ 0"
+            f"; on cycle-average revenue {money(n.nebit_cycle)}: {s.ev / n.nebit_cycle:.1f}×"
+            if n.nebit_cycle > 0
+            else "; cycle-average-revenue base ≤ 0"
         )
     m = Measure("val_p_neps", sources=[*base_src, *n.sources[-3:]])
     if n.missing:

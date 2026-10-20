@@ -4,6 +4,7 @@ script and the tab (docs/M08_VALUATION.md; fixtures README in tests/fixtures/m08
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import importlib.util
 import json
 from datetime import UTC, date, datetime, timedelta
@@ -228,7 +229,10 @@ def load_script(name):
 
 
 def test_config_file_equals_the_built_in_defaults():
-    assert params.load(ROOT / "config" / "valuation.toml") == Params()
+    got = params.load(ROOT / "config" / "valuation.toml")
+    assert dataclasses.replace(got, overrides=()) == Params()
+    # the owner's override from live check 1 (option a)
+    assert [(o.ticker, o.cyclical) for o in got.overrides] == [("AMZN", False)]
 
 
 def test_params_reject_unknown_keys_and_bad_overrides(tmp_path):
@@ -285,7 +289,9 @@ def test_mu_nep_window_trough_to_trough_on_the_cvd_series(dbs):
     assert s.nep.neps == pytest.approx((2687 + 5861 + 8687) / 3 / 1117)
     ev = 1109 * M * 102.25 + (13375 + 1423 - 7041 - 1065) * M
     assert s.ev == pytest.approx(ev)
-    assert s.m("val_ev_nebit").value == pytest.approx(ev / (21378 * M / 3))
+    # owner, live check 1: the headline uses the current-revenue base (amends D-M08-3)
+    assert s.m("val_ev_nebit").value == pytest.approx(ev / (21378 / 79898 * 25111 * M))
+    assert "on cycle-average revenue" in s.m("val_ev_nebit").detail
     assert "later trough year excluded" in s.nep.text()
     assert "current-revenue base" in s.nep.text()
 
