@@ -8,8 +8,16 @@ before 2023-01-03 and dollars after. One issuer can have several rows (other man
 → summed by CUSIP, title and put/call. The row sum must equal `tableValueTotal`.
 
 Checks before a row is stored automatically (else held for review, `m02_fin_check`):
-the filing's row sum matches its total; shares no more than 10× the prior quarter's;
-value within 25% of shares × the stored closing price when the issuer has prices.
+the filing's row sum matches its total; value within 25% of shares × the stored closing
+price when the issuer has prices; shares no more than 10× the prior quarter's unless that
+price check confirms them (D-M02-46 amendment). A filing made after 2023-01-03 whose priced
+rows are all ≈ 1/1000 of shares × close is read in thousands (D-SEC-28 amendment).
+
+Followed managers (M07 Part 2, D-SEC-28): `read_filing` / `store_rows` take a `keep`
+filter, so a manager's rows of companies that are not ours are never stored (and never
+queued as `m02_13f_issuer`); a manager's filer CIK is recorded in `refresh_state` as
+`m07_manager:<cik>` and M02's views and review items skip those filers (`not_followed`,
+D-M02-63).
 """
 
 from __future__ import annotations
@@ -17,7 +25,8 @@ from __future__ import annotations
 import sqlite3
 import xml.etree.ElementTree as ET
 from collections import defaultdict
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 
 from engine.financing import issuers
@@ -31,6 +40,31 @@ QUARTERS = 8  # first run: last 8 quarters (D-M02-45 (1))
 DOC_TTL_S = 3650 * 86400  # filings are immutable
 PRICE_TOLERANCE = 0.25
 JUMP = 10
+# A followed manager's filer CIK (M07, D-SEC-28): refresh_state name `m07_manager:<cik>`.
+FOLLOWED_STATE = "m07_manager:"
+
+
+def not_followed(column: str = "filer_cik") -> str:
+    """SQL condition: the filer is not a followed manager (D-M02-63: M02's K1 edges, Money
+    flow rows and review items skip the managers M07 follows)."""
+    n = len(FOLLOWED_STATE)
+    return (f"{column} NOT IN (SELECT substr(name, {n + 1}) FROM refresh_state WHERE "
+            f"substr(name, 1, {n}) = '{FOLLOWED_STATE}')")  # fmt: skip
+
+
+def followed_filers(engine: sqlite3.Connection) -> set[str]:
+    n = len(FOLLOWED_STATE)
+    return {
+        r[0]
+        for r in engine.execute(
+            f"SELECT substr(name, {n + 1}) FROM refresh_state WHERE substr(name, 1, {n}) = ?",
+            (FOLLOWED_STATE,),
+        )
+    }
+
+
+# keep(row, issuer_cik, how) → None = not stored; else (issuer_cik, how, note) to store
+Keep = Callable[["Row", "str | None", str], "tuple[str | None, str, str | None] | None"]
 
 
 @dataclass(frozen=True)
@@ -61,6 +95,7 @@ class Report13F:
     unresolved: int = 0
     re_resolved: int = 0
     problems: list[str] = field(default_factory=list)
+    skipped: list[Row] = field(default_factory=list)  # rows a keep filter left out
 
     def lines(self) -> list[str]:
         out = [
@@ -189,8 +224,10 @@ def read_filing(
     names: issuers.Names,
     now: datetime,
     rep: Report13F,
+    keep: Keep | None = None,
 ) -> bool:
-    """Read one filing → False when SEC throttled us (stop the batch)."""
+    """Read one filing → False when SEC throttled us (stop the batch). `keep` filters the
+    rows before they are stored (followed managers, D-SEC-28)."""
     idx = fetch_filing_index(client, cik, f["accession"])
     if isinstance(idx, Failed) and idx.throttled:
         rep.problems.append(f"{f['accession']}: throttled")
@@ -237,7 +274,7 @@ def read_filing(
         row_sum=row_sum,
     )
     rep.read += 1
-    store_rows(engine, cik, f, cover, rows, names, now, rep, sum_ok)
+    store_rows(engine, cik, f, cover, rows, names, now, rep, sum_ok, keep=keep)
     return True
 
 
@@ -297,29 +334,134 @@ def _close(engine: sqlite3.Connection, cik: str | None, period: str) -> float | 
     return float(row[0]) if row and row[0] is not None else None
 
 
-def _prior_shares(engine, cik: str, cusip: str, period: str) -> float | None:
+def _prior_shares(
+    engine, cik: str, cusip: str, period: str, put_call: str = "", issuer_cik: str | None = None
+) -> float | None:
+    """The prior quarter's shares of the same kind of row (a call row is not compared with
+    the common shares, D-M07-19), scaled by the issuer's splits between the two quarters."""
     row = engine.execute(
-        "SELECT shares FROM fin_holding WHERE source = '13F' AND filer_cik = ? AND cusip = ? "
-        "AND period < ? AND status != 'wrong' ORDER BY period DESC LIMIT 1",
-        (cik, cusip, period),
+        "SELECT shares, period FROM fin_holding WHERE source = '13F' AND filer_cik = ? AND "
+        "cusip = ? AND put_call = ? AND period < ? AND status != 'wrong' ORDER BY period DESC "
+        "LIMIT 1",
+        (cik, cusip, put_call or "", period),
     ).fetchone()
-    return float(row[0]) if row and row[0] is not None else None
+    if not row or row[0] is None:
+        return None
+    if not issuer_cik:
+        return float(row[0])
+    from engine.financials.shares import splits_after
+
+    before, _ = splits_after(engine, issuer_cik, row[1])
+    after, _ = splits_after(engine, issuer_cik, period)
+    return float(row[0]) * (before / after if after else 1.0)
 
 
 def checks(engine, cik: str, row: Row, issuer_cik: str | None, period: str) -> list[str]:
     """Why a row is held (empty = passes)."""
     out = []
-    prior = _prior_shares(engine, cik, row.cusip, period)
-    if prior and row.shares and row.shares > JUMP * prior:
-        out.append(f"shares {row.shares:,.0f} > {JUMP}× the prior quarter's {prior:,.0f}")
     price = None if row.put_call or row.share_type == "PRN" else _close(engine, issuer_cik, period)
+    priced = False  # the value agrees with shares × close: the share count is confirmed
     if price and row.shares:
         implied = row.shares * price
         if implied and abs(row.value / implied - 1) > PRICE_TOLERANCE:
             out.append(
                 f"value ${row.value:,.0f} vs shares × close ${implied:,.0f} (close ${price:,.2f})"
             )
+        else:
+            priced = bool(implied)
+    prior = _prior_shares(engine, cik, row.cusip, period, row.put_call, issuer_cik)
+    # a share jump alone does not hold a priced row (owner, M07 Part 2 live check 3, D-M02-46)
+    if prior and row.shares and row.shares > JUMP * prior and not priced:
+        out.insert(0, f"shares {row.shares:,.0f} > {JUMP}× the prior quarter's {prior:,.0f}")
     return out
+
+
+def filer_thousands(engine, rows: list[tuple[Row, str | None]], period: str, scale: int) -> str:
+    """A filing made after 2023-01-03 whose values are still thousands (Duquesne, M07 Part 2
+    live check 1): every priced row of ours is about 1/1000 of shares × close. Returns the
+    note (rows are then ×1000), or "" when the filing reads in dollars."""
+    if scale != 1:
+        return ""
+    ratios = []
+    for r, issuer_cik in rows:
+        if r.put_call or r.share_type == "PRN" or not r.shares or not issuer_cik:
+            continue
+        price = _close(engine, issuer_cik, period)
+        if price:
+            ratios.append(r.value / (r.shares * price))
+    if not ratios or any(abs(x * 1000 - 1) > PRICE_TOLERANCE for x in ratios):
+        return ""
+    return (f"values filed in thousands after {DOLLARS_FROM} (the filer's units: "
+            f"{len(ratios)} priced row(s) ≈ 1/1000 of shares × close) — ×1000")  # fmt: skip
+
+
+def _mark_thousands(engine: sqlite3.Connection, accession: str, note: str) -> None:
+    engine.execute(
+        "UPDATE fin_13f SET scale = 1000, value_total = value_total * 1000, row_sum = row_sum * "
+        "1000, detail = CASE WHEN detail IS NULL THEN ? ELSE detail || '; ' || ? END WHERE "
+        "accession = ?",
+        (note, note, accession),
+    )
+
+
+def rescale_stored(engine: sqlite3.Connection) -> int:
+    """Stored filings read as dollars whose rows are really thousands (`filer_thousands`):
+    rows ×1000 and re-checked; 0 requests. Returns the number of filings rescaled."""
+    n = 0
+    for f in engine.execute(
+        "SELECT accession, filer_cik, period, filed FROM fin_13f WHERE status = 'read' AND "
+        "scale = 1 AND filed >= ?",
+        (DOLLARS_FROM,),
+    ).fetchall():
+        hs = engine.execute(
+            "SELECT * FROM fin_holding WHERE source = '13F' AND accession = ?", (f["accession"],)
+        ).fetchall()
+        rows = [(Row(h["issuer_name"], h["title"], h["cusip"], h["value_usd"], h["shares"],
+                     h["share_type"], h["put_call"] or ""), h) for h in hs]  # fmt: skip
+        note = filer_thousands(engine, [(r, h["issuer_cik"]) for r, h in rows], f["period"], 1)
+        if not note:
+            continue
+        _mark_thousands(engine, f["accession"], note)
+        for r, h in rows:
+            r = replace(r, value=r.value * 1000)
+            status, check = h["status"], h["check_note"]
+            if status in ("held", "automatic"):
+                notes = checks(engine, f["filer_cik"], r, h["issuer_cik"], f["period"])
+                status = "held" if notes else "automatic"
+                check = "; ".join(notes + [note])
+            engine.execute(
+                "UPDATE fin_holding SET value_usd = ?, status = ?, check_note = ? WHERE "
+                "holding_id = ?",
+                (r.value, status, check, h["holding_id"]),
+            )
+        n += 1
+    return n
+
+
+def recheck_followed(engine: sqlite3.Connection) -> int:
+    """Followed managers' held rows re-run through `checks` (0 requests) after a check rule
+    changed; a row that now passes becomes automatic, other notes are kept. M02 filers' held
+    rows are left to their `m02_fin_check` review items. Returns the rows released."""
+    n = 0
+    for h in engine.execute(
+        f"SELECT * FROM fin_holding WHERE source = '13F' AND status = 'held' AND issuer_cik IS "
+        f"NOT NULL AND NOT ({not_followed()})"
+    ).fetchall():
+        note = h["check_note"] or ""
+        if "do not add up" in note:
+            continue  # a filing-level problem, not a row check
+        r = Row(h["issuer_name"], h["title"], h["cusip"], h["value_usd"], h["shares"],
+                h["share_type"], h["put_call"] or "")  # fmt: skip
+        notes = checks(engine, h["filer_cik"], r, h["issuer_cik"], h["period"])
+        if notes:
+            continue
+        kept = [x for x in note.split("; ") if x.startswith("values filed in thousands")]
+        engine.execute(
+            "UPDATE fin_holding SET status = 'automatic', check_note = ? WHERE holding_id = ?",
+            ("; ".join(kept) or None, h["holding_id"]),
+        )
+        n += 1
+    return n
 
 
 def suppressed(engine: sqlite3.Connection, key: str) -> bool:
@@ -336,11 +478,30 @@ def store_rows(
     now: datetime,
     rep: Report13F,
     sum_ok: bool = True,
+    *,
+    keep: Keep | None = None,
 ) -> None:
     fname = filer_name(engine, cik)
+    todo = []
     for r in rows:
         issuer_cik, how = issuers.resolve(engine, names, r.cusip, r.issuer)
+        extra = None
+        if keep is not None:
+            kept = keep(r, issuer_cik, how)
+            if kept is None:
+                rep.skipped.append(r)
+                continue
+            issuer_cik, how, extra = kept
+        todo.append((r, issuer_cik, how, extra))
+    units = filer_thousands(engine, [(r, c) for r, c, _, _ in todo], cover.period,
+                            scale_for(f["filed"]))  # fmt: skip
+    if units:
+        todo = [(replace(r, value=r.value * 1000), c, h, e) for r, c, h, e in todo]
+        _mark_thousands(engine, f["accession"], units)
+    for r, issuer_cik, how, extra in todo:
         notes = [] if sum_ok else ["the filing's rows do not add up to its stated total"]
+        if extra and issuer_cik is None:
+            notes.append(extra)  # unresolved: why it was kept (shown with the CUSIP)
         notes += checks(engine, cik, r, issuer_cik, cover.period)
         if suppressed(engine, f"13F:{cik}:{r.cusip[:6]}"):
             status = "wrong"
@@ -371,7 +532,7 @@ def store_rows(
                 f["filed"],
                 how,  # unresolved rows keep the reason (ambiguous (n) | no match)
                 status,
-                "; ".join(notes) or None,
+                "; ".join(notes + ([units] if units else [])) or None,
                 iso(now),
             ),
         )

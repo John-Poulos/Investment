@@ -139,7 +139,7 @@ Rules: migration numbers are 1..n with no gaps (`store/db.py`). A part marked "n
 | W9 | M10 Part 2 (`m10-part2`) | 0047_m10_policy | — | 37 | 46 (policy event list) | — | next free (+ next free D-M02 for the `fedreg.py` extension) |
 | W9 | M11 Part 2 (`m11-part2`) | 0048_m11_caps | — | 38 | 47 (confluence line, theme exposure) | — | next free (+ next free D-M01 if tiers change) |
 | W10 | MVP dashboard (`mvp-dashboard`) | none | — | — | 48 | — | — |
-| W10 | M02 writer (`m02-flow`, optional) | none expected | — | — | — | — | next free D-M02 (from 63; D-M02-62 taken at sitting 2) |
+| W10 | M02 writer (`m02-flow`, optional) | none expected | — | — | — | — | next free D-M02 (from 64; D-M02-62 taken at sitting 2, D-M02-63 by M07 Part 2) |
 | After | M12 Part 1 (`m12-part1`) | 0049_m12_iv | — | 39 | — | 25 (ex-dividend dates; IV is DS5) | D-M12-1…8, parts from 9 |
 | After | M12 Part 2 (`m12-part2`) | 0050_m12_window | — | 40 | 49 (Options tab) | — | next free |
 

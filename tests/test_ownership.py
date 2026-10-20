@@ -929,10 +929,8 @@ def test_run_ownership_list_and_unbuilt(capsys, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["run_ownership.py", "--list"])
     assert run_ownership.main() == 0
     out = capsys.readouterr().out
-    assert "insiders   Part 1" in out and "managers   Part 2" in out and "(not built)" in out
-    assert "managers" not in run_ownership.BUILT
-    monkeypatch.setattr(sys, "argv", ["run_ownership.py", "managers"])
-    assert run_ownership.main() == 2
+    assert "insiders   Part 1" in out and "managers   Part 2" in out and "(not built)" not in out
+    assert {"insiders", "managers"} == run_ownership.BUILT  # M07 Part 2 built
     assert run_ownership.fetch_type("https://www.sec.gov/Archives/x/form4.xml") == "Form 4 XML"
 
 

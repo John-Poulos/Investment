@@ -37,14 +37,14 @@ def retire_issuer_items(engine: sqlite3.Connection, now: datetime) -> int:
         latest = engine.execute(
             "SELECT count(*) FROM fin_holding h WHERE substr(cusip, 1, 6) = ? AND status = "
             "'unresolved' AND h.period = (SELECT max(period) FROM fin_13f f WHERE f.filer_cik = "
-            "h.filer_cik AND f.status = 'read')",
+            f"h.filer_cik AND f.status = 'read') AND {thirteenf.not_followed('h.filer_cik')}",
             (c6,),
         ).fetchone()[0]
         if latest:
             continue
         left = engine.execute(
             "SELECT count(*) FROM fin_holding WHERE substr(cusip, 1, 6) = ? AND status = "
-            "'unresolved'",
+            f"'unresolved' AND {thirteenf.not_followed()}",
             (c6,),
         ).fetchone()[0]
         note = ("held only in older quarters; left unresolved (D-M02-47)" if left
@@ -67,8 +67,10 @@ def issuer_items(engine: sqlite3.Connection, now: datetime) -> int:
         "group_concat(DISTINCT filer_name) AS filers, count(*) AS rows_n, max(value_usd) AS v, "
         "max(title) AS title, max(period) AS period, max(resolved_how) AS how FROM fin_holding h "
         "WHERE status = 'unresolved' AND h.period = (SELECT max(period) FROM fin_13f f WHERE "
-        "f.filer_cik = h.filer_cik AND f.status = 'read') GROUP BY c6"
-    ):  # only issuers in a filer's latest quarter: older-only holdings (often delisted) wait
+        f"f.filer_cik = h.filer_cik AND f.status = 'read') AND "
+        f"{thirteenf.not_followed('h.filer_cik')} GROUP BY c6"
+    ):  # only issuers in a filer's latest quarter: older-only holdings (often delisted) wait;
+        # followed managers' rows are M07's (D-M02-63)
         payload = {
             "issuer": r["name"],
             "cusip": r["cusip"],
@@ -96,7 +98,9 @@ def check_items(engine: sqlite3.Connection, now: datetime) -> int:
     from engine.themes.proposals import propose
 
     n = 0
-    for r in engine.execute("SELECT * FROM fin_holding WHERE status = 'held'"):
+    for r in engine.execute(
+        f"SELECT * FROM fin_holding WHERE status = 'held' AND {thirteenf.not_followed()}"
+    ):  # followed managers' held rows are shown on M07's panel, not queued (D-M02-63)
         payload = {
             "holding_id": r["holding_id"],
             "source": r["source"],

@@ -418,6 +418,18 @@ def _mark_peers_due(engine: sqlite3.Connection, entries: list[IndexEntry]) -> No
             engine.execute("ROLLBACK")
 
 
+def _mark_managers_due(engine: sqlite3.Connection, entries: list[IndexEntry]) -> None:
+    """M07 Part 2 (D-SEC-28): a followed manager's new 13F-HR in the daily index marks it due
+    for the managers SEC part. Never fails the run."""
+    try:
+        from engine.ownership.managers import mark_due
+
+        mark_due(engine, entries)
+    except Exception:  # bookkeeping only; the recheck day marks it again
+        if engine.in_transaction:
+            engine.execute("ROLLBACK")
+
+
 def run_refresh(
     client: SecClient,
     engine: sqlite3.Connection,
@@ -483,6 +495,7 @@ def run_refresh(
                 continue
             entries = parse_master_index(text)
             _mark_peers_due(engine, entries)
+            _mark_managers_due(engine, entries)
             hits = [e for e in entries if e.cik in watch or e.cik in light]
             for e in hits:
                 matched.setdefault(e.cik, []).append(e)

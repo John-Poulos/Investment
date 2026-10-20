@@ -26,6 +26,8 @@
 </div>
 <p class="muted">Short interest: {{ m.short_interest }}</p>
 
+{% include "tabs/_m07_managers.html" %}
+
 <h2 style="margin-top:16px">Buy and sale cards</h2>
 {% if m.cards %}
 <div style="overflow-x:auto">

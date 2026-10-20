@@ -18,6 +18,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
 
+from engine.financing import thirteenf
 from engine.financing.find import KIND_LABELS, FinFound
 from engine.sec.client import iso
 from engine.supply.aliases import Company
@@ -316,8 +317,10 @@ def financing_edges(engine: sqlite3.Connection) -> list[Edge]:
         "SELECT h.* FROM fin_holding h WHERE h.status = 'automatic' AND h.issuer_cik IS NOT NULL "
         "AND h.period = (SELECT max(period) FROM fin_holding x WHERE x.source = h.source AND "
         "x.filer_cik = h.filer_cik AND x.issuer_cik = h.issuer_cik AND x.status = 'automatic') "
-        "AND coalesce(h.shares, 1) != 0 AND coalesce(h.pct_class, 1) != 0"
-    ):  # a 0% schedule reports an exit: no stake (D-M02-47)
+        "AND coalesce(h.shares, 1) != 0 AND coalesce(h.pct_class, 1) != 0 AND "
+        + thirteenf.not_followed("h.filer_cik")
+    ):  # a 0% schedule reports an exit: no stake (D-M02-47); followed managers are M07's
+        # (D-M02-63)
         out.append(
             Edge(
                 "K1",
