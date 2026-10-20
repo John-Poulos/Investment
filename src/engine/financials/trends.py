@@ -283,6 +283,35 @@ def roic(inputs: dict[str, dict], end: str, prev: str | None, oi: dict[str, AsOf
     return Cell(nopat / avg, f"{how_tax}; {how1}", o.filed, o.accession)
 
 
+@dataclass(frozen=True)
+class RoicYear:
+    label: str  # fiscal label (FY2026)
+    end: str
+    cell: Cell
+
+
+def roic_series(
+    engine: sqlite3.Connection, cik: str, as_of: str, years: int = YEARS
+) -> list[RoicYear]:
+    """ROIC (S6.5) for the last `years` fiscal years with operating income, oldest first
+    (D-M04-107; MVP_PLAN item 3: M05 reads now vs 3 FYs earlier, M06 reads 10 years). Each
+    cell is `roic()` on that year with the year before as the opening balance, so n years
+    need n + 1 balance sheets; the first year without an opening balance reads "missing: no
+    opening invested capital". Same inputs, same approximations as the Financials tab row."""
+    norm = normalize_cik(cik) or cik
+    oi = fy_points(engine, norm, "operating_income", as_of)
+    ends = sorted(oi)
+    ends = [e for i, e in enumerate(ends) if not any(near(e, x) for x in ends[:i])]
+    inputs = roic_inputs(engine, norm, as_of)
+    out = []
+    for i, end in enumerate(ends):
+        if i < len(ends) - years:
+            continue
+        out.append(RoicYear(fiscal_label(end), end, roic(inputs, end, ends[i - 1] if i else None,
+                                                         oi)))  # fmt: skip
+    return out
+
+
 # --- Signals ---------------------------------------------------------------------------------
 
 

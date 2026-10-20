@@ -1,4 +1,5 @@
 {% set m = mf %}
+{% if m05 %}{% include "tabs/_m05_future_spend.html" %}<h2 style="margin-top:20px">Money flow (M02)</h2>{% endif %}
 <p class="note">Money flow (M02 part 3): hypothesis, not backtested · guidance is a {{ FORECAST_NOTE }} · capex on the company's own definition: <b>{{ m.recipe_label }}</b>{% if m.recipe_source == 'override' %} (config/capex_definitions.toml){% endif %}.</p>
 
 <h2>Capex guidance</h2>

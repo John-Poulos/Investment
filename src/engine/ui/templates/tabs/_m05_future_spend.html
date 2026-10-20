@@ -1,0 +1,66 @@
+{% set f = m05 %}
+<h2>Future spend (M05)</h2>
+<p class="note">Capex against demand, growth capex × ROIC and bookings cover — {{ f.channel }}{% if f.channel_error %} · <span class="warn">channel file rejected: {{ f.channel_error }}</span>{% endif %}. Hypothesis, not backtested; † values are starting values, not calibrated (D32). Computed here by the refresh's own functions (0 requests, nothing written).</p>
+{% if f.not_applicable %}
+<p class="empty">M05: {{ f.not_applicable }} — every M05 row is written as missing with that reason, never 0.</p>
+{% else %}
+<table class="data">
+  <tr><th>Signal</th><th>State</th><th class="num">Value</th><th>Weight</th><th>As of</th><th>Reading</th></tr>
+  {% for r in f.rows %}
+  <tr title="{{ r.method }}">
+    <td>{{ r.label }}<div class="muted">{{ r.signal }}</div></td>
+    <td>{% if r.state == 'AHEAD_OF_DEMAND' %}<span class="warn">{{ r.state }}</span>{% elif r.state == 'missing' %}<span class="muted">missing</span>{% else %}{{ r.state }}{% endif %}</td>
+    <td class="num">{{ r.value }}</td>
+    <td class="muted" style="white-space:nowrap">{{ r.weight }}</td>
+    <td class="muted" style="white-space:nowrap">{{ r.as_of }}</td>
+    <td class="muted">{{ r.method[:360] }}{{ '…' if r.method | length > 360 }}</td>
+  </tr>
+  {% endfor %}
+</table>
+<p class="note"><b>{{ f.vote }}</b>{% for b in f.beside %} · {{ b }}{% endfor %}{% if f.guide %} · {{ f.guide }}{% endif %}</p>
+<p class="note">The capex vote (rule 4, D-M05-7) is positive only when the state is BUILD_INTO_DEMAND, OCF ÷ capex ≥ 1 (D-M02-31) and the CvD state is resolved and not STRUCTURAL_DECLINE or CYCLE_PLUS_DAMAGE; otherwise neutral, with the reason. AHEAD_OF_DEMAND is an M01 rule-4 exit warning, never blocking (D16, D-M01-7). Fabless and outsourced companies read the capex rows as info (R9); their commitments come in Part 2. Hover a row for its full method.</p>
+
+<h3 style="margin-top:12px">Capex ÷ {{ f.rung }}, last 8 fiscal years</h3>
+{% if f.strip %}
+<table class="data">
+  <tr><th></th>{% for d in f.strip %}<th class="num">{{ d.label }}</th>{% endfor %}</tr>
+  <tr><td>Capex ÷ {{ f.rung }}</td>{% for d in f.strip %}<td class="num">{% if d.ratio is not none %}{{ '%.2f' | format(d.ratio) }}{% else %}—{% endif %}</td>{% endfor %}</tr>
+  <tr><td class="muted">Own prior-8-FY median</td>{% for d in f.strip %}<td class="num muted">{% if d.median is not none %}{{ '%.2f' | format(d.median) }}{% else %}—{% endif %}</td>{% endfor %}</tr>
+  <tr><td class="muted">Capex YoY</td>{% for d in f.strip %}<td class="num muted">{% if d.capex_yoy is not none %}{{ '%+.0f' | format(100 * d.capex_yoy) }}%{% else %}—{% endif %}</td>{% endfor %}</tr>
+  <tr><td class="muted">Revenue YoY</td>{% for d in f.strip %}<td class="num muted">{% if d.rev_yoy is not none %}{{ '%+.0f' | format(100 * d.rev_yoy) }}%{% else %}—{% endif %}</td>{% endfor %}</tr>
+  <tr><td class="muted">Capex ÷ revenue</td>{% for d in f.strip %}<td class="num muted">{% if d.intensity is not none %}{{ '%.1f' | format(100 * d.intensity) }}%{% else %}—{% endif %}</td>{% endfor %}</tr>
+  <tr><td>State</td>{% for d in f.strip %}<td class="num" style="font-size:smaller" title="{{ d.why or d.missing }}">{% if d.state == 'AHEAD_OF_DEMAND' %}<span class="warn">{{ d.state | replace('_', ' ') }}</span>{% elif d.state %}{{ d.state | replace('_', ' ') }}{% else %}<span class="muted">missing</span>{% endif %}</td>{% endfor %}</tr>
+</table>
+<p class="note">Each year is read against its own prior 8 fiscal years on one rung (never mixed); fewer → INSUFFICIENT_HISTORY. A capex-definition change year is not scored (D-M04-3). The capex ÷ revenue line feeds only the AHEAD_OF_DEMAND test (> 1.5×† its own 3-FY average while revenue falls, = D-M04-64); price-driven revenue makes intensity misleading in a cycle (MU FY2023). Hover a state for its reason.</p>
+{% else %}<p class="empty">No total capex stored — missing, never 0.</p>{% endif %}
+
+<h3 style="margin-top:12px">Customer deposits</h3>
+<p>{{ f.deposits }}</p>
+<p class="note">Contract liabilities (total, else current + noncurrent, labelled) are repayable and may be price-banded: a separate line, never revenue and never added to RPO (D-M05-6). A rise counts only as bookings evidence in the capex state.</p>
+
+<h3 style="margin-top:12px">Customers at 10% or more of revenue (M04)</h3>
+{% if f.customers %}
+<table class="data">
+  <tr><th>Fiscal year</th><th>Customers</th><th class="num">Share of revenue</th><th>Basis</th></tr>
+  {% for c in f.customers %}
+  <tr><td>{{ c.label }}</td><td>{% for n, v in c.customers %}{{ n }} {{ '%.0f' | format(100 * v) }}%{{ ' · ' if not loop.last }}{% endfor %}</td>
+    <td class="num">{{ '%.0f' | format(100 * c.at_stake) }}%</td><td class="muted">{{ c.basis }} · {{ c.accession }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}<p class="empty">No customer at 10% or more tagged — unknown, not "none".</p>{% endif %}
+<p class="note">Shown beside the bookings, never added; a counterparty share outside the filings (press) waits for M04 Part 7b.</p>
+
+<h3 style="margin-top:12px">Capex guidance track record (M04)</h3>
+{% if f.guidance %}
+<table class="data">
+  <tr><th>Period</th><th>Guide</th><th>Outcome</th><th class="num">Actual</th><th>Note</th></tr>
+  {% for g in f.guidance %}
+  <tr><td>{{ g['period'] }}</td><td>{{ g['guide_text'] or '—' }}<div class="muted">{{ g['origin'] or '' }} {{ g['stated_on'] or '' }}</div></td>
+    <td>{{ g['outcome'] }}{% if g['state'] %}<div class="muted">{{ g['state'] }}</div>{% endif %}</td>
+    <td class="num">{% if g['actual'] is not none %}{{ g['actual'] | money }}{% else %}—{% endif %}</td>
+    <td class="muted">{{ g['note'] or '' }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}<p class="empty">No capex guidance outcome stored for this company.</p>{% endif %}
+{% for e in f.errors %}<p class="note warn">{{ e }}</p>{% endfor %}
+{% endif %}

@@ -230,6 +230,15 @@ EXTRA_CONCEPTS: tuple[Concept, ...] = (
     # `fact`; no parser bump)
     Concept("minority_interest", _gaap("MinorityInterest")
             + _ifrs("NoncontrollingInterests"), C, I),
+    # M05 Part 1 (D-SEC-30): customer deposits = contract liabilities, total and noncurrent,
+    # each its own concept (tags within a concept mean the same thing); the current-only
+    # `contract_liabilities` above (M04 Part 6) is unchanged. Pre-ASC 606 tags marked.
+    Concept("contract_liabilities_total", _gaap("ContractWithCustomerLiability",
+            "DeferredRevenue"), C, I,
+            marks=(("us-gaap", "DeferredRevenue", "≈ pre-2018 tag (before ASC 606)"),)),
+    Concept("contract_liabilities_noncurrent", _gaap("ContractWithCustomerLiabilityNoncurrent",
+            "DeferredRevenueNoncurrent"), C, I,
+            marks=(("us-gaap", "DeferredRevenueNoncurrent", "≈ pre-2018 tag (before ASC 606)"),)),
 )  # fmt: skip
 ALL_CONCEPTS = {c.name: c for c in CONCEPTS + EXTRA_CONCEPTS}
 

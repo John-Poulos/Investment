@@ -1276,6 +1276,7 @@ def m04_rows(engine, c: CvD) -> m01_rules.M04Rows:
             method = "computed"
         rows.cvd = m01_rules.Row(c.state, c.as_of, method)
     rows.guidance_removed = m01_rules.guidance_removed(engine, c.cik, c.as_of)
+    rows.capex_demand = m01_rules.capex_demand(engine, c.cik, c.as_of)  # M05 (D-M01-7)
     return rows
 
 
