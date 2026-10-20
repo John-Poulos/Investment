@@ -24,7 +24,7 @@ import sqlite3
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 
 from engine.financing import issuers
@@ -370,6 +370,68 @@ def checks(engine, cik: str, row: Row, issuer_cik: str | None, period: str) -> l
     return out
 
 
+def filer_thousands(engine, rows: list[tuple[Row, str | None]], period: str, scale: int) -> str:
+    """A filing made after 2023-01-03 whose values are still thousands (Duquesne, M07 Part 2
+    live check 1): every priced row of ours is about 1/1000 of shares × close. Returns the
+    note (rows are then ×1000), or "" when the filing reads in dollars."""
+    if scale != 1:
+        return ""
+    ratios = []
+    for r, issuer_cik in rows:
+        if r.put_call or r.share_type == "PRN" or not r.shares or not issuer_cik:
+            continue
+        price = _close(engine, issuer_cik, period)
+        if price:
+            ratios.append(r.value / (r.shares * price))
+    if not ratios or any(abs(x * 1000 - 1) > PRICE_TOLERANCE for x in ratios):
+        return ""
+    return (f"values filed in thousands after {DOLLARS_FROM} (the filer's units: "
+            f"{len(ratios)} priced row(s) ≈ 1/1000 of shares × close) — ×1000")  # fmt: skip
+
+
+def _mark_thousands(engine: sqlite3.Connection, accession: str, note: str) -> None:
+    engine.execute(
+        "UPDATE fin_13f SET scale = 1000, value_total = value_total * 1000, row_sum = row_sum * "
+        "1000, detail = CASE WHEN detail IS NULL THEN ? ELSE detail || '; ' || ? END WHERE "
+        "accession = ?",
+        (note, note, accession),
+    )
+
+
+def rescale_stored(engine: sqlite3.Connection) -> int:
+    """Stored filings read as dollars whose rows are really thousands (`filer_thousands`):
+    rows ×1000 and re-checked; 0 requests. Returns the number of filings rescaled."""
+    n = 0
+    for f in engine.execute(
+        "SELECT accession, filer_cik, period, filed FROM fin_13f WHERE status = 'read' AND "
+        "scale = 1 AND filed >= ?",
+        (DOLLARS_FROM,),
+    ).fetchall():
+        hs = engine.execute(
+            "SELECT * FROM fin_holding WHERE source = '13F' AND accession = ?", (f["accession"],)
+        ).fetchall()
+        rows = [(Row(h["issuer_name"], h["title"], h["cusip"], h["value_usd"], h["shares"],
+                     h["share_type"], h["put_call"] or ""), h) for h in hs]  # fmt: skip
+        note = filer_thousands(engine, [(r, h["issuer_cik"]) for r, h in rows], f["period"], 1)
+        if not note:
+            continue
+        _mark_thousands(engine, f["accession"], note)
+        for r, h in rows:
+            r = replace(r, value=r.value * 1000)
+            status, check = h["status"], h["check_note"]
+            if status in ("held", "automatic"):
+                notes = checks(engine, f["filer_cik"], r, h["issuer_cik"], f["period"])
+                status = "held" if notes else "automatic"
+                check = "; ".join(notes + [note])
+            engine.execute(
+                "UPDATE fin_holding SET value_usd = ?, status = ?, check_note = ? WHERE "
+                "holding_id = ?",
+                (r.value, status, check, h["holding_id"]),
+            )
+        n += 1
+    return n
+
+
 def suppressed(engine: sqlite3.Connection, key: str) -> bool:
     return engine.execute("SELECT 1 FROM fin_suppress WHERE key = ?", (key,)).fetchone() is not None
 
@@ -388,6 +450,7 @@ def store_rows(
     keep: Keep | None = None,
 ) -> None:
     fname = filer_name(engine, cik)
+    todo = []
     for r in rows:
         issuer_cik, how = issuers.resolve(engine, names, r.cusip, r.issuer)
         extra = None
@@ -397,6 +460,13 @@ def store_rows(
                 rep.skipped.append(r)
                 continue
             issuer_cik, how, extra = kept
+        todo.append((r, issuer_cik, how, extra))
+    units = filer_thousands(engine, [(r, c) for r, c, _, _ in todo], cover.period,
+                            scale_for(f["filed"]))  # fmt: skip
+    if units:
+        todo = [(replace(r, value=r.value * 1000), c, h, e) for r, c, h, e in todo]
+        _mark_thousands(engine, f["accession"], units)
+    for r, issuer_cik, how, extra in todo:
         notes = [] if sum_ok else ["the filing's rows do not add up to its stated total"]
         if extra and issuer_cik is None:
             notes.append(extra)  # unresolved: why it was kept (shown with the CUSIP)
@@ -430,7 +500,7 @@ def store_rows(
                 f["filed"],
                 how,  # unresolved rows keep the reason (ambiguous (n) | no match)
                 status,
-                "; ".join(notes) or None,
+                "; ".join(notes + ([units] if units else [])) or None,
                 iso(now),
             ),
         )

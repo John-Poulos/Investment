@@ -434,6 +434,48 @@ def test_cases_new_add_cut_exit_hold_split_options_amendments(world, make_client
     assert set(stored) == {"2024-08-14", "2025-03-01"}  # the original's day row is not kept
 
 
+def test_filer_reporting_thousands_after_2023_is_rescaled(world, make_client):
+    # live check 1: Duquesne still files values in thousands; every row was held by the
+    # value check. A filing whose priced rows are all ≈ 1/1000 of shares × close is ×1000.
+    engine, _, _ = world
+    engine.execute("INSERT INTO price_fetch (symbol, cik) VALUES ('NVDA', ?)", (NVDA,))
+    for d in ("2025-03-31", "2025-06-30"):
+        engine.execute("INSERT INTO price_bar (symbol, date, close, volume, split_factor, source, "
+                       "fetched_at) VALUES ('NVDA', ?, 120, 1, 1, 't', 'x')", (d,))  # fmt: skip
+    routes = duq_filing(engine, "d-k", "13F-HR", "2025-05-15", "2025-03-31", [
+        ("NVIDIA CORPORATION", "COM", NV, 120_000, 1_000_000, ""),
+        ("COCA COLA CO", "COM", "191216100", 6_000, 100_000, ""),
+    ])  # fmt: skip
+    routes |= duq_filing(engine, "d-d", "13F-HR", "2025-08-14", "2025-06-30", [
+        ("NVIDIA CORPORATION", "COM", NV, 132_000_000, 1_100_000, ""),
+    ])  # fmt: skip
+    names = issuers.Names(engine)
+    s = mg.ManagerSync(mg.Manager("Duquesne Family Office LLC", DUQ), "synced")
+    mg.mark_followed(engine, s.manager, DUQ_NOW)
+    now = datetime(2025, 9, 1, tzinfo=UTC)
+    mg._read_due(make_client(FakeTransport(routes)), engine, s.manager,
+                 thirteenf.due(engine, DUQ, now), mg.keep_filter(names, OURS, {}), names, now,
+                 s)  # fmt: skip
+
+    def row(acc):
+        return engine.execute("SELECT h.value_usd, h.status, h.check_note, t.scale FROM "
+                              "fin_holding h JOIN fin_13f t ON t.accession = h.accession WHERE "
+                              "h.accession = ?", (acc,)).fetchone()  # fmt: skip
+
+    k, d = row("d-k"), row("d-d")
+    assert (k["value_usd"], k["status"], k["scale"]) == (120_000_000, "automatic", 1000)
+    assert "values filed in thousands" in k["check_note"]
+    assert (d["value_usd"], d["status"], d["scale"], d["check_note"]) == (
+        132_000_000, "automatic", 1, None)  # fmt: skip
+    # rows stored before the fix: rescaled locally (0 requests) and re-checked
+    engine.execute("UPDATE fin_holding SET value_usd = 120000, status = 'held', check_note = "
+                   "'value' WHERE accession = 'd-k'")  # fmt: skip
+    engine.execute("UPDATE fin_13f SET scale = 1, detail = NULL WHERE accession = 'd-k'")
+    assert thirteenf.rescale_stored(engine) == 1 and thirteenf.rescale_stored(engine) == 0
+    k = row("d-k")
+    assert (k["value_usd"], k["status"], k["scale"]) == (120_000_000, "automatic", 1000)
+
+
 def test_same_day_managers_aggregate_mixed():
     e1 = mg.Event(
         "A", "1", AAPL, "2024-06-30", "2024-08-14", "a", "2024-03-31", text="cut", delta=-10

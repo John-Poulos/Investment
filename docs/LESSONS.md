@@ -14,7 +14,7 @@ Updated: 2026-10-13 · Read at the start of every module build. One line each, w
 - SEC companyfacts carries standard taxonomies only; company extension tags (e.g. `amzn:`) need the filing's XBRL instance (`<primary>_htm.xml`) — fetch it only where a recipe or coverage check needs it (D-M02-32).
 - A ratio of mapped lines to a net total swings when the net is small; measure coverage against gross flows plus the unexplained residual (D-M02-33).
 - A share needs a denominator from the same source family and window: EDGAR's quarterly form index gives exact distinct filers per form (D-M02-17).
-- 13F values are thousands of dollars in filings made before 2023-01-03 and dollars after — scale by filing date; one issuer can span several rows (other managers), so sum by CUSIP before comparing quarters (D-M02-45, D-M02-46).
+- 13F values are thousands of dollars in filings made before 2023-01-03 and dollars after — scale by filing date, but check it: some filers kept thousands after the switch (Duquesne, every 13F to 2026), which a value-vs-price check catches per filing (D-SEC-28 amendment); one issuer can span several rows (other managers), so sum by CUSIP before comparing quarters (D-M02-45, D-M02-46).
 - A company's submissions list mixes filings it made with filings about it (funds' 13Gs); only the index header says who filed — read it once and keep the answer (D-M02-45).
 - When the counterparty of a disclosure has no stored documents, stored-text finders find nothing; search the counterparty's filings with targeted phrases instead (D-M02-45 (4)).
 - Seed phrases need the same scrutiny as mined ones: a generic phrase ("domestic manufacturing") can dominate a theme (D-M02-17).

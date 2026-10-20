@@ -613,6 +613,9 @@ def managers_run(
     log(f"3. Signal pass (0 requests): {sum(len(v) for v in sp.events.values())} event(s) on "
         f"{sp.days} company-day(s); `followed_manager_13f` rows written {sp.written}, removed "
         f"{sp.deleted}")  # fmt: skip
+    if sp.rescaled:
+        log(f"  stored 13F filings found in thousands after {mg.thirteenf.DOLLARS_FROM} and "
+            f"rescaled ×1000 (rows re-checked): {sp.rescaled}")  # fmt: skip
     for m in followed:
         ps = mg.periods(engine, m.cik)
         log(f"  {m.name}: {len(ps)} quarter(s) stored"

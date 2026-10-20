@@ -722,6 +722,7 @@ class SignalPass:
     deleted: int = 0
     days: int = 0
     skipped: str = ""
+    rescaled: int = 0  # stored filings found to be in thousands (thirteenf.rescale_stored)
 
 
 def signal_pass(engine: sqlite3.Connection, managers: list[Manager], ours: dict[str, str],
@@ -729,6 +730,14 @@ def signal_pass(engine: sqlite3.Connection, managers: list[Manager], ours: dict[
     """Recompute every `followed_manager_13f` row of our companies; rows no longer produced
     (a restated quarter's old day, a removed manager) are deleted. Own transaction."""
     out = SignalPass()
+    if write:  # rows first, so events read the rescaled values (M07 Part 2 live check 1)
+        engine.execute("BEGIN")
+        try:
+            out.rescaled = thirteenf.rescale_stored(engine)
+            engine.execute("COMMIT")
+        except Exception:
+            engine.execute("ROLLBACK")
+            raise
     markets: dict[str, Market] = {}
     for m in managers:
         for e in manager_events(engine, m.name, m.cik or "", ours, markets):
@@ -827,11 +836,20 @@ def run_local_part(
         if not cfg.managers:
             return [f"{head}: not run — no managers ({'; '.join(cfg.problems) or 'list empty'})"]
         managers = followed(engine, cfg)
+        engine.execute("BEGIN")
+        try:
+            rescaled = thirteenf.rescale_stored(engine)  # before the fingerprint (it changes rows)
+            engine.execute("COMMIT")
+        except Exception:
+            engine.execute("ROLLBACK")
+            raise
         fp = _fingerprint(engine, managers, ours, cfg)
         prev = engine.execute("SELECT detail FROM refresh_state WHERE name = ?",
                               (PASS_STATE,)).fetchone()  # fmt: skip
         if not force and prev is not None and prev[0] == fp:
             return [f"{head}: unchanged (no new 13F rows of {len(managers)} manager(s))"]
+        if rescaled:
+            head += f"; {rescaled} stored filing(s) found in thousands, rescaled"
         sp = signal_pass(engine, managers, ours)
         engine.execute(
             "INSERT INTO refresh_state (name, source_ref, fetched_at, detail) VALUES (?, 'M07', "
