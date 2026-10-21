@@ -1,7 +1,22 @@
 # M03 Leaders & S-curve — MVP brief
-Updated 2026-10-13 · Source: docs/M03_DESIGN_PACK.md (research) · Status: for owner decision (one sitting)
+Updated 2026-10-21 (refreshed for sitting 3) · Source: docs/M03_DESIGN_PACK.md (research) · Status: for owner decision (sitting 3, with M06)
 
-Outputs are research signals, not financial advice.
+Outputs are research signals, not financial advice. Answers become D-M03-1 onward in a new `docs/M03_LEADERS.md`; a change to M01's weights (Q03.8) takes D-M01-8 (next free).
+
+## Since 2026-10-13 (what the refresh changed)
+- **M04 8a is built** (PR #46): `cvd_state` rows exist, so "new curve or cycle?" notes read the real CvD state (no "pending 8a"); `market_share` (migration 0039, owner entries, DS16) exists, so `market_share_chg_pp` can sit beside `leader_rank` in Part 2.
+- **Pre-assigned build numbers** (MVP_PLAN): M03 Part 1 no migration expected, D-UI-41 (Leaders & curve tab), DS22 (market size / TAM, the new gap); Part 2 D-SEC-32 (CY frames 2019–23), D-UI-43 (theme leader table). Wave W6, after sitting 3.
+- **D32 (sitting 2)** applies: see the next section.
+
+## D32: standard rows for every company, and rules whose evidence is tech-only
+**Standard rows (default; strike if you disagree).** Every disclosed segment of every covered company is shown on the tab with its revenue, fiscal-year growth, dollar increment and share of company revenue, mapped or not, plus the company's own revenue growth. Mapping (Q03.2) only chooses which rows become curves with a stage and a rank; it never hides a segment (D10, D32).
+
+**Tech-only evidence (flagged as D9 failure modes, to be checked on non-tech names at tuning):**
+1. **Stage rules (cases 7–12)** were worked out on AWS, NVDA Data Center and Intel Foundry only. The increment-peak logic assumes demand-led growth; in commodity, auto or memory cycles the increment swings with price, so `past_inflection` / `declining` can fire on a cycle. Guard: the `cvd_state` note and case 13; a non-tech synthetic fixture (a mature consumer segment with flat increments, a pharma product past its patent cliff) is added at build.
+2. **`emerging` thresholds** (< 10% of revenue and growth > 40%) are starting values (†) from the pack's tech examples, not a sourced cut-off.
+3. **Captive flag at 50%** comes from one company (Intel Foundry).
+4. **CKL baselines** (US firms 1951–1998, all industries) are general, not tech-only — kept, labelled "indicative".
+5. **The all-filer median** spans every industry, so `growth_runs` is not tuned on the watchlist.
 
 ## Purpose in one paragraph
 Where each revenue curve sits on its S-curve, and which curve leads its category. Outline: "Catch the S-curve early" (space → leader → financials → moat → entry; TSLA layers, AMD data center, MU "structural product inside a cyclical ticker") and "Identify the leaders" items 1 and 3. Binding: **R6** (type A young company on its first curve; type B new curve inside an established company, from segments); **R14** (dollar wealth over T-bills — the outline's "0.3% … half the return" matches 86 of ~26,000 stocks, 0.33%, creating about half the $35T, S01: wealth, not returns); D8, D9, D10, D13/D14, D16, D-M02-3 (no blended score); M04: `fact_dim` with recasts never merged (D-M04-42), peers (D-M04-4, -5), small n (D-M04-52), owner-confirmed stage (D-M04-7, -12), tags (D-M04-8). **Departs from the outline:** no TAM (paid, S93; new gap); product competitiveness, roadmaps and switching costs → M06; "share accelerating" is read only as the filing growth gap in `leader_rank` plus M04's `market_share_chg_pp` (8a owner entries, DS16) shown beside the rank, not rebuilt. **Owned elsewhere:** S-curve item 2 (latency before appreciation) → M11 R4 milestones; item 4 (position before the crowd) → M02 crowding flag (D-M02-10) and M08. **Outline examples not covered:** AMD and ALAB are neither core nor promoted, so their segment curves are not stored (see Q03.1).
@@ -15,7 +30,7 @@ Where each revenue curve sits on its S-curve, and which curve leads its category
 | Tags, themes, peers | `company_models.toml`, `entity_link`; `theme`, `theme_company`, `tier_member`; `peer_member`, `financials/peer_facts.py` | Non-SEC peers missing |
 | All-filer CY revenue | `frame_value`, `sec/frames.py`, `financials/peers.py` | Only CY2024–25 stored (CY2024 on 2 tags); CY2019–23 ≈ 10–15 requests; runs then start 2020, and longer company histories read `at_least` |
 | Signal writer | `signals.py` `write_signal` | Key has no curve field (Q03.8) |
-| Market size (K, TAM) | — | New gap, no free source (S93). The pack's DS16/DS17 clash with the register (DS16 = market share, M04 8a; DS17 = credit ratings): take the next free DS number at the build commit |
+| Market size (K, TAM) | — | New gap, no free source (S93): DS22 (pre-assigned in MVP_PLAN; the pack's DS16/DS17 are taken by market share and credit ratings) |
 
 ## MVP signals (4)
 | Signal | value / value_text | Meaning | Inputs | MY | PT | ST | Grade |
@@ -44,7 +59,7 @@ Where each revenue curve sits on its S-curve, and which curve leads its category
 | 2025 | 128,725 | +19.7% | 21,169 (new peak) |
 
 - **Pack correction.** The pack says the increment stayed below the 2022 peak for "one year only". In fact 2024 was below it too, so the pack's rule (below the peak for at least 2 years) would read `past_inflection` in 2024.
-- **MVP rule.** `past_inflection` also needs the latest increment not to be rising. Under that rule, 2024 and 2025 both read `accelerating`, with the note "new curve or cycle? Read with `cvd_state` (pending M04 8a)".
+- **MVP rule.** `past_inflection` also needs the latest increment not to be rising. Under that rule, 2024 and 2025 both read `accelerating`, with the note "new curve or cycle? Read with `cvd_state`" (AMZN's stored `cvd_state` today: NO_SLOWDOWN, per the M05 live log of 2026-10-21).
 - **Type.** AWS is 18.0% of $716,924M, so it is type B.
 
 **NVDA Data Center** (S-new-M03-21/22/23)
@@ -165,12 +180,12 @@ Defaults with no question of their own (strike them if you disagree):
 **Part 1 — Curves**
 - **Goal:** the curve map, curve series, `curve_type`, `curve_stage`, the M03 tab and the R14 card.
 - **Code:** `src/engine/leaders/` with `curves.py` (map loader; series with breaks, recasts, captive flag, shell boundary), `stage.py`, `views.py` and `step.py` (local refresh pass, 0 requests); signals via `write_signal`. Company curves reuse M04's fiscal-year points (`financials/capex.py` `fy_points`), the shell boundary `entity_link` / tags, and `segment_table()`'s break and rename logic, not copies.
-- **Tables:** none expected. A cache, if needed, takes the next free migration at build (after M04 4b-lite 0038, 8a 0039 and the earlier MVP waves M07+M09, M08+M05; merge order).
+- **Tables:** none expected. A cache, if needed, takes the next free migration at its merge (MVP_PLAN rule; 0040 is the highest today, W5 has 0041–0042 and M06 Part 1 0043).
 - **Review kinds:** none.
 - **UI:** a new "Leaders & curve" tab (`tabs/m03.html`), mocked up on stored data first: the curve table, unmapped candidates and the R14 card.
 - **Live check:** `uv run python scripts/run_leaders.py curves --no-sec`: 0 requests, under a minute.
 - **Fixtures:** AWS 2021–25, NVDA Data Center FY2024–26, Intel Foundry (total and external), the MU segment-set break, the BA rename, the INFQ boundary. Only NVDA FY2025/26 trimmed instances exist (`tests/fixtures/m04/`, segments only); the others need an owner probe run that saves trimmed instances (Claude cannot call SEC), else synthetic `fact_dim` rows on the published figures, labelled.
-- **Depends on:** M04 1c and 7a (built). `cvd_state` notes show "pending M04 8a" until 8a lands.
+- **Depends on:** M04 1c, 7a and 8a (all built); the `cvd_state` note reads 8a's rows.
 
 **Part 2 — Leaders and persistence**
 - **Goal:** `leader_rank` and `growth_runs`.
