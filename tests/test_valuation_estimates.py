@@ -432,6 +432,29 @@ def test_trailing_cagr_is_shown_never_substituted(dbs):
     assert r.peg.g == pytest.approx((13.1512 / 12.3121 - 1) * 100)  # vendor growth, not CAGR
 
 
+def test_trailing_cagr_scales_shares_from_the_stating_filing_not_the_period_end(dbs):
+    # live check 1 (NVDA FY2023 EPS read 0.02): a later 10-K restates the older year's share
+    # count after a split, so scaling it again from the period end applied the split twice
+    from tests.test_valuation import bars, fact
+
+    engine, _ = dbs
+    a = "0000000401"
+    ys = [base(2022, dil=100), base(2023, dil=100), base(2024, dil=1000), base(2025, dil=1000)]
+    annual_co(engine, a, "SPLT", ys)
+    bars(engine, a, "SPLT", [("2024-06-10", 50.0, None, 10.0)])
+    # the FY2024 10-K (filed after the 2024-06-10 ×10 split) restates FY2022 at 1,000M
+    fact(engine, a, "WeightedAverageNumberOfDilutedSharesOutstanding", "2022-01-01",
+         "2022-12-31", 1000 * M_, "2025-02-15", unit="shares",
+         acc="0000000401-25-000001")  # fmt: skip
+    r = step.evaluate(engine, "SPLT", a, "2026-10-09", TODAY, P, NO_MODELS, with_peers=False)
+    assert "trailing 3-year GAAP EPS CAGR 0.0% (EPS 0.08 at 2022-12-31 → 0.08 at 2025-12-31)" in (
+        r.cagr
+    )
+
+
+M_ = 1_000_000
+
+
 def test_forward_pe_helper_and_bands():
     m = peg.forward_pe(None, None, treasury=False, sources=[])
     assert m.missing == "no close"

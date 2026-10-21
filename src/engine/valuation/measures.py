@@ -312,7 +312,7 @@ def snapshot(
     if dil:
         e = max(dil)
         p = dil[e]
-        f, seen = k.factor(e, close.day)
+        f, seen = k.factor(p.filed, close.day)  # basis of the stating filing (see peg.eps)
         shares = float(p.value) * f
         shares_lab = f"{p.ptype} to {e}" + (f", ×{f:g} split" if seen else "")
         dil_src = _src(p, "diluted shares")

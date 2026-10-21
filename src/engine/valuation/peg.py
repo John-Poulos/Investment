@@ -157,7 +157,10 @@ def trailing_cagr(k, pts, close_day: str) -> str:
         return f"trailing 3-year GAAP EPS CAGR missing: no fiscal year 3 years before {e1}"
 
     def eps(e: str) -> float:
-        f, _ = k.factor(e, close_day)
+        # a share count is on the basis of the filing that stated it (later 10-Ks restate
+        # older years after a split): scale from `filed`, not the period end (live check 1:
+        # NVDA FY2023 EPS read 0.02, the 2024 ×10 split applied twice)
+        f, _ = k.factor(sh[e].filed, close_day)
         return float(ni[e].value) / (float(sh[e].value) * f)
 
     a, b = eps(e0), eps(e1)
