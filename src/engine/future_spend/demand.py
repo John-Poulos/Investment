@@ -51,6 +51,7 @@ GROWTH_SHARE_MIN = 0.25  # †
 ROIC_BACK = 3
 ROIC_DROP = 0.03  # 3 pp †
 DEPOSIT_JUMP = 1.0  # † a deposit balance more than doubling is marked (no text check yet)
+STALE_DAYS = 100  # a deposit balance ending this long before the newest fiscal year is stale
 LABEL = "hypothesis, not backtested"
 DAMAGE = ("STRUCTURAL_DECLINE", "CYCLE_PLUS_DAMAGE")
 DA = Concept("d_and_a", DA_TAGS, "currency", "flow")
@@ -180,6 +181,7 @@ class DepositsLine:
 
     now: Deposit | None
     prior: Deposit | None
+    stale: str | None = None  # newest deposit tag ends well before the newest fiscal year
 
     @property
     def yoy(self) -> float | None:
@@ -194,6 +196,8 @@ class DepositsLine:
         return self.yoy is not None and self.yoy > DEPOSIT_JUMP
 
     def text(self) -> str:
+        if self.stale:
+            return f"deposits (contract liabilities): {self.stale}"
         if self.now is None:
             return "deposits (contract liabilities): not tagged"
         out = (f"deposits {_m(self.now.value)} at {self.now.end} (contract liabilities, "
@@ -218,6 +222,12 @@ def deposits_line(s: Series, end: str | None = None) -> DepositsLine:
         if not ends:
             return DepositsLine(None, None)
         end = max(ends)
+        # live check 1 (INTC: last tagged 2021-12-25): a balance older than the newest
+        # fiscal year end by more than a quarter is not shown as the current balance
+        newest = max((y.end for y in s.years), default=None)
+        if newest and (date.fromisoformat(newest) - date.fromisoformat(end)).days > STALE_DAYS:
+            return DepositsLine(None, None, stale=f"missing: last tagged {end}, before the "
+                                f"newest fiscal year ({newest})")  # fmt: skip
     now = deposit_at(s, end)
     if now is None:
         return DepositsLine(None, None)
@@ -542,6 +552,11 @@ def growth_roic(engine: sqlite3.Connection, cik: str, as_of: str) -> GrowthRoic:
         return g
     diff = now.cell.value - then.cell.value
     cmp_ = f"vs {then.label} {then.cell.value:.1%} ({diff * 100:+.1f} pp)".replace("-", "−")
+    if now.cell.value <= 0:  # owner, live check 1 (amends D-M05-5): RIVN −114.6% read ACCRETIVE
+        g.state = "NEGATIVE_ROIC"
+        trend = "improving" if diff >= 0 else "worsening"
+        g.why = f"{head}; {roic_how} {cmp_}; {trend}, not yet earning a return" + tail
+        return g
     if diff >= 0:
         g.state = "ACCRETIVE"
     elif diff < -ROIC_DROP:

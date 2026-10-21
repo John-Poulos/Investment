@@ -344,6 +344,17 @@ def test_deposits_total_else_current_plus_noncurrent_and_a_jump_is_a_mark(dbs):
     assert "more than doubled" in line.text() and "Part 2" in line.text()
 
 
+def test_deposits_last_tagged_years_ago_are_stale_not_current(dbs):
+    # live check 1: INTC's newest deposit tag was 2021-12-25, shown as the current balance
+    engine, _ = dbs
+    mu(engine)
+    fact(engine, MU, "ContractWithCustomerLiability", None, "2021-09-02", 500 * M,
+         filed="2021-10-15")  # fmt: skip
+    line = demand.deposits_line(demand.build_series(engine, MU, AS_OF))
+    assert line.now is None and line.stale.startswith("missing: last tagged 2021-09-02")
+    assert "newest fiscal year" in line.text()
+
+
 # --- bookings_cover (views.rpo with the cover) -----------------------------------------------------
 
 
@@ -478,6 +489,8 @@ def test_roic_series_helper_reads_n_years_with_the_year_before_as_opening(dbs):
     (80, 50, 1100, "ACCRETIVE", "mark: flat"),
     (150, 10, 1100, "MAINTENANCE_ONLY", ""),
     (150, 50, -2000, "not_meaningful", "average invested capital ≤ 0"),
+    # owner, live check 1 (amends D-M05-5): a negative ROIC is never ACCRETIVE (RIVN)
+    (-150, 50, 1100, "NEGATIVE_ROIC", "worsening, not yet earning a return"),
 ])  # fmt: skip
 def test_growth_capex_roic_states(dbs, oi, growth, equity, state, mark):
     engine, _ = dbs
@@ -519,6 +532,10 @@ def test_mu_vote_reads_cvd_and_ocf(dbs):
     r = step.name_result(engine, "MU", MU, TODAY, chf=NONE, mf=NO_MODELS)
     assert r.vote.positive and "OCF ÷ capex 2.92" in r.vote.text
     assert "vote: positive" in r.row("capex_demand").method
+    # live check 1 (NVDA, AAPL voted): capex is information for fabless / outsourced (R9)
+    r = step.name_result(engine, "MU", MU, TODAY, chf=chf(("MU", None, "fabless")), mf=NO_MODELS)
+    assert not r.vote.positive and "capex is information for fabless" in r.vote.text
+    assert "would read: positive" in r.vote.text
 
 
 # --- channels (D-M05-1) ----------------------------------------------------------------------------

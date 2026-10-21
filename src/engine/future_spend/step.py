@@ -144,6 +144,10 @@ def _capex_demand(engine, r: NameResult, s: demand.Series, today: date, tail: st
     m04 = m01_rules.read_m04(engine, r.cik)
     cover, cover_how = demand.ocf_cover(engine, s, y)
     r.vote = demand.vote(d.state, cover, cover_how, m04.cvd_state, m04.cvd_missing)
+    if r.channel.commitments_lead and r.vote.positive:  # live check 1: NVDA, AAPL voted
+        r.vote = demand.Vote(False, f"vote: none — capex is information for {r.channel.channel} "
+                             f"(R9; commitments lead, M05 Part 2); would read: "
+                             f"{r.vote.text.removeprefix('vote: ')}")  # fmt: skip
     r.guide = current_guide(engine, r.cik, today)
     beside = []
     for name, row in (("runway_q", m04.runway), ("survival_gate", m04.gate)):
