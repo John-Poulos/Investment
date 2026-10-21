@@ -316,3 +316,16 @@ S226–S244 are the pack's S-new-M07-1…19 in order (S-new-M07-n = S(225 + n));
 - S291 [primary] FRED, 10-Year Treasury Constant Maturity Rate (DGS10). Named in the research and not checked this session — https://fred.stlouisfed.org/series/DGS10 (M08 pack S-new-M08-45)
 
 S247–S291 are the M08 pack's S-new-M08-1…45 in order (S-new-M08-n = S(246 + n)), numbered at M08 Part 1; the M08 docs keep the provisional names. M09's S-new-M09-n are still unnumbered (they take the next free numbers when numbered).
+
+- S292 17 CFR 229.303 (Regulation S-K Item 303, MD&A) (primary): https://www.law.cornell.edu/cfr/text/17/229.303 · Cleary Gottlieb summary of SEC Release 33-10890 (other): https://www.clearygottlieb.com/news-and-insights/publication-listing/sec-adopts-major-changes-to-mda-and-related-requirements (M05 pack S-new-M05-1)
+- S293 Deloitte DART, ASC 440 Commitments overview (other; it does not state the disclosure rules): https://dart.deloitte.com/USDART/home/codification/liabilities/asc440 (M05 pack S-new-M05-2)
+- S294 Kwang June Lee (2010), "Purchase Obligations, Earnings Persistence and Stock Returns", PhD dissertation, UC Berkeley (committee-reviewed; not a journal article): https://escholarship.org/uc/item/74w2x17f (M05 pack S-new-M05-3)
+- S295 Hoberg, G. & Phillips, G. (2010), "Real and Financial Industry Booms and Busts", Journal of Finance 65(1), 45–86: https://ideas.repec.org/a/bla/jfinan/v65y2010i1p45-86.html (M05 pack S-new-M05-4)
+- S296 Greenwood, R. & Hanson, S. G. (2015), "Waves in Ship Prices and Investment", Quarterly Journal of Economics 130(1), 55–109: https://ideas.repec.org/a/oup/qjecon/v130y2015i1p55-109.html (M05 pack S-new-M05-5)
+- S297 NVIDIA FY2026 Form 10-K (primary): https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm (Note 12 is also at R21.htm in the same folder) (M05 pack S-new-M05-6)
+- S298 NVIDIA Q2 FY2027 Form 10-Q (primary): https://www.sec.gov/Archives/edgar/data/1045810/000104581026000075/nvda-20260726.htm (M05 pack S-new-M05-7)
+- S299 Meta Platforms Q2 2026 Form 10-Q (primary): https://www.sec.gov/Archives/edgar/data/1326801/000162828026050705/meta-20260630.htm (M05 pack S-new-M05-8)
+- S300 Micron Technology FY2026 Form 10-K (primary): https://www.sec.gov/Archives/edgar/data/723125/000072312526000023/mu-20260903.htm (M05 pack S-new-M05-9)
+- S301 SEC XBRL companyconcept and frames checks of 2026-10-12 (primary). Pattern: `https://data.sec.gov/api/xbrl/companyconcept/CIK##########/us-gaap/<Tag>.json`. (M05 pack S-new-M05-10)
+
+S292–S301 are the M05 pack's S-new-M05-1…10 in order (S-new-M05-n = S(291 + n)), numbered at the M05 Part 1 rebase (2026-10-21); the M05 docs keep the provisional names.
