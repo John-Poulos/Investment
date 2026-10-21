@@ -1,0 +1,47 @@
+{# M08 Part 1 (D-UI-36): built to the MVP brief's description; the owner reviews it at the live check. Information only: no review kinds. #}
+{% set v = m08 %}
+<h2>Valuation (M08) — {{ v.ticker }}</h2>
+<p class="note">Today's line at the newest stored close{% if v.as_of %} ({{ v.as_of }}){% endif %}, computed here by the refresh's own functions (0 requests, nothing written); the refresh stores one row set per completed week (D-M08-8). Parameters {{ v.version }}{% if m08_params_note %} · <span class="warn">{{ m08_params_note }}</span>{% endif %}. Raw closes × split-scaled cover shares; fundamentals as filed (rule 1). A valuation reading is context, never a sell signal (D16).</p>
+{% if v.missing %}<p class="warnbox">Every row is missing: {{ v.missing }}.</p>{% endif %}
+
+<table class="data" style="margin-bottom:8px">
+  <tr><th>Headline (valuation_multiple)</th><td>
+    {% if v.headline_label %}<b>{{ v.headline_label }} {{ v.headline_value }}</b>{% else %}<b class="muted">{{ v.headline_code }}</b>{% endif %}
+    <br><span class="muted">{{ v.route_why }}</span>
+  </td></tr>
+  <tr><th>Own-history percentile (valuation_pctile)</th><td>{{ v.headline_pctile or '—' }}{% if v.peer %}<br><span class="muted">{{ v.peer }}</span>{% endif %}</td></tr>
+  <tr><th>Cyclical flag (R6)</th><td class="{% if v.cyclical %}warn{% endif %}">{{ v.flag or '—' }}</td></tr>
+  <tr><th>Normalized earnings power</th><td>{{ v.nep or '—' }}</td></tr>
+  <tr><th>Market cap and EV</th><td>{{ v.cap or '—' }}{% if v.ev %}<br>{{ v.ev }}{% endif %}<br><span class="muted">12-month flows: {{ v.twelve or 'none' }}</span></td></tr>
+  {% for n in v.notes %}<tr><th>Note</th><td class="warn">{{ n }}</td></tr>{% endfor %}
+</table>
+{% if v.trap %}<p class="warnbox">{{ v.trap }}</p>{% endif %}
+
+<h2 style="margin-top:16px">Standard measures (every company, D32)</h2>
+<div style="overflow-x:auto">
+<table class="data">
+  <tr><th>Measure</th><th class="num">Today</th><th>Own-history percentile</th><th>Detail</th><th>Stored (newest week)</th></tr>
+  {% for r in v.rows %}
+  <tr{% if r.headline %} style="font-weight:600"{% endif %}>
+    <td>{{ r.label }}{% if r.headline %} <span class="muted">(headline)</span>{% endif %}</td>
+    {% if r.missing %}
+    <td class="num">—</td><td colspan="2" class="muted">missing: {{ r.missing }}</td>
+    {% else %}
+    <td class="num">{{ r.shown }}</td>
+    <td>{{ r.pctile }}</td>
+    <td class="muted">{{ r.detail }}</td>
+    {% endif %}
+    <td class="muted" style="white-space:nowrap">{% if r.missing and r.stored == 'missing: ' ~ r.missing %}missing (same){% elif r.stored.startswith('missing') %}missing{% else %}{{ r.stored }}{% endif %}{% if r.stored_as_of %} ({{ r.stored_as_of }}){% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+<p class="note">Every standard measure is shown whatever the routing; routing chooses only the headline and its weight (D10, D32). Standard rows are information (weight 0) in every timeframe; the headline is ✓ in MY and PT, info in ST. A denominator ≤ 0 or EV ≤ 0 reads not_meaningful; missing stays missing, never zero. EV ex operating leases. Percentiles: calendar quarter-ends on first-filed values, scored with ≥ 20 points (D-M08-2); a structural change (an AI ramp) can read "expensive" for years.</p>
+
+{% if v.history %}
+<h2 style="margin-top:16px">Headline at the last {{ v.history | length }} quarter-ends</h2>
+<table class="data">
+  <tr><th>Quarter-end</th><th class="num">{{ v.headline_label }}</th></tr>
+  {% for d, x in v.history %}<tr><td>{{ d }}</td><td class="num">{{ x }}</td></tr>{% endfor %}
+</table>
+{% endif %}

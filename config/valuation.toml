@@ -1,0 +1,40 @@
+# M08 Valuation parameters and owner overrides (docs/M08_VALUATION.md; D-M08-1…12).
+# The version is written into every M08 row's `method`. Values marked † are sourced starting
+# values, calibrated at tuning — never tuned on the watchlist alone (D32). Changing a value
+# means a new version (v2) and a note in M08_VALUATION.md.
+
+version = "v1"
+
+[history]
+own_min_points = 20        # † quarter-ends with a close for an own-history percentile (D-M08-2)
+peer_min = 5               # † confirmed peers with stored prices for the peer percentile (shown only)
+close_tolerance_days = 5   # close on or before the date, up to 5 days (rule 1)
+
+[cyclical]
+# R6 flag (D-M08-3, rule 5): EPS sign change or operating-margin range over the window
+years = 10                 # last 10 fiscal years
+min_years = 5              # fewer → not computed
+margin_range_pp = 30.0     # † max − min operating margin, percentage points
+
+[nep]
+# normalized earnings power (financials/nep.py, D-M04-106)
+swing_pp = 5.0             # 5 pp turning points (D-M04-54)
+min_years = 3              # fewer fiscal years in the window → missing
+
+[value_trap]
+pctile = 20.0              # † headline own percentile at or below → "value-trap risk" with a gate fail or CvD damage (rule 9, D-M08-11)
+
+# Owner overrides, one [[company]] per name (cik or ticker; reason required):
+#   headline = "val_pb"        # one of the val_* rows, or "mnav"
+#   cyclical = true / false    # wins over the computed flag (rule 5)
+# [[company]]
+# ticker = "XYZ"
+# cyclical = false
+# reason = "one loss year (2020 shutdown), not a cyclical business"
+
+# Owner, M08 Part 1 live check 1 (2026-10-20, option a): flagged only by its FY2022 loss
+# (a non-operating Rivian write-down; operating-margin range 8.8 pp). Keep, edit or remove.
+[[company]]
+ticker = "AMZN"
+cyclical = false
+reason = "one non-operating loss year (FY2022 Rivian mark-down), not a cyclical business"

@@ -26,5 +26,6 @@ Byte-exact (`tests/fixtures/** -text` in .gitattributes).
 | m07/13f/brk_2024q2_{…} | Same for 2024-06-30, 0000950123-24-008740 filed 2024-08-14: AAPL 400,000,000 shares, $84,248,000,000 over 12 rows (pack); other rows reconstructed |
 | m07/13f/brk_2022q3_{…} | Synthetic pre-2023 filing in the same layout: 2022-09-30, accession 0000950123-22-099901 (**invented**), filed 2022-11-14, values in **thousands** (AAPL 894,802,319 shares, $123,661,680 thousand) |
 | (generated in tests/test_ownership_managers.py) | A Duquesne-style manager (fictional CIK 0009999901): NVDA across the 2024 10:1 split, a CALL row, GOOG class A + C, MSFT new, an ambiguous issuer name, a missing quarter, RESTATEMENT and NEW HOLDINGS amendments |
+| m08/* | M08 Part 1: MU fiscal years and the pack's closes at its 10-K dates; synthetic NVDA, INFQ, MSTR and D32 cases generated in tests/test_valuation.py; sources and placeholders per file in m08/README.md |
 
 Replace synthetic files with recorded responses once the live tests have run.

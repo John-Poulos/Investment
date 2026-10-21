@@ -94,6 +94,7 @@ TABS = (
     ("m04", "M04", True),  # M04 Part 8a: Cycle vs Decline (D-UI-31)
     ("insiders", "Insiders", True),
     ("technicals", "Technicals", True),  # M09 Part 2 (D-UI-35)
+    ("valuation", "Valuation", True),  # M08 Part 1 (D-UI-36)
     ("events", "Events and filings", True),
     ("news", "News", True),  # M02 part 7a
     ("search", "Search", True),
@@ -260,6 +261,9 @@ def create_app(settings: UiSettings) -> FastAPI:
             from engine.technicals.views import overview_row as m09_overview_row  # D-UI-35
 
             ctx["m09_overview"] = m09_overview_row(engine, cik)
+            from engine.valuation.views import overview_row as m08_overview_row  # D-UI-36
+
+            ctx["m08_overview"] = m08_overview_row(engine, cik)
             ctx["filings"] = services.filings(engine, cik, limit=10)
             ctx["events"] = services.events(engine, cik, limit=8)
             ctx["readable"] = services.stored_accessions(
@@ -311,6 +315,17 @@ def create_app(settings: UiSettings) -> FastAPI:
             p, ctx["m09_params_note"] = m09_params()
             ctx["m09"] = m09_views.company_view(engine, corpus, cik, ticker, datetime.now(UTC),
                                                 p, m09_models())  # fmt: skip
+        elif tab == "valuation":  # M08 Part 1 (D-UI-36): computed live, no writes
+            from engine.financials import models as m08_models
+            from engine.ui.settings import ROOT as m08_root
+            from engine.valuation import params as m08_params
+            from engine.valuation import views as m08_views
+
+            p08, ctx["m08_params_note"] = m08_params.load_safe(
+                m08_root / "config" / "valuation.toml"
+            )
+            ctx["m08"] = m08_views.company_view(engine, cik, ticker, datetime.now(UTC), p08,
+                                                m08_models.load_safe())  # fmt: skip
         elif tab == "events":
             ctx["events"] = services.events(engine, cik)
             ctx["filings"] = services.filings(engine, cik)

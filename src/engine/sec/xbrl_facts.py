@@ -226,6 +226,10 @@ EXTRA_CONCEPTS: tuple[Concept, ...] = (
     Concept("ppe_gross", _gaap("PropertyPlantAndEquipmentGross") + (BROADER_PPE_GROSS,), C, I,
             marks=((*BROADER_PPE_GROSS, "≈ broader tag: includes finance-lease right-of-use "
                     "assets"),)),
+    # M08 Part 1 (D-SEC-29): noncontrolling interest, an EV component (read from stored
+    # `fact`; no parser bump)
+    Concept("minority_interest", _gaap("MinorityInterest")
+            + _ifrs("NoncontrollingInterests"), C, I),
 )  # fmt: skip
 ALL_CONCEPTS = {c.name: c for c in CONCEPTS + EXTRA_CONCEPTS}
 

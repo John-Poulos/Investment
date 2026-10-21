@@ -16,6 +16,7 @@ S4.8). Information rows, except `negative_equity` (a warning).
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
@@ -24,6 +25,7 @@ from engine.financials import stats
 from engine.financials.gate import DEBT_CURRENT, LTD_CURRENT, Gate, money, sti_concept
 from engine.sec.asof import AsOfPoint, facts_as_of
 from engine.sec.identity import normalize_cik
+from engine.sec.xbrl_facts import Concept
 from engine.signals import Source
 
 YEARS = 3  # own range (D-M04-29)
@@ -57,28 +59,35 @@ class DebtPoint:
     sources: list[Source] = field(default_factory=list)
 
 
-class _Book:
-    """The points one company's debt rows read (once per company)."""
+Points = Callable[[str | Concept, str], dict[str, AsOfPoint]]
 
-    def __init__(self, engine: sqlite3.Connection, cik: str, as_of: str) -> None:
+
+class Book:
+    """The points one company's debt rows read (once per company). Public since M08 Part 1
+    (EV components, D-M08-1); `points(concept, ptype)` may be injected (M08 passes a reader
+    of first-filed values known at a past quarter-end, D-M08-2); default `facts_as_of`."""
+
+    def __init__(
+        self, engine: sqlite3.Connection, cik: str, as_of: str, *, points: Points | None = None
+    ) -> None:
         c = normalize_cik(cik) or cik
-        self.ltd = _pts(engine, c, "long_term_debt", as_of, "I")
-        self.ltd_total = _pts(engine, c, "long_term_debt_total", as_of, "I")
-        self.dc = _pts(engine, c, DEBT_CURRENT, as_of, "I")
-        self.ltdc = _pts(engine, c, LTD_CURRENT, as_of, "I")
-        self.stb = _pts(engine, c, "short_term_borrowings", as_of, "I")
-        self.cash = _pts(engine, c, "cash", as_of, "I")
-        self.sti = _pts(engine, c, sti_concept(), as_of, "I")
-        self.rev = {
-            **_pts(engine, c, "revenue", as_of, "FY"),
-            **_pts(engine, c, "revenue", as_of, "TTM"),
-        }
-        self.fy_rev = _pts(engine, c, "revenue", as_of, "FY")
-        self.oi = {
-            **_pts(engine, c, "operating_income", as_of, "FY"),
-            **_pts(engine, c, "operating_income", as_of, "TTM"),
-        }
-        self.da = {**_pts(engine, c, "da", as_of, "FY"), **_pts(engine, c, "da", as_of, "TTM")}
+
+        def get(concept: str | Concept, ptype: str) -> dict[str, AsOfPoint]:
+            if points is not None:
+                return points(concept, ptype)
+            return _pts(engine, c, concept, as_of, ptype)
+
+        self.ltd = get("long_term_debt", "I")
+        self.ltd_total = get("long_term_debt_total", "I")
+        self.dc = get(DEBT_CURRENT, "I")
+        self.ltdc = get(LTD_CURRENT, "I")
+        self.stb = get("short_term_borrowings", "I")
+        self.cash = get("cash", "I")
+        self.sti = get(sti_concept(), "I")
+        self.rev = {**get("revenue", "FY"), **get("revenue", "TTM")}
+        self.fy_rev = get("revenue", "FY")
+        self.oi = {**get("operating_income", "FY"), **get("operating_income", "TTM")}
+        self.da = {**get("da", "FY"), **get("da", "TTM")}
 
     def point(self, end: str) -> DebtPoint:
         srcs: list[Source] = []
@@ -176,7 +185,7 @@ def debt_rows(
     with_peers: bool = True,
 ) -> DebtRows:
     """`end` = the gate's balance-sheet date (latest 12-month period ending there)."""
-    book = _Book(engine, cik, as_of)
+    book = Book(engine, cik, as_of)
     latest = book.point(end) if end else None
     cutoff = (date.fromisoformat(as_of) - timedelta(days=365 * YEARS + 10)).isoformat()
     hist = [book.point(e) for e in sorted(book.fy_rev) if e >= cutoff]
@@ -186,7 +195,7 @@ def debt_rows(
     return out
 
 
-def _peer_z(engine, cik, as_of, book: _Book, out: DebtRows) -> None:
+def _peer_z(engine, cik, as_of, book: Book, out: DebtRows) -> None:
     norm = normalize_cik(cik) or cik
     confirmed = [r for r in peers_mod.confirmed_peers(engine, norm) if r["cik"]]
     if not confirmed:
@@ -199,7 +208,7 @@ def _peer_z(engine, cik, as_of, book: _Book, out: DebtRows) -> None:
         return
     vals = []
     for r in confirmed:
-        pb = _Book(engine, r["cik"], as_of)
+        pb = Book(engine, r["cik"], as_of)
         ends = [
             e
             for e in pb.fy_rev
