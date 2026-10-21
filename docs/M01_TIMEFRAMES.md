@@ -1,6 +1,6 @@
 # M01 — Timeframe profiles
 
-Status: reviewed 2026-10-07 (D27) · Updated: 2026-10-13 · Outline headings: Type of investing by time frame · Depends on: M00, M04 (CvD), M05 (`capex_demand`), M11 · Sources: S12, S19, S26, S28–S31
+Status: reviewed 2026-10-07 (D27) · Updated: 2026-10-21 · Outline headings: Type of investing by time frame · Depends on: M00, M03 (curve signals, D-M01-8), M04 (CvD), M05 (`capex_demand`), M06 (`moat_gate`, D-M01-9), M11 · Sources: S12, S19, S26, S28–S31
 
 ## Purpose
 Defines the parameter profile each timeframe applies across all modules. Profiles change weights and recommendations, never visibility (D10). Profiles and bar sizes can be switched on the fly (D12). MY first; PT and ST later.
@@ -43,7 +43,7 @@ A holding = core lots under one primary profile + optional overlays (M12 options
 | Sizing | User caps per position and per shared killswitch (R23) | | |
 
 ## Rules
-1. Entry needs the fundamental screen (R3), the confluence threshold (D13), and price in the entry zone.
+1. Entry needs the fundamental screen (R3), the confluence threshold (D13), and price in the entry zone; a first MY entry also needs the survival gate (D-M01-6) and `moat_gate` = met (D-M01-9).
 2. The entry plan offers lump sum or tranches, weighing available funds, conviction and regime; the owner decides.
 3. Every tranche after the first needs all three: CvD = CYCLICAL_TROUGH (or no slowdown), survival gate pass (M04), and the 1–2σ add trigger on the position's profile of record.
 4. Exit warnings fire on: CvD moving to CYCLE_PLUS_DAMAGE or STRUCTURAL_DECLINE; a survival-gate fail (S6.14) or an overdue filing (D-M04-61); missed milestones or quietly removed targets (R19; M04's `guidance_removed`, S1.7); killswitch hits (R23); valuation ceiling if the owner sets one. M04 red-flag warnings and M05's `capex_demand` = AHEAD_OF_DEMAND (capex surging into falling revenue, D-M05-4) are listed among the `exit_warning` reasons and never block (D-M04-21, -60; D-M01-7). Warnings only (D16).
@@ -77,6 +77,8 @@ A holding = core lots under one primary profile + optional overlays (M12 options
 - D-M01-6 (2026-10-12, M04 closing C.1a = D-M04-76): Rule 1 first entry also needs a survival-gate pass (warn included), no overdue filing, and CvD not STRUCTURAL_DECLINE or CYCLE_PLUS_DAMAGE (R3 "fundamentally qualified", M04 side).
 - D-M01-5 (2026-10-12, M04 review 6.8a = D-M04-58): Only CvD = CYCLICAL_TROUGH with a survival-gate pass (pass with warn included, D-M04-31) adds rule-7 strength; NO_SLOWDOWN allows tranches (rule 3); AMBIGUOUS, CYCLE_PLUS_DAMAGE, STRUCTURAL_DECLINE and an overdue filing block tranches; STUMBLE is blocked until the owner resolves the `m04_cvd` review. A gate of "not applicable" reads as not-pass (D-M04-35); a capex-funded name in review below 6 quarters allows rule-3 adds but not rule-7 strength (D-M04-38).
 - D-M01-7 (2026-10-13, MVP sitting 2, Q05.4a = D-M05-4; amends rule 4): M05's `capex_demand` = AHEAD_OF_DEMAND (capex ÷ revenue > 1.5× its own 3-year average while revenue falls — the D-M04-64 test — or capex expanding while TTM revenue falls and no bookings line rises) is listed among the `exit_warning` reasons, as M04's red flags are, and never blocks an entry or a tranche. Why: outline CAPEX 5 (capex without demand destroys value); Intel 2021–24 (S-new-M05-10); warnings only (D16). The reason list lives in one place (`src/engine/m01_rules.py`, MVP_PLAN item 3), so M11's `exit_warning` reads it without a second copy. *Built 2026-10-20 (M05 Part 1, D-M05-15):* `m01_rules.rule4` lists "capex AHEAD_OF_DEMAND <as_of> (M05; warning only, never blocking; D-M01-7)" from M05's newest MY `capex_demand` row; rules 1, 3 and 7 do not read it.
+- D-M01-8 (2026-10-21, MVP sitting 3, Q03.8a = D-M03-8; weights row): M03's `curve_stage`, `leader_rank` and `growth_runs` (signal names `<family>.<curve label>`, read by prefix) carry MY weight "medium until calibrated"; `curve_type` is info; PT and ST info. Why: the outline's "Catch the S-curve early" is a lead input, but every M03 threshold is an uncalibrated starting value.
+- D-M01-9 (2026-10-21, MVP sitting 3, M06 rule 4 = D-M06-5, -6; amends rule 1): a first MY entry also needs M06's `moat_gate` = met (R1 "invest only with a moat", A3 band low ≥ the MY horizon, 5 years by default). `unrated` and `not_met` block the first entry (an owner override is logged, D-M06-5); `not_applicable` (fund, financial, treasury vehicle, shell period) is shown, never counted as a fail, and leaves the call with the owner (D16). PT and ST read the gate as info. Why: R1 is binding; the survival gate stays separate (D-M01-6).
 
 ## Open questions
 - PT and ST columns — later phase.
