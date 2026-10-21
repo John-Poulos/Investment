@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from engine import m01_rules
+from engine.calls import calendar
 from engine.financials import distress, peers, shares
 from engine.financials import models as models_mod
 from engine.financials import nep as nep_mod
@@ -32,9 +33,20 @@ from engine.prices.store import BENCHMARK
 from engine.sec.identity import normalize_cik
 from engine.signals import Source, write_signal
 from engine.technicals import bars
-from engine.valuation import cyclical, pctile, route
+from engine.valuation import cyclical, estimates, pctile, route
+from engine.valuation import peg as peg_mod
 from engine.valuation.asof import Known, latest_close_day
-from engine.valuation.measures import LABELS, MODULE, STANDARD_KEYS, Snapshot, fmt, snapshot
+from engine.valuation.measures import (
+    FWD,
+    LABELS,
+    MODULE,
+    ROW_KEYS,
+    STANDARD_KEYS,
+    Measure,
+    Snapshot,
+    fmt,
+    snapshot,
+)
 from engine.valuation.params import Params
 
 HISTORY_FROM = "2009-01-01"  # XBRL starts 2009–2011 (M04 failure modes)
@@ -83,6 +95,13 @@ class NameResult:
     trap: str = ""
     notes: list[str] = field(default_factory=list)  # labels added to every row
     rows: list[OutRow] = field(default_factory=list)
+    # Part 2: estimates, forward P/E, PEG, the walk-down window
+    est: estimates.Reading | None = None
+    next_report: calendar.NextReport | None = None
+    walk: tuple[bool | None, str] = (None, "")
+    peg: peg_mod.Peg | None = None
+    cagr: str = ""
+    blocked: str = ""
 
     @property
     def headline_pctile(self) -> pctile.Pctile | None:
@@ -174,8 +193,10 @@ def evaluate(
     *,
     with_history: bool = True,
     with_peers: bool = True,
+    est_upto: str | None = None,
 ) -> NameResult:
-    """Every M08 Part 1 reading for one company at the close on or before `day`."""
+    """Every M08 reading for one company at the close on or before `day`. Estimates are the
+    newest snapshot fetched by the close date (rule 1), or by `est_upto` (the live tab)."""
     norm = normalize_cik(cik) or cik
     k = Known(engine, norm, today)
     fye = fiscal_year_end(engine, norm)
@@ -237,8 +258,52 @@ def evaluate(
     f = r.m04.filing
     if f is not None and f.text in ("stale", "overdue"):
         r.notes.append(f"as of {snap.twelve or 'the last report'}; M04 filing_status {f.text}")
+    part2(r, engine, k, p, blocked=blocked, treasury=treasury, est_upto=est_upto)
     r.rows = build_rows(r, p)
     return r
+
+
+def part2(r: NameResult, engine, k: Known, p: Params, *, blocked, treasury, est_upto) -> None:
+    """Estimates, forward P/E, PEG and the walk-down window (Part 2; D-M08-4…7, -14…17)."""
+    s = r.snap
+    r.blocked = blocked
+    if s.missing:
+        s.measures[FWD] = Measure(FWD, missing=s.missing)
+    if blocked:
+        return
+    pts = k.view(r.as_of)
+    fy_ends = pts("net_income", "FY")
+    reported = max(fy_ends) if fy_ends else None
+    r.est = estimates.reading(engine, r.cik, r.as_of, p, upto=est_upto or r.as_of,
+                              reported_fy_end=reported)  # fmt: skip
+    r.next_report = calendar.next_report(engine, r.cik, r.as_of)
+    r.walk = calendar.walk_down(r.next_report, r.as_of, p.walk_down_days)
+    fy1, fy2 = r.est.fy1, r.est.fy2
+    if not s.missing:
+        base = list(getattr(s.cap, "sources", None) or [])
+        fwd = peg_mod.forward_pe(s.close.value, fy1, treasury=treasury,
+                                 sources=[*base, *r.est.sources])  # fmt: skip
+        if r.est.missing:
+            fwd.missing = r.est.missing
+        s.measures[FWD] = fwd
+    dates = estimates.snapshot_dates(engine, r.cik)
+    since = f"own snapshots since {dates[0]}" if dates else "no snapshots yet"
+    r.pctiles[FWD] = pctile.Pctile(
+        None, 0, missing=f"no quarter-end history of forward EPS ({since}; deferred)"
+    )
+    if s.missing:
+        return
+    r.peg = peg_mod.peg(
+        fwd=s.m(FWD),
+        fy1=fy1,
+        fy2=fy2,
+        ttm_pe=s.m("val_pe_ttm"),
+        cyclical=bool(r.flag and r.flag.cyclical),
+        treasury=treasury,
+        cap_pct=p.peg_growth_cap_pct,
+        have_snapshot=r.est.snap is not None,
+    )
+    r.cagr = peg_mod.trailing_cagr(k, pts, r.as_of)
 
 
 def _pe_note(r: NameResult) -> str:
@@ -254,7 +319,7 @@ def build_rows(r: NameResult, p: Params) -> list[OutRow]:
     s, ver = r.snap, f"M08 {p.version}"
     common = [x for x in (*r.notes, ver) if x]
     out = []
-    for key in STANDARD_KEYS:
+    for key in ROW_KEYS:
         m = s.m(key)
         pc = r.pctiles.get(key)
         bits = [f"{LABELS[key]} {m.shown}"]
@@ -262,6 +327,8 @@ def build_rows(r: NameResult, p: Params) -> list[OutRow]:
             bits.append(m.detail)
         if key == "val_pe_ttm" and (note := _pe_note(r)):
             bits.append(note)
+        if key == FWD and r.est is not None:
+            bits += [*r.est.notes, r.walk[1]] if r.walk[1] else list(r.est.notes)
         if key in ("val_ev_nebit", "val_p_neps") and s.nep is not None:
             bits.append(s.nep.text())
         if pc is not None:
@@ -352,6 +419,115 @@ def build_rows(r: NameResult, p: Params) -> list[OutRow]:
         if hp is not None and hp.missing.startswith("no current value"):
             why = f"headline {hl.text or hl.missing or 'has no value'}"
         out.append(OutRow("valuation_pctile", r.as_of, pm, missing=why, sources=srcs, info=info))
+    out += part2_rows(r, p, common)
+    return out
+
+
+def est_line(r: NameResult) -> list[str]:
+    """The revision detail of FY1 and FY2 (shared by `est_revision` and the script)."""
+    e = r.est
+    if e is None:
+        return []
+    bits = [h.text() for h in (e.fy1, e.fy2) if h is not None]
+    if e.snap is not None and e.fy1 is None:
+        bits.append("no fiscal-year estimate after the newest reported fiscal year")
+    return [*bits, e.coverage(), *e.notes]
+
+
+def part2_rows(r: NameResult, p: Params, common: list[str]) -> list[OutRow]:
+    """`peg` and `est_revision` (Part 2). Grade B: vendor consensus (D14)."""
+    out: list[OutRow] = []
+    s, walk = r.snap, r.walk[1]
+    if r.blocked:
+        for sig in ("peg", "est_revision"):
+            out.append(OutRow(sig, r.as_of, "; ".join(common), missing=r.blocked))
+        return out
+    e = r.est
+    # PEG (rule 6)
+    pg = r.peg
+    if pg is None:
+        out.append(OutRow("peg", r.as_of, "; ".join(common), missing=s.missing or "no close"))
+    else:
+        bits = [f"PEG {pg.shown}", *pg.detail]
+        if r.cagr:
+            bits.append(r.cagr)
+        if pg.codes and "cyclical" in pg.codes and r.flag is not None:
+            bits.append(r.flag.text())
+        if not pg.scored:
+            ev_s, pc = s.m("val_ev_sales"), r.pctiles.get("val_ev_sales")
+            bits.append(
+                f"R6 sales fallback: EV/Sales {ev_s.shown}" + (f" ({pc.text()})" if pc else "")
+            )
+        bits += ["vendor basis (non-GAAP consensus)", "rough ranking only (S-new-M08-6)"]
+        if walk:
+            bits.append(walk)
+        bits += common
+        srcs = [*(getattr(s.cap, "sources", None) or []), *(e.sources if e else [])]
+        info = ("ST",) if pg.scored else INFO_ALL
+        method = "; ".join(bits)
+        if pg.missing:
+            out.append(OutRow("peg", r.as_of, method, missing=pg.missing, sources=srcs))
+        elif not srcs:
+            out.append(OutRow("peg", r.as_of, method, missing=f"{pg.text}: no inputs stored"))
+        else:
+            out.append(OutRow("peg", r.as_of, method, pg.value, pg.text, sources=srcs, info=info))
+    # est_revision (R15; rule 7): FY1 30-day revision, every timeframe (MY weight low, M01)
+    bits = [
+        f"FY1 30-day revision (R15); up ≥ +{p.flat_band_pct:g}%, down ≤ −{p.flat_band_pct:g}%, "
+        "flat between† (D-M08-15)",
+        *est_line(r),
+        "vendor basis",
+    ]
+    if walk:
+        bits.append(walk)
+    bits += ["MY weight low (M01)", *common]
+    method = "; ".join(bits)
+    if e is None or e.missing:
+        why = e.missing if e is not None else "no estimate reading"
+        out.append(OutRow("est_revision", r.as_of, method, missing=why, info=()))
+    elif e.fy1 is None:
+        out.append(
+            OutRow(
+                "est_revision",
+                r.as_of,
+                method,
+                missing="no FY1 estimate in the snapshot "
+                f"{e.snap.snapshot_date} (no coverage of the coming fiscal year)",
+                sources=e.sources,
+                info=(),
+            )  # fmt: skip
+        )
+    else:
+        rev = e.fy1.rev30
+        if rev.missing:
+            out.append(
+                OutRow(
+                    "est_revision",
+                    r.as_of,
+                    method,
+                    missing=f"FY1 30-day revision: {rev.missing}",
+                    sources=e.sources,
+                    info=(),
+                )  # fmt: skip
+            )
+        elif rev.value is None:
+            out.append(
+                OutRow(
+                    "est_revision", r.as_of, method, None, estimates.NM, sources=e.sources, info=()
+                )  # fmt: skip
+            )
+        else:
+            out.append(
+                OutRow(
+                    "est_revision",
+                    r.as_of,
+                    method,
+                    round(rev.value, 4),
+                    estimates.band(rev, p),
+                    sources=e.sources,
+                    info=(),
+                )  # fmt: skip
+            )
     return out
 
 
@@ -483,9 +659,9 @@ def line(r: NameResult) -> str:
     flag = "cyclical" if r.flag and r.flag.cyclical else ""
     std = " · ".join(
         f"{k.replace('val_', '')} {s.m(k).shown}"
-        for k in ("val_pe_ttm", "val_ev_ebit", "val_ev_sales", "val_ps", "val_pb")
+        for k in ("val_pe_ttm", FWD, "val_ev_ebit", "val_ev_sales", "val_ps", "val_pb")
     )
-    bits = [f"{r.ticker} {r.as_of}: headline {head}{pc} [{r.route.basis}]", std]
+    bits = [f"{r.ticker} {r.as_of}: headline {head}{pc} [{r.route.basis}]", std, part2_short(r)]
     if flag:
         bits.append(flag)
     if r.trap:
@@ -493,6 +669,33 @@ def line(r: NameResult) -> str:
     if s.missing:
         bits = [f"{r.ticker} {r.as_of}: all rows missing: {s.missing}"]
     return " · ".join(bits)
+
+
+def _row(r: NameResult, signal: str) -> OutRow | None:
+    return next((o for o in r.rows if o.signal == signal), None)
+
+
+def part2_short(r: NameResult) -> str:
+    """PEG and est_revision in a few words (the script's per-name line)."""
+    out = []
+    for sig in ("peg", "est_revision"):
+        o = _row(r, sig)
+        if o is None:
+            continue
+        if o.missing:
+            shown = f"missing ({o.missing[:60]})"
+        elif o.value is not None:
+            shown = (
+                f"{o.value:.2f}"
+                + ("%" if sig == "est_revision" else "")
+                + (f" {o.text}" if o.text else "")
+            )
+        else:
+            shown = o.text or "—"
+        out.append(f"{sig} {shown}")
+    if r.walk[0]:
+        out.append("walk-down window")
+    return " · ".join(out)
 
 
 def summary_lines(vp: ValPass) -> list[str]:
@@ -514,6 +717,27 @@ def summary_lines(vp: ValPass) -> list[str]:
         + (", ".join(flagged) or "none")
         + (" · value-trap risk: " + ", ".join(traps) if traps else ""),
     ]
+    est: dict[str, int] = {}
+    pegs: dict[str, int] = {}
+    no_snap = []
+    for t, rs in sorted(vp.results.items()):
+        if not rs:
+            continue
+        for sig, tally in (("est_revision", est), ("peg", pegs)):
+            o = _row(rs[0], sig)
+            if o is None:
+                continue
+            key = "missing" if o.missing else (o.text or "value")
+            tally[key] = tally.get(key, 0) + 1
+            if sig == "est_revision" and o.missing and "snapshot" in o.missing:
+                no_snap.append(t)
+    out.append(
+        "  est_revision: " + (", ".join(f"{k} {v}" for k, v in sorted(est.items())) or "—")
+        + " · peg: " + (", ".join(f"{k} {v}" for k, v in sorted(pegs.items())) or "—")
+    )  # fmt: skip
+    if no_snap:
+        out.append("  no usable estimate snapshot (missed, budget or no coverage): "
+                   + ", ".join(no_snap))  # fmt: skip
     if vp.params_note:
         out.append(f"  parameters: {vp.params_note}")
     out += [f"  {t}: error — {e}" for t, e in sorted(vp.errors.items())]
@@ -539,4 +763,4 @@ def run_local_part(
         if engine.in_transaction:
             engine.execute("ROLLBACK")
         lines = [f"  M08: error — {type(e).__name__}: {e}"]
-    return [f"M08 valuation — local pass (Part 1, 0 requests) ({clock() - t0:.1f} s):", *lines]
+    return [f"M08 valuation — local pass (Parts 1–2, 0 requests) ({clock() - t0:.1f} s):", *lines]

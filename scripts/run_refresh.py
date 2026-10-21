@@ -98,6 +98,29 @@ def calls_step(engine, corpus, report) -> str:
     return "\n" + "\n".join(lines) + "\n"
 
 
+def estimates_step(engine, report) -> str:
+    """M08 Part 2: the weekly EARNINGS_ESTIMATES rotation right after the transcripts, ≤ 3
+    Alpha Vantage requests a day for the core and promoted names (D-M08-6); a budget stop is
+    reported with the names left. Never fails the run."""
+    from engine.calls.alpha_vantage import AlphaVantageClient, MissingKey, key_from_env
+    from engine.valuation.estimates import run_fetch_part
+    from engine.valuation.params import load_safe
+
+    try:
+        client, reason = None, ""
+        try:
+            client = AlphaVantageClient(key_from_env(), engine)
+        except MissingKey as e:
+            reason = str(e)
+        params, _ = load_safe(ROOT / "config" / "valuation.toml")
+        comps = {t: c for c, t in core_promoted(report).items()}
+        lines = run_fetch_part(engine, client, comps, datetime.now(UTC), params=params,
+                               no_client_reason=reason)  # fmt: skip
+    except Exception as e:  # must not break the run report
+        lines = [f"M08 estimates: error — {type(e).__name__}: {e}"]
+    return "\n" + "\n".join(lines) + "\n"
+
+
 def money_step(client, engine, corpus, report) -> str:
     """Money flow after the calls step (M02 part 3): stated actuals, extension facts,
     allocation coverage, spender links and candidates. Never fails the run."""
@@ -613,6 +636,7 @@ def _run(args, engine, folder):
     report = run_refresh(client, engine, corpus, load_config(Path(args.config)),
                          datetime.now(UTC), trigger=trigger)  # fmt: skip
     calls = calls_step(engine, corpus, report)
+    calls += estimates_step(engine, report)  # M08 Part 2: Alpha Vantage after transcripts
     calls += money_step(client, engine, corpus, report)
     calls += supply_step(client, engine, corpus, report)
     calls += financing_step(client, engine, corpus, report)

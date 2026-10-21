@@ -38,6 +38,43 @@
 </div>
 <p class="note">Every standard measure is shown whatever the routing; routing chooses only the headline and its weight (D10, D32). Standard rows are information (weight 0) in every timeframe; the headline is ✓ in MY and PT, info in ST. A denominator ≤ 0 or EV ≤ 0 reads not_meaningful; missing stays missing, never zero. EV ex operating leases. Percentiles: calendar quarter-ends on first-filed values, scored with ≥ 20 points (D-M08-2); a structural change (an AI ramp) can read "expensive" for years.</p>
 
+{# M08 Part 2 (D-UI-38): the Estimates block, computed live from the newest stored snapshot (nothing fetched, nothing written). #}
+{% set e = v.est %}
+{% if e %}
+<h2 style="margin-top:16px">Estimates (Alpha Vantage consensus, vendor basis, grade B)</h2>
+<p class="note">Revisions and dispersion, not price targets (R15). Snapshot: {{ e.snapshot or '—' }}{% if e.snapshots %} · {{ e.snapshots }} snapshot(s) stored{% endif %}. One snapshot per company a week, at most 3 requests a day (D-M08-6). Vendor nulls stay missing, never 0.</p>
+{% if e.missing %}<p class="warnbox">Estimates missing: {{ e.missing }}.</p>{% endif %}
+{% if e.walk %}<p class="{% if e.walk_on %}warnbox{% else %}note{% endif %}">{{ e.walk }}</p>{% elif e.next_report %}<p class="note">{{ e.next_report }}</p>{% endif %}
+<table class="data" style="margin-bottom:8px">
+  <tr><th>Row</th><th class="num">Today</th><th>Detail</th><th>Stored (newest week)</th></tr>
+  {% for s in e.signals %}
+  <tr>
+    <td>{{ s.key }}</td>
+    {% if s.missing %}<td class="num">—</td><td class="muted">missing: {{ s.missing }}</td>
+    {% else %}<td class="num">{{ s.shown }}</td><td class="muted" title="{{ s.method }}">{{ s.method.split('; M08 ')[0] }}</td>{% endif %}
+    <td class="muted" style="white-space:nowrap">{% if s.stored.startswith('missing') %}missing{% else %}{{ s.stored }}{% endif %}{% if s.stored_as_of %} ({{ s.stored_as_of }}){% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% if e.lines %}
+<p class="note">{{ e.mapping }} · {{ e.coverage }}</p>
+<div style="overflow-x:auto">
+<table class="data">
+  <tr><th></th><th>Horizon (vendor label)</th><th>Period end</th><th class="num">Avg EPS</th><th class="num">High</th><th class="num">Low</th><th class="num">Count</th><th class="num">Rev. 30 d</th><th class="num">Rev. 90 d</th><th class="num">Breadth 30 d</th><th class="num">Dispersion</th><th>Null fields</th></tr>
+  {% for l in e.lines %}
+  <tr{% if l.name %} style="font-weight:600"{% endif %}>
+    <td>{{ l.name }}</td><td>{{ l.horizon }}</td><td>{{ l.period_end }}</td>
+    <td class="num">{{ l.avg }}</td><td class="num">{{ l.high }}</td><td class="num">{{ l.low }}</td><td class="num">{{ l.count }}</td>
+    <td class="num">{{ l.rev30 }}</td><td class="num">{{ l.rev90 }}</td><td class="num">{{ l.breadth }}</td><td class="num">{{ l.dispersion }}</td>
+    <td class="muted">{{ l.nulls }}</td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+<p class="note">FY1 and FY2 are mapped by the vendor's period-end date after the newest fiscal year the company has reported (off-calendar years: MU, NVDA, MSFT). Revision = average ÷ average N days ago − 1; n/m when |average| &lt; $0.10 or the sign changes. Breadth = (up − down) ÷ count over 30 days. Dispersion = (high − low) ÷ |average| with ≥ 3 analysts (range-based; the vendor gives no standard deviation). Consensus walks down to beatable levels before reports (S-new-M08-16).</p>
+{% endif %}
+{% endif %}
+
 {% if v.history %}
 <h2 style="margin-top:16px">Headline at the last {{ v.history | length }} quarter-ends</h2>
 <table class="data">

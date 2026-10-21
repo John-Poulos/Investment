@@ -49,6 +49,15 @@ class Params:
     nep_swing_pp: float = 5.0
     nep_min_years: int = 3
     value_trap_pctile: float = 20.0
+    # Part 2: estimates and PEG (D-M08-5, -6, -14…)
+    peg_growth_cap_pct: float = 50.0
+    flat_band_pct: float = 0.5
+    min_abs_eps: float = 0.10
+    min_count_dispersion: int = 3
+    walk_down_days: int = 30
+    snapshot_max_age_days: int = 28
+    snapshot_every_days: int = 7
+    no_coverage_retry_days: int = 28
     overrides: tuple[Override, ...] = field(default=())
 
     def override(self, cik: str, ticker: str | None) -> Override | None:
@@ -65,6 +74,14 @@ KEYS = {
     ("nep", "swing_pp"): "nep_swing_pp",
     ("nep", "min_years"): "nep_min_years",
     ("value_trap", "pctile"): "value_trap_pctile",
+    ("peg", "growth_cap_pct"): "peg_growth_cap_pct",
+    ("estimates", "flat_band_pct"): "flat_band_pct",
+    ("estimates", "min_abs_eps"): "min_abs_eps",
+    ("estimates", "min_count_dispersion"): "min_count_dispersion",
+    ("estimates", "walk_down_days"): "walk_down_days",
+    ("estimates", "snapshot_max_age_days"): "snapshot_max_age_days",
+    ("estimates", "snapshot_every_days"): "snapshot_every_days",
+    ("estimates", "no_coverage_retry_days"): "no_coverage_retry_days",
 }
 
 

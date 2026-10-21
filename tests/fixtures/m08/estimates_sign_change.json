@@ -1,0 +1,45 @@
+{
+    "symbol": "CYCL",
+    "estimates": [
+        {
+            "date": "2027-08-31",
+            "horizon": "current fiscal year",
+            "eps_estimate_average": "0.2500",
+            "eps_estimate_high": "0.6000",
+            "eps_estimate_low": "-0.1000",
+            "eps_estimate_analyst_count": "2.0000",
+            "eps_estimate_average_7_days_ago": "0.2000",
+            "eps_estimate_average_30_days_ago": "-0.1500",
+            "eps_estimate_average_60_days_ago": "-0.3000",
+            "eps_estimate_average_90_days_ago": "-0.4000",
+            "eps_estimate_revision_up_trailing_7_days": "1.0000",
+            "eps_estimate_revision_down_trailing_7_days": "0.0000",
+            "eps_estimate_revision_up_trailing_30_days": "2.0000",
+            "eps_estimate_revision_down_trailing_30_days": "0.0000",
+            "revenue_estimate_average": "9100000000.00",
+            "revenue_estimate_high": "9600000000.00",
+            "revenue_estimate_low": "8700000000.00",
+            "revenue_estimate_analyst_count": "2.0000"
+        },
+        {
+            "date": "2028-08-31",
+            "horizon": "next fiscal year",
+            "eps_estimate_average": "0.0800",
+            "eps_estimate_high": "0.9000",
+            "eps_estimate_low": "-0.5000",
+            "eps_estimate_analyst_count": "2.0000",
+            "eps_estimate_average_7_days_ago": "0.0800",
+            "eps_estimate_average_30_days_ago": "0.0500",
+            "eps_estimate_average_60_days_ago": "-0.2000",
+            "eps_estimate_average_90_days_ago": "-0.4000",
+            "eps_estimate_revision_up_trailing_7_days": null,
+            "eps_estimate_revision_down_trailing_7_days": null,
+            "eps_estimate_revision_up_trailing_30_days": null,
+            "eps_estimate_revision_down_trailing_30_days": null,
+            "revenue_estimate_average": "9800000000.00",
+            "revenue_estimate_high": null,
+            "revenue_estimate_low": null,
+            "revenue_estimate_analyst_count": null
+        }
+    ]
+}
