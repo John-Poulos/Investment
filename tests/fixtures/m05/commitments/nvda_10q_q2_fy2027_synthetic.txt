@@ -1,0 +1,14 @@
+SYNTHETIC FIXTURE (M05 Part 2): wording reconstructed, figures from docs/mvp/M05_MVP_BRIEF.md (NVIDIA Q2 FY2027 10-Q: $279B, $92B in the rest of FY2027, $87B in FY2028). Replace with the owner's export (scripts/run_m05.py export-text).
+
+NOTES TO CONDENSED CONSOLIDATED FINANCIAL STATEMENTS
+(In millions, except per share data)
+
+Note 12 - Commitments and Contingencies
+
+As of July 26, 2026, we had outstanding inventory purchase and long-term supply and capacity obligations totaling $279 billion, compared with $95.2 billion as of January 25, 2026. In certain instances, these agreements are cancelable, rescheduled, or adjustable for our business needs prior to placement of firm orders.
+
+Of these obligations, $92 billion is due in the remainder of fiscal year 2027 and $87 billion in fiscal year 2028.
+
+Purchase obligations increased by $183.8 billion during the first half of fiscal year 2027.
+
+We could be required to pay up to $2.0 billion under our purchase commitments if we cancel orders after the cut-off dates.

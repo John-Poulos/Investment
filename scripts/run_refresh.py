@@ -293,6 +293,19 @@ def future_spend_local_step(engine, report) -> str:
     return "\n" + "\n".join(lines) + "\n"
 
 
+def future_spend_commitments_local_step(engine, corpus, report) -> str:
+    """M05 Part 2 local pass right after Part 1's (0 requests): the commitment text finder
+    over stored 10-K / 10-Q text, the purchase-obligation tags and commitment_cover for every
+    covered name (D-M05-18…). Never fails the run."""
+    from engine.future_spend.commit_step import run_local_part
+
+    try:
+        lines = run_local_part(engine, corpus, companies_of(report), datetime.now(UTC))
+    except Exception as e:  # must not break the run report
+        lines = [f"M05 commitments — local pass: error — {type(e).__name__}: {e}"]
+    return "\n" + "\n".join(lines) + "\n"
+
+
 def ownership_local_step(engine, report) -> str:
     """M07 Part 1 local pass after the M04 local steps (0 SEC requests; MVP_PLAN refresh
     order): 4/A links, CMP classes and the per-day buy / sale rows for companies with newly
@@ -657,6 +670,7 @@ def _run(args, engine, folder):
     prices += financials_quality_local_step(engine, corpus, report)
     prices += financials_cvd_local_step(engine, report)
     prices += future_spend_local_step(engine, report)  # M05 after M04, before M07
+    prices += future_spend_commitments_local_step(engine, corpus, report)  # M05 Part 2
     prices += ownership_local_step(engine, report)  # M07 after the M04 local steps
     prices += managers_local_step(engine, report)  # M07 Part 2 (followed managers)
     prices += valuation_local_step(engine, report)  # M08 Part 1 after M07, before M09

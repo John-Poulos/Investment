@@ -1,0 +1,9 @@
+SYNTHETIC FIXTURE (M05 Part 2): wording reconstructed; $349.31B and the July 2026 leases (about $68B) from docs/mvp/M05_MVP_BRIEF.md cases 12-13; the $41.2B lease amount is invented for the fixture. Replace with the owner's export (scripts/run_m05.py export-text).
+
+Contractual Obligations
+
+As of June 30, 2026, our non-cancelable contractual commitments were $349.31 billion, primarily related to network infrastructure, servers and data center construction.
+
+As of June 30, 2026, we had additional operating leases that have not yet commenced with future lease payments of $41.2 billion.
+
+In July 2026, we entered into additional data center leases that have not yet commenced with total future payments of approximately $68 billion.

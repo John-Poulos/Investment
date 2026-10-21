@@ -1,0 +1,18 @@
+SYNTHETIC FIXTURE (M05 Part 2): wording reconstructed, figures from docs/mvp/M05_MVP_BRIEF.md and docs/M05_FUTURE_SPEND.md D-M05-3 (NVIDIA FY2026 10-K Note 12). Replace with the owner's export (scripts/run_m05.py export-text).
+
+NOTES TO THE CONSOLIDATED FINANCIAL STATEMENTS
+(In millions, except per share data)
+
+Note 12 - Commitments and Contingencies
+
+Purchase Obligations
+
+Our purchase obligations reflect our commitments to purchase components used to manufacture our products, including long-term supply and capacity agreements, certain software and technology licenses, other goods and services and long-lived assets.
+
+As of January 25, 2026, we had outstanding inventory purchase and long-term supply and capacity obligations totaling $95.2 billion. We enter into agreements with contract manufacturers that allow them to procure inventory based upon criteria as defined by us, and in certain instances, these agreements are cancelable, rescheduled, or adjustable for our business needs prior to placement of firm orders.
+
+As of January 25, 2026, we had $27.0 billion of multi-year cloud service agreements, $11.4 billion of investment commitments and $3.4 billion of other non-inventory purchase obligations.
+
+As of January 25, 2026, of the outstanding obligations, $60.1 billion is due in fiscal year 2027.
+
+Purchase obligations	95,200	60,100	35,100
