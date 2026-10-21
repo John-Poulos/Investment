@@ -10,7 +10,9 @@ Rows read (module M04, timeframe MY, the newest row, optionally as of a date):
 (current, stale, overdue; Part 1a), `cvd_state` (Part 8a; the effective state, an owner
 answer applied), `runway_q` (its method says "capex-funded review open … rule-7 strength
 blocked" while an `m04_runway` review is open, and "owner: capex can be cut" once
-answered), `guidance_removed` (value `removed`, last 12 months; rule 4).
+answered), `guidance_removed` (value `removed`, last 12 months; rule 4). From M05 Part 1:
+the newest M05 `capex_demand` row (D-M01-7: AHEAD_OF_DEMAND is a rule-4 exit-warning reason,
+never blocking; D-M05-4).
 
 - Rule 1 / R3 "qualified" (D-M01-6): gate pass or warn, no overdue filing, CvD not
   STRUCTURAL_DECLINE or CYCLE_PLUS_DAMAGE. Gate fail, incomplete or not applicable (ETV
@@ -66,6 +68,7 @@ class M04Rows:
     cvd: Row | None = None
     runway: Row | None = None
     guidance_removed: str | None = None  # as_of of a `removed` row in the last 12 months
+    capex_demand: Row | None = None  # M05's newest `capex_demand` row (D-M01-7)
 
     @property
     def gate_state(self) -> str | None:
@@ -109,12 +112,14 @@ class Reading:
     reasons: list[str] = field(default_factory=list)
 
 
-def _latest(engine: sqlite3.Connection, cik: str, signal: str, as_of: str | None) -> Row | None:
+def _latest(
+    engine: sqlite3.Connection, cik: str, signal: str, as_of: str | None, module: str = "M04"
+) -> Row | None:
     sql = (
-        "SELECT value_text, as_of, method FROM signal WHERE cik = ? AND module_id = 'M04' "
+        "SELECT value_text, as_of, method FROM signal WHERE cik = ? AND module_id = ? "
         "AND signal = ? AND timeframe = 'MY'"
     )
-    params: tuple = (cik, signal)
+    params: tuple = (cik, module, signal)
     if as_of:
         sql += " AND as_of <= ?"
         params += (as_of,)
@@ -133,7 +138,13 @@ def read_m04(
     out.cvd = _latest(engine, norm, "cvd_state", as_of)
     out.runway = _latest(engine, norm, "runway_q", as_of)
     out.guidance_removed = guidance_removed(engine, norm, as_of)
+    out.capex_demand = capex_demand(engine, norm, as_of)
     return out
+
+
+def capex_demand(engine: sqlite3.Connection, cik: str, as_of: str | None) -> Row | None:
+    """M05's newest `capex_demand` row (as of a date when given; D-M01-7)."""
+    return _latest(engine, normalize_cik(cik) or cik, "capex_demand", as_of, module="M05")
 
 
 def guidance_removed(engine: sqlite3.Connection, cik: str, as_of: str | None) -> str | None:
@@ -250,4 +261,7 @@ def rule4(r: M04Rows) -> list[str]:
         out.append("filing overdue (D-M04-61)")
     if r.cvd_state in DAMAGE:
         out.append(f"CvD {r.cvd_state} (M01 rule 4, S6.14)")
+    if r.capex_demand is not None and r.capex_demand.text == "AHEAD_OF_DEMAND":
+        out.append(f"capex AHEAD_OF_DEMAND {r.capex_demand.as_of} (M05; warning only, never "
+                   "blocking; D-M01-7)")  # fmt: skip
     return out

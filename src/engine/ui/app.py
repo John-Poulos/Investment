@@ -276,6 +276,9 @@ def create_app(settings: UiSettings) -> FastAPI:
             ctx["mf"] = mf_views.company_view(engine, cik, datetime.now(UTC).date(), corpus)
             ctx["fin"] = fin_views.company_view(engine, cik, datetime.now(UTC).date())
             ctx["awards"] = off_views.company_awards(engine, cik, datetime.now(UTC).date())
+            from engine.future_spend import views as m05_views  # M05 Part 1 (D-UI-37)
+
+            ctx["m05"] = m05_views.company_view(engine, cik, ticker, datetime.now(UTC).date())
         elif tab == "financials":
             ctx["tables"] = services.financials(engine, cik)
             ctx["m04"] = m04_views.company_view(

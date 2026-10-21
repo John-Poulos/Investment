@@ -29,17 +29,30 @@ from engine.sec.xbrl_facts import get_series
 QUARTERS_SHOWN = 6
 
 
+COVER_STEP = 0.10  # ±10%† year-over-year change in the cover sets RISING / FALLING (D-M05-2…6)
+
+
 @dataclass(frozen=True)
 class RpoRow:
     end: str
     value: float
     yoy: float | None
+    # M05 Part 1 (`bookings_cover`): RPO ÷ TTM revenue at the same end, in years; None when
+    # no TTM revenue ends within ten days of the RPO date (never 0).
+    cover: float | None = None
+    revenue_ttm: float | None = None
+    accession: str = ""
+    filed: str = ""
+    revenue_ref: tuple[str, str] = ("", "")  # (accession, filed) of the TTM revenue
 
 
 @dataclass(frozen=True)
 class Rpo:
     rows: tuple[RpoRow, ...]
     own_median_yoy: float | None  # the company's own history (never across companies, S79)
+    # The latest cover vs the cover a year earlier (350–380 days): None when there is no
+    # point a year earlier (`short_history`).
+    cover_prior: RpoRow | None = None
 
     @property
     def reported(self) -> bool:
@@ -51,19 +64,57 @@ class Rpo:
             return None
         return self.rows[-1].yoy - self.own_median_yoy
 
+    @property
+    def cover_change(self) -> float | None:
+        last = self.rows[-1] if self.rows else None
+        if last is None or last.cover is None or self.cover_prior is None:
+            return None
+        if not self.cover_prior.cover:
+            return None
+        return last.cover / self.cover_prior.cover - 1
+
+    @property
+    def cover_state(self) -> str | None:
+        """RISING / FLAT / FALLING (±10%†), `short_history` with no cover a year earlier,
+        None when the latest cover itself is missing."""
+        last = self.rows[-1] if self.rows else None
+        if last is None or last.cover is None:
+            return None
+        ch = self.cover_change
+        if ch is None:
+            return "short_history"
+        return "RISING" if ch >= COVER_STEP else "FALLING" if ch <= -COVER_STEP else "FLAT"
+
+
+def _year_before(pts: list, end: str):
+    e = date.fromisoformat(end)
+    return next((q for q in pts if 350 <= (e - date.fromisoformat(q.end)).days <= 380), None)
+
 
 def rpo(engine: sqlite3.Connection, cik: str) -> Rpo:
     pts = [p for p in get_series(engine, cik, "rpo", "I") if p.latest.value is not None]
+    # TTM revenue at the RPO date; at a fiscal year end the fiscal year is the TTM (annual
+    # filers have no quarters to sum).
+    ttm = [p for p in get_series(engine, cik, "revenue", "TTM") if p.latest.value]
+    ttm += [p for p in get_series(engine, cik, "revenue", "FY") if p.latest.value]
     rows = []
     for i, p in enumerate(pts):
-        end = date.fromisoformat(p.end)
-        prior = next(
-            (q for q in pts[:i] if 350 <= (end - date.fromisoformat(q.end)).days <= 380), None
-        )
+        prior = _year_before(pts[:i], p.end)
         yoy = (p.latest.value / prior.latest.value - 1) if prior and prior.latest.value else None
-        rows.append(RpoRow(p.end, float(p.latest.value), yoy))
+        e = date.fromisoformat(p.end)
+        rev = next((r for r in ttm if abs((date.fromisoformat(r.end) - e).days) <= 10), None)
+        rv = float(rev.latest.value) if rev is not None and rev.latest.value > 0 else None
+        rows.append(RpoRow(p.end, float(p.latest.value), yoy,
+                           float(p.latest.value) / rv if rv else None, rv,
+                           p.latest.accession or "", p.latest.filed or "",
+                           (rev.latest.accession or "", rev.latest.filed or "") if rv else
+                           ("", "")))  # fmt: skip
     history = [r.yoy for r in rows[-9:-1] if r.yoy is not None]
-    return Rpo(tuple(rows[-8:]), statistics.median(history) if len(history) >= 3 else None)
+    prior_cover = None
+    if rows and rows[-1].cover is not None:
+        prior_cover = _year_before([r for r in rows[:-1] if r.cover is not None], rows[-1].end)
+    return Rpo(tuple(rows[-8:]), statistics.median(history) if len(history) >= 3 else None,
+               prior_cover)  # fmt: skip
 
 
 @dataclass(frozen=True)

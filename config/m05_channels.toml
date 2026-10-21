@@ -1,0 +1,92 @@
+# M05 spend channel (D-M05-1; docs/M05_FUTURE_SPEND.md). Hand-edited by the owner; the
+# engine reads this file and never writes it. M04's model-tag loader ignores it.
+# Allowed channels (any other value rejects the file; every company then reads "unset"):
+#   fabless, outsourced   commitments lead; capex_demand and growth_capex_roic are info (R9)
+#   fab_owner, hyperscaler, long_cycle, manufacturer   every gauge, capex signals carry weight
+#   n/a                   every M05 row "missing: not applicable (channel n/a)"
+# A company not listed reads "channel unset": every gauge shown, commitment_cover info only.
+# Key by `cik` (10 digits, wins; tickers can be recycled, D-M04-74) and/or `ticker`.
+# CIKs are filled only where already used elsewhere in the repo; add the others if wanted.
+
+[[company]]
+ticker = "NVDA"
+cik = "0001045810"
+channel = "fabless"
+
+[[company]]
+ticker = "MRVL"
+channel = "fabless"
+
+[[company]]
+ticker = "AAPL"
+cik = "0000320193"
+channel = "outsourced"
+
+[[company]]
+ticker = "MU"
+cik = "0000723125"
+channel = "fab_owner"
+
+[[company]]
+ticker = "INTC"
+cik = "0000050863"
+channel = "fab_owner"
+
+[[company]]
+ticker = "GFS"
+channel = "fab_owner"
+
+[[company]]
+ticker = "META"
+cik = "0001326801"
+channel = "hyperscaler"
+
+[[company]]
+ticker = "MSFT"
+cik = "0000789019"
+channel = "hyperscaler"
+
+[[company]]
+ticker = "AMZN"
+cik = "0001018724"
+channel = "hyperscaler"
+
+[[company]]
+ticker = "GOOG"
+cik = "0001652044"
+channel = "hyperscaler"
+
+[[company]]
+ticker = "BA"
+cik = "0000012927"
+channel = "long_cycle"
+
+[[company]]
+ticker = "TSLA"
+cik = "0001318605"
+channel = "manufacturer"
+
+[[company]]
+ticker = "RIVN"
+channel = "manufacturer"
+
+[[company]]
+ticker = "SPCX"
+channel = "manufacturer"
+
+[[company]]
+ticker = "INFQ"
+cik = "0002007825"
+channel = "manufacturer"
+note = "shell years before 2026-02-13 read not applicable via the M04 spac_shell tag"
+
+[[company]]
+ticker = "MSTR"
+cik = "0001050446"
+channel = "n/a"
+note = "bitcoin treasury company (M04 tag asset_treasury)"
+
+[[company]]
+ticker = "ETV"
+channel = "n/a"
+note = "closed-end fund (M04 tag fund)"
