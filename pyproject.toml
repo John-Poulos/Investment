@@ -37,7 +37,7 @@ dev = [
 
 [tool.ruff]
 line-length = 100
-extend-exclude = ["reference"]
+extend-exclude = ["reference", ".claude"]
 force-exclude = true
 
 [tool.ruff.lint]
