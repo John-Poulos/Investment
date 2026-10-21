@@ -1,4 +1,5 @@
 # M03 Leaders & S-curve — MVP brief
+**Decided 2026-10-21 → docs/M03_LEADERS.md** (D-M03-1…8; every recommended option, defaults kept; Q03.8a's M01 weights = D-M01-8). Kept as the sitting record.
 Updated 2026-10-21 (refreshed for sitting 3) · Source: docs/M03_DESIGN_PACK.md (research) · Status: for owner decision (sitting 3, with M06)
 
 Outputs are research signals, not financial advice. Answers become D-M03-1 onward in a new `docs/M03_LEADERS.md`; a change to M01's weights (Q03.8) takes D-M01-8 (next free).

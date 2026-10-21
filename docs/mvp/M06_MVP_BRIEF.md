@@ -1,4 +1,5 @@
 # M06 Moat — MVP brief
+**Decided 2026-10-21 → docs/M06_MOAT.md** (D-M06-1…8; every recommended option, defaults kept; the gate reader = D-M01-9; class renamed through_cycle). Kept as the sitting record.
 Updated 2026-10-21 (refreshed for sitting 3) · Source: docs/M06_DESIGN_PACK.md (research) · Status: for owner decision (sitting 3, with M03)
 
 Research signals, not advice. Nothing here is decided until the owner answers (D7). Answers become D-M06-1 onward in a new `docs/M06_MOAT.md`; an M01 rule-1 amendment for the gate takes the next free D-M01 (D-M01-8, or -9 if Q03.8 takes -8).

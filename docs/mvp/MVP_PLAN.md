@@ -14,6 +14,11 @@ Updated 2026-10-13 · Basis: DESIGN D31, the nine briefs in `docs/mvp/` (M03, M0
 - **M05** → D-M05-1…8 in `docs/M05_FUTURE_SPEND.md`: every recommended option (Q05.1a–Q05.8a). Q05.4a approves the M01 rule-4 amendment (AHEAD_OF_DEMAND listed among the `exit_warning` reasons, never blocking) → **D-M01-7**; Q05.7a answers M02's open item on capex weighting → **D-M02-62**. Vote line confirmed as item 2 below: `capex_demand` is the capex vote.
 - Doc names: `M05_FUTURE_SPEND.md`, `M08_VALUATION.md` (the list near the end of this file is updated).
 
+## Sitting 3 answers (owner, 2026-10-21)
+- **M03** → D-M03-1…8 in `docs/M03_LEADERS.md`: every recommended option (Q03.1a–Q03.8a); both no-question defaults kept (external revenue with the 50%† captive flag; the not-rising clause for `past_inflection`); the D32 default kept (every disclosed segment shown, mapped or not). Q03.8a's weights → **D-M01-8**.
+- **M06** → D-M06-1…8 in `docs/M06_MOAT.md`: every recommended option (Q06.1a–Q06.8a); item 5's rename confirmed (M06's class is `through_cycle`); the D32 default kept (10-year ROIC, GM and OM shown for every company). The gate reader → **D-M01-9** (rule 1: a first MY entry needs `moat_gate` = met). Vote line confirmed as item 2: `moat_verdict` is M06's one confluence vote; `moat_gate` gates MY entries.
+- Doc names: `M03_LEADERS.md`, `M06_MOAT.md`. Effort back to Medium for W5.
+
 ## Summary
 One row per module. "Questions" counts the brief's questions; "+1" is a question this plan restores. Request costs are from the briefs; "SEC" requests are owner-run (Claude cannot call SEC).
 
@@ -84,7 +89,7 @@ Resolution first, then the reason. The top three are marked ★.
 |---|---|---|---|
 | 1 (answered 2026-10-13: D-M07-1…8, D-M09-1…8) | M07 + M09 (+ QP.1–3) | 16 + 3 | No 8a dependency and no setup data; both are market-data modules (Form 4, prices). Q09.6 settles SPY for M10 and M11; Q07.8 closes the short-interest gap |
 | 2 (answered 2026-10-13: D-M08-1…7, D-M05-1…8; D32, D-M01-7, D-M02-62) | M08 + M05 | 15 | Both are fundamentals on stored facts that read 8a (NEP, CvD); both touch `xbrl_facts` extra concepts; settles the cyclical flag (item 5), the Alpha Vantage split (item 6) and M05's M01 rule-4 amendment |
-| 3 | M03 + M06 | 16 | The outline's chain "space → leader → financials → moat"; both read 8a market share, peers and confirmed stages; Q03.8's tier and M06's verdict feed the vote map |
+| 3 (answered 2026-10-21: D-M03-1…8, D-M06-1…8; D-M01-8, -9) | M03 + M06 | 16 | The outline's chain "space → leader → financials → moat"; both read 8a market share, peers and confirmed stages; Q03.8's tier and M06's verdict feed the vote map |
 | 4 | M10 | 8 | Distinct topic; feeds M11's policy trigger (Q11.6) and the hurdle inputs |
 | 5 | M11 | 8 (+ QP.2 design) | Needs every vote line; decides confluence, sizing and killswitches last (D31) |
 | 6 | M12 (after W9) | 8 | Brief only; built after the MVP; reads M09's and M10's answers; gates DESIGN Q5 |
