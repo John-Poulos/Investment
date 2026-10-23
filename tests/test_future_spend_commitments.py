@@ -66,7 +66,9 @@ def fact(engine, cik, tag, start, end, value, acc, form, filed):
     )
 
 
-def nvda(engine, corpus, *, q2=True, tag_at_10k=None):
+def nvda(
+    engine, corpus, *, q2=True, tag_at_10k=None, q2_fixture="nvda_10q_q2_fy2027_synthetic.txt"
+):
     """NVIDIA-shaped: cost of revenue FY2026 $62.48B, TTM at 2026-07-26 $76.73B (Q3 + Q4 of
     FY2026 + the first half of FY2027); PurchaseObligation tagged to 2025-07-27 ($45.77B)."""
     entity(engine, NVDA, "NVIDIA CORP", "0125", "NVDA")
@@ -112,7 +114,7 @@ def nvda(engine, corpus, *, q2=True, tag_at_10k=None):
            "nvda_10k_fy2026_note12_synthetic.txt")  # fmt: skip
     if q2:
         report(engine, corpus, NVDA, Q227, "10-Q", "2026-08-26", "2026-07-26",
-               "nvda_10q_q2_fy2027_synthetic.txt")  # fmt: skip
+               q2_fixture)  # fmt: skip
 
 
 def meta(engine, corpus, ticker="META"):
@@ -507,6 +509,140 @@ def test_money_tab_renders_the_commitment_block(tmp_path, monkeypatch):
     assert "Committed future spend" in html and "3.64 years" in html
     assert "leases not yet commenced" in html and "signed after the period" in html
     assert "object at 0x" not in html and "<built-in method" not in html
+
+
+# --- live check 1 (2026-10-23): fixes, each failing before -------------------------------------
+
+
+def _runon() -> str:
+    """No sentence boundary for > 1,200 characters: two trigger hits more than 600 apart
+    give overlapping clipped spans that both hold the amount, with different categories."""
+    return ("(In millions)\n\nInventory purchase obligations " + "word " * 90 + "came to $5 billion "
+            + "word " * 40 + "purchase commitments " + "word " * 200)  # fmt: skip
+
+
+def test_overlapping_spans_read_an_amount_once():
+    ts = cm.scan_text(_runon(), "2026-06-30")
+    starts = [f.amount_start for f in ts.findings]
+    assert len(starts) == len(set(starts)) == 1
+
+
+def test_store_skips_a_repeated_key_and_a_company_error_never_stops_the_others(dbs, monkeypatch):
+    engine, corpus = dbs
+    nvda(engine, corpus, q2=False)
+    cs = cm.scan_company(engine, corpus, NVDA, "2026-10-21")
+    f = cs.reports[0].findings[0]
+    cs.reports[0].findings.append(f)  # the same amount twice (live check 1: AMZN, INTC, META, RIVN)
+    tag, pts = next(iter(cs.xbrl.items()))
+    cs.xbrl[tag] = pts + [pts[-1]]
+    engine.execute("BEGIN")
+    n = cm.store(engine, cs, NOW)
+    engine.execute("COMMIT")
+    assert cs.duplicates == 2 and n == engine.execute(
+        "SELECT count(*) FROM future_commitment").fetchone()[0]  # fmt: skip
+    real = cm.scan_company
+    monkeypatch.setattr(cm, "scan_company", lambda e, c, cik, today: (
+        (_ for _ in ()).throw(RuntimeError("boom")) if cik == META else real(e, c, cik, today)))  # fmt: skip
+    meta(engine, corpus)
+    both = chf(("NVDA", None, "fabless"), ("META", None, "hyperscaler"))
+    cp = run(engine, corpus, {"NVDA": NVDA, "META": META}, both)
+    assert "META" in cp.errors and "NVDA" in cp.results
+
+
+def test_period_charges_and_provisions_are_not_commitments():
+    ts = cm.scan_text(read("nvda_10q_q2_fy2027_live1_synthetic.txt"), "2026-07-26")
+    got = [(f.category, f.amount / B, f.as_of) for f in ts.findings]
+    assert got == [("supply_capacity", 279.0, "2026-07-26"),
+                   ("customer_deposit", 2.8, "2026-07-26")]  # fmt: skip
+    by = {}
+    for a in ts.set_aside:
+        if a.raw:
+            by.setdefault(a.reason, []).append(a.raw)
+    assert by[cm.REASON_FLOW] == ["$0.4 billion", "$985 million", "$2.1 billion", "$177 million",
+                                  "$280 million", "$4.5 billion"]  # fmt: skip
+    assert by[cm.REASON_PERIOD] == ["$15.6 billion", "$7.5 billion"]
+    assert by[cm.REASON_FROM] == ["$119 billion"]
+    assert any(r.startswith("comparative as of 2026-01-25") and "paired" in r for r in by)
+    mrvl = ("During the six months ended August 1, 2026, the Company recognized a net "
+            "restructuring expense of $5.7 million relating to contractual obligation offset by "
+            "the changes in accrual estimates.")  # fmt: skip
+    ts = cm.scan_text(mrvl, "2026-08-01")
+    assert not ts.findings and [a.reason for a in ts.set_aside] == [cm.REASON_FLOW]
+    # a balance with "totaled" and a payment window stays a balance
+    ok = "As of June 27, 2026, purchase obligations totaled $57.0 billion for components."
+    assert [f.amount / B for f in cm.scan_text(ok, "2026-06-27").findings] == [57.0]
+
+
+def test_nvda_from_to_sentence_reads_279_over_76_73_short_history(dbs):
+    engine, corpus = dbs
+    nvda(engine, corpus, q2_fixture="nvda_10q_q2_fy2027_live1_synthetic.txt")
+    r = run(engine, corpus, {"NVDA": NVDA}, FAB).results["NVDA"]
+    c = r.cover
+    assert c.numerator_category == "supply_capacity" and c.point.amount == 279 * B
+    assert round(c.value, 2) == 3.64 and c.state == "short_history"
+    assert any("customer deposit wording $2.80B" in x for x in c.deposits)
+
+
+def test_one_point_per_date_takes_the_largest_amount_of_the_newest_filing():
+    def row(amount, filed, cat="supply_capacity"):
+        return {"after_period": 0, "source": "text", "category": cat, "tag": None,
+                "as_of": "2026-07-26", "amount": amount, "accession": filed, "filed": filed,
+                "cancellable": 0, "quote": "q", "form": "10-Q"}  # fmt: skip
+
+    pts = cm.series_points([row(119 * B, "2026-08-26"), row(279 * B, "2026-08-26"),
+                            row(300 * B, "2026-08-01")], "text:supply_capacity")  # fmt: skip
+    assert pts["2026-07-26"].amount == 279 * B  # newest filing, then the largest
+
+
+def test_several_dates_pair_with_amounts_in_order():
+    text = "(In millions)\n\n"
+    q = "At June 30, 2026, and December 31, 2025, total purchase obligations were $1,130 and $1,267."
+    ts = cm.scan_text(text + q, "2026-06-30")
+    assert [(f.amount, f.as_of) for f in ts.findings] == [(1130e6, "2026-06-30")]
+    assert ts.set_aside[0].raw == "$1,267" and "paired" in ts.set_aside[0].reason
+    q = "At December 31, 2025 and 2024, total purchase obligations were $1,267 and $1,393."
+    ts = cm.scan_text(text + q, "2025-12-31")
+    assert [(f.amount, f.as_of) for f in ts.findings] == [(1267e6, "2025-12-31")]
+    assert ts.set_aside[0].reason.startswith("comparative as of 2024-12-31")
+    assert cm.listed_dates("At December 31, 2025 and 2024, x") == [
+        (3, date(2025, 12, 31)), (25, date(2024, 12, 31))]  # fmt: skip
+
+
+def test_trade_in_and_repurchase_commitments_set_aside_leases_always_leases():
+    text = "(In millions)\n\n"
+    q = ("At June 30, 2026, and December 31, 2025, total contractual trade-in commitments were "
+         "$1,130 and $1,267. As of June 30, 2026, contingent repurchase commitments were $163.")  # fmt: skip
+    ts = cm.scan_text(text + q, "2026-06-30")
+    assert not ts.findings
+    assert {a.reason for a in ts.set_aside} == {cm.REASON_NOT_PURCHASE}
+    q = ("As of December 31, 2023, we have entered into leases that have not yet commenced of "
+         "$430, primarily for a maintenance, repair and overhaul hangar that will support "
+         "military aircraft programs.")  # fmt: skip
+    ts = cm.scan_text(text + q, "2023-12-31")
+    assert [(f.category, f.amount) for f in ts.findings] == [("lease_not_commenced", 430e6)]
+    q = (
+        "As of March 31, 2025, we had additional operating and finance leases, primarily for "
+        "datacenters, that had not yet commenced of $4.4 billion and $94.8 billion, respectively."
+    )
+    ts = cm.scan_text(q, "2025-03-31")
+    assert [f.category for f in ts.findings] == ["lease_not_commenced"] * 2
+
+
+def test_log_is_short_by_default_and_verbose_prints_everything(dbs):
+    engine, corpus = dbs
+    nvda(engine, corpus, q2_fixture="nvda_10q_q2_fy2027_live1_synthetic.txt")
+    filing(engine, NVDA, "old1", "10-Q", "2025-05-28", "2025-04-27")
+    filing(engine, NVDA, "old2", "10-Q", "2024-05-28", "2024-04-28")
+    r = run(engine, corpus, {"NVDA": NVDA}, FAB).results["NVDA"]
+    short = commit_step.detail_lines(r)
+    full = commit_step.detail_lines(r, verbose=True)
+    assert "    2 older filing(s) with no stored main document" in short
+    assert not any("old1" in x for x in short) and any("old1" in x for x in full)
+    head = next(x for x in short if "0001045810-26-000070" in x)
+    assert "2 taken, " in head and f"{cm.REASON_FLOW} 6" in head
+    assert not any(x.startswith("      set aside (no dollar amount") for x in short)
+    assert any(x.startswith("      set aside (no dollar amount") for x in full)
+    assert len(short) < len(full)
 
 
 @pytest.mark.parametrize("fixture", sorted(p.name for p in CM.glob("*.txt")))

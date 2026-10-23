@@ -292,10 +292,14 @@ def run_commitments(
     if chf.error:
         log(f"channel file rejected, every company read as unset: {chf.error}")
     cp = commit_step.commitments_pass(engine, corpus, comps, now, chf=chf)
-    log("Per name (cover line, then tags found, sentences taken and set aside with reasons):")
+    log(
+        "Per name (cover line, tags found, per filing the counts by reason, every sentence taken, "
+        "set-aside sentences with a dollar amount; --verbose prints all):"
+    )
     for t in sorted(cp.results):
         r = cp.results[t]
-        log("  " + commit_step.line(r), *commit_step.detail_lines(r))
+        verbose = bool(getattr(args, "verbose", False))
+        log("  " + commit_step.line(r), *commit_step.detail_lines(r, verbose=verbose))
     for t, e in sorted(cp.errors.items()):
         log(f"  {t}: error — {e}")
     log("", "Brief's figures (compare with the lines above):")
@@ -406,6 +410,11 @@ def _main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--tickers", help="comma-separated subset")
     ap.add_argument("--list", action="store_true", help="print the subcommand table")
+    ap.add_argument(
+        "--verbose",
+        action="store_true",
+        help="commitments: print every set-aside sentence and every filing",
+    )
     args = ap.parse_args(argv)
     args.companies = None
     args.out_dir = None

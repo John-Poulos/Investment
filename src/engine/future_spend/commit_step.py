@@ -13,6 +13,7 @@ lead); every other channel and "channel unset" → info in every timeframe.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import time
 from collections.abc import Callable
@@ -168,8 +169,16 @@ def line(r: CommitResult) -> str:
     return head + f"{o.text} {o.value:.2f} years{extra} · {weight}"
 
 
-def detail_lines(r: CommitResult, quote_chars: int = 240) -> list[str]:
-    """Tags found, sentences taken and set aside with reasons (the live-check log)."""
+def reason_key(reason: str) -> str:
+    """A set-aside reason without its dates or detail (the per-filing count line)."""
+    return re.sub(r" as of \d{4}-\d{2}-\d{2}|;.*$", "", reason).split(" (")[0]
+
+
+def detail_lines(r: CommitResult, quote_chars: int = 240, *, verbose: bool = False) -> list[str]:
+    """Tags found, then per stored 10-K / 10-Q one count line (taken, set aside by reason),
+    every sentence taken and the set-aside sentences that carry a dollar amount; filings
+    with no stored main document collapse into one count (LESSONS: short live logs).
+    `verbose` prints every set-aside sentence and every filing, as before."""
     out = []
     s = r.scan
     if s is None:
@@ -183,15 +192,24 @@ def detail_lines(r: CommitResult, quote_chars: int = 240) -> list[str]:
         out.append("    tags: none of the purchase-obligation tags stored")
     if not s.reports:
         out.append("    reports: no stored 10-K / 10-Q in the filing index")
+    no_text = 0
     for rs in s.reports:
         rep = rs.report
         head = f"    {rep.form} {rep.accession} (period {rep.period_end or '?'}, filed {rep.filed})"
         if rs.no_text:
-            out.append(head + ": no stored main document")
+            no_text += 1
+            if verbose:
+                out.append(head + ": no stored main document")
             continue
+        by: dict[str, int] = {}
+        for a in rs.set_aside:
+            k = reason_key(a.reason)
+            by[k] = by.get(k, 0) + 1
+        why = "; ".join(f"{k} {v}" for k, v in sorted(by.items(), key=lambda kv: (-kv[1], kv[0])))
         out.append(
             head
             + f": {len(rs.findings)} taken, {len(rs.set_aside)} set aside"
+            + (f" ({why})" if why else "")
             + (f", {rs.unverified} unverified (not stored)" if rs.unverified else "")
         )
         for f in rs.findings:
@@ -205,8 +223,14 @@ def detail_lines(r: CommitResult, quote_chars: int = 240) -> list[str]:
                 + f": “{q}”"
             )
         for a in rs.set_aside:
+            if not (verbose or a.raw):
+                continue
             q = a.quote[:160] + ("…" if len(a.quote) > 160 else "")
             out.append(f"      set aside ({a.reason}{'; ' + a.raw if a.raw else ''}): “{q}”")
+    if no_text and not verbose:
+        out.append(f"    {no_text} older filing(s) with no stored main document")
+    if s.duplicates:
+        out.append(f"    {s.duplicates} repeated row key(s) skipped at store")
     c = r.cover
     if c is not None:
         for x in c.leases + c.after_period + c.deposits + c.stale + c.marks:

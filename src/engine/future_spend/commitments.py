@@ -17,7 +17,11 @@ Reads stored facts and stored corpus text only (0 requests).
   never sets it) and the after-period flag (signed after the period). Amounts set aside, with
   the reason: no dollar amount, table rows (schedules are deferred, S2.3), hypothetical or
   forward-looking wording before the amount, a change rather than a balance, a schedule
-  line, an earlier date (a comparative), a repeat. Quotes are cut from the stored text by
+  line, an earlier date (a comparative), a repeat; since live check 1 (D-M05-25) also a period
+  charge / provision / flow, the earlier amount of "from $X … to $Y", a trade-in or
+  contingent repurchase commitment, a prepaid balance. Several dates with as many amounts are
+  paired in order; a sentence about leases not yet commenced is always that line; an amount
+  is read once even when two clipped spans overlap. Quotes are cut from the stored text by
   offset and verified against the stored passage (D21); an unverified quote is never stored.
 - **`commitment_cover` (rule 6, D-M05-3):** numerator = the stated supply-and-capacity total
   (fabless, outsourced) or the PP&E total (every other channel); other categories are shown
@@ -49,7 +53,7 @@ from engine.sec.asof import facts_as_of
 from engine.sec.identity import normalize_cik
 from engine.sec.xbrl_facts import get_series
 
-FINDER_VERSION = "commit-1"
+FINDER_VERSION = "commit-2"  # live check 1 fixes (D-M05-25)
 STATE_KEY = "m05_commit:{cik}"
 LABEL = "hypothesis, not backtested"
 COVER_STEP = 0.10  # † ±10% YoY sets RISING / FALLING (as bookings_cover)
@@ -126,6 +130,38 @@ _SCHEDULE = re.compile(
     r"\bin (?:fiscal )?20\d\d\b",
     re.I,
 )
+# Period flows (P&L charges, provisions, expenses, amounts "for the quarter"), not balances
+# (live check 1: NVDA's provisions and charges, MRVL's restructuring expense).
+_FLOW_WORDS = re.compile(
+    r"\b(?:charges?|provisions? (?:for|release)|provision releases?|(?<!prepaid )expenses?|"
+    r"expensed|restructuring|gains?|impairments?|write-?(?:offs?|downs?)|incurred|"
+    r"non-recurrence)\b",
+    re.I,
+)
+_FLOW_PERIOD = re.compile(
+    r"\b(?:for|during) (?:the )?(?:(?:first|second|third|fourth) (?:quarter|half)|"
+    r"fiscal (?:years?|quarters?) (?:20\d\d|ended))\b|"
+    r"\b(?:three|six|nine|twelve)(?: and (?:three|six|nine|twelve))? months ended\b|"
+    r"\b(?:fiscal )?years? ended\b|\bquarters? ended\b",
+    re.I,
+)
+_NOT_PURCHASE = re.compile(r"\btrade-?in commitments?\b|\brepurchase commitments?\b", re.I)
+_PREPAID = re.compile(r"\bprepaid\b", re.I)
+_LEASE_NOT_COMMENCED = re.compile(
+    r"\bleases?\b.*\b(?:not yet commenced|have not commenced|had not commenced|yet to commence)",
+    re.I | re.S,
+)
+_LIST_GAP = re.compile(r"^\s*(?:,\s*)?(?:and\s+)?$", re.I)
+_FROM_BEFORE = re.compile(r"\bfrom\s*$", re.I)
+_TO_GAP = re.compile(r"^[^$.;]{0,40}\bto\s*$", re.I)
+_YEAR_LIST = re.compile(r",?\s*and\s+(\d{4})\b")  # used with .match(sent, pos)
+_RESPECTIVELY = re.compile(r"\brespectively\b", re.I)
+REASON_FLOW = "a period charge/provision, not an outstanding commitment"
+REASON_PERIOD = "an amount for a period (a flow), not an outstanding commitment"
+REASON_FROM = "earlier amount in a from–to sentence"
+REASON_NOT_PURCHASE = ("not a purchase obligation (aircraft trade-in or contingent repurchase "
+                       "commitment)")  # fmt: skip
+REASON_PREPAID = "a prepayment (an asset), not an outstanding commitment"
 _FOR_LEAD = re.compile(
     r"^\s*(?:,\s*)?(?:of|for|in|related to|relating to|to purchase|to acquire|"
     r"primarily (?:for|related to))\b",
@@ -163,6 +199,21 @@ def _as_date(m: re.Match) -> date | None:
         return date(y, mo, int(m.group(2))) if m.group(2) else _month_end(y, mo)
     except ValueError, IndexError:
         return None
+
+
+def listed_dates(sent: str) -> list[tuple[int, date]]:
+    """Every stated date in order, with "December 31, 2025 and 2024" read as two dates
+    (offset in `sent`, date)."""
+    out: list[tuple[int, date]] = []
+    for m in _DATE.finditer(sent):
+        d = _as_date(m)
+        if d is None:
+            continue
+        out.append((m.start(), d))
+        y = _YEAR_LIST.match(sent, m.end())
+        if y and not (d.month == 2 and d.day == 29):
+            out.append((y.start(1), d.replace(year=int(y.group(1)))))
+    return out
 
 
 def _m(x: float | None) -> str:
@@ -246,6 +297,7 @@ def scan_text(text: str, period_end: str | None) -> TextScan:
     pe = date.fromisoformat(period_end) if period_end else None
     seen: set[tuple[int, int]] = set()
     dup: set[tuple[str, float, str, bool]] = set()
+    read: set[int] = set()  # amount offsets already read: overlapping spans read each once
     hits = sorted([m.start() for m in TRIGGER.finditer(text)]
                   + [m.start() for m in DEPOSIT.finditer(text)])  # fmt: skip
     for pos in hits:
@@ -254,11 +306,24 @@ def scan_text(text: str, period_end: str | None) -> TextScan:
             continue
         seen.add((s, e))
         out.sentences += 1
-        _sentence(text, s, e, scale, pe, out, dup)
+        _sentence(text, s, e, scale, pe, out, dup, read)
     return out
 
 
-def _sentence(text, s, e, scale, pe: date | None, out: TextScan, dup) -> None:
+def _category(text: str, sent: str, s: int, amounts: list, i: int) -> str | None:
+    """The category tied to amount `i`: the words after "of / for …", else the clause before."""
+    n = amounts[i]
+    lo = amounts[i - 1].end if i else s
+    hi = amounts[i + 1].start if i + 1 < len(amounts) else s + len(sent)
+    before, after = text[lo : n.start], text[n.end : hi]
+    cat = classify(after) if _FOR_LEAD.search(after) else None
+    if cat is None:
+        tail = re.split(r",\s+(?:and\s+)?|;\s+", before)[-1] if i else before
+        cat = classify(tail) or classify(before)
+    return cat
+
+
+def _sentence(text, s, e, scale, pe: date | None, out: TextScan, dup, read=None) -> None:
     sent = text[s:e]
     quote = clean(sent)
     short = quote[:220] + ("…" if len(quote) > 220 else "")
@@ -269,6 +334,12 @@ def _sentence(text, s, e, scale, pe: date | None, out: TextScan, dup) -> None:
         out.set_aside.append(SetAside(s, "span too long to be one sentence", short))
         return
     amounts = [n for n in numbers(text, s, e, scale) if "$" in n.raw]
+    if read is not None:
+        fresh = [n for n in amounts if n.start not in read]
+        if amounts and not fresh:
+            return  # every amount already read in an overlapping span
+        amounts = fresh
+        read.update(n.start for n in amounts)
     if not amounts:
         out.set_aside.append(SetAside(s, "no dollar amount", short))
         return
@@ -291,6 +362,34 @@ def _sentence(text, s, e, scale, pe: date | None, out: TextScan, dup) -> None:
                 break
     cancel_where = cancellable(text, s, e)
     noncancel = bool(re.search(r"\bnon-?cancell?able\b", sent, re.I))
+    # categories first: a list ("$2.8 billion and $160 million of customer advances") takes
+    # the category of its last member; "from $X … to $Y": Y takes X's (live check 1)
+    cats = [_category(text, sent, s, amounts, i) for i in range(len(amounts))]
+    gaps = [text[amounts[i].end : amounts[i + 1].start] for i in range(len(amounts) - 1)]
+    for i in range(len(amounts) - 2, -1, -1):
+        if cats[i] is None and _LIST_GAP.match(gaps[i]):
+            cats[i] = cats[i + 1]
+    from_to = {
+        i
+        for i in range(len(amounts) - 1)
+        if _FROM_BEFORE.search(text[amounts[i - 1].end if i else s : amounts[i].start])
+        and _TO_GAP.match(gaps[i])
+    }
+    for i in sorted(from_to):
+        cats[i + 1] = cats[i + 1] or cats[i]
+    lease = bool(_LEASE_NOT_COMMENCED.search(sent))
+    # several dates and as many amounts ("At June 30, 2026, and December 31, 2025, … were
+    # $1,130 and $1,267"; "…, respectively"): paired in order
+    dates = listed_dates(sent)
+    paired: list[date] | None = None
+    if (
+        len(amounts) >= 2
+        and len(dates) == len(amounts)
+        and (_RESPECTIVELY.search(sent) or dates[-1][0] < amounts[0].start - s)
+    ):
+        paired = [d for _, d in dates]
+    flow = _FLOW_WORDS.search(sent)
+    period = _FLOW_PERIOD.search(sent)
     for i, n in enumerate(amounts):
         lo = amounts[i - 1].end if i else s
         hi = amounts[i + 1].start if i + 1 < len(amounts) else e
@@ -302,12 +401,20 @@ def _sentence(text, s, e, scale, pe: date | None, out: TextScan, dup) -> None:
             out.set_aside.append(SetAside(s, "a schedule line (parsed schedules deferred, S2.3)",
                                           short, n.raw))  # fmt: skip
             continue
-        cat = None
-        if _FOR_LEAD.search(after):
-            cat = classify(after)
-        if cat is None:
-            tail = re.split(r",\s+(?:and\s+)?|;\s+", before)[-1] if i else before
-            cat = classify(tail) or classify(before)
+        if flow or period:
+            out.set_aside.append(SetAside(s, REASON_FLOW if flow else REASON_PERIOD, short,
+                                          n.raw))  # fmt: skip
+            continue
+        if _NOT_PURCHASE.search(sent):
+            out.set_aside.append(SetAside(s, REASON_NOT_PURCHASE, short, n.raw))
+            continue
+        if _PREPAID.search(sent) and not DEPOSIT.search(sent):
+            out.set_aside.append(SetAside(s, REASON_PREPAID, short, n.raw))
+            continue
+        if i in from_to:
+            out.set_aside.append(SetAside(s, REASON_FROM, short, n.raw))
+            continue
+        cat = "lease_not_commenced" if lease else cats[i]
         if cat is None and TRIGGER.search(sent):
             cat = "purchase_total"
         if cat is None:
@@ -315,12 +422,14 @@ def _sentence(text, s, e, scale, pe: date | None, out: TextScan, dup) -> None:
                                           n.raw))  # fmt: skip
             continue
         own = _AS_OF_DATE.search(before) or _AS_OF_DATE.search(after)
-        d = _as_date(own) if own else sdate
+        d = paired[i] if paired else (_as_date(own) if own else sdate)
         after_period = after_words or event is not None
         stated = event.isoformat() if event is not None else None
         if pe is not None and d is not None and not after_period:
             if (pe - d).days > COMPARATIVE_DAYS:
                 why = f"comparative as of {d.isoformat()} (an earlier period, not this report's)"
+                if paired:
+                    why += "; dates paired with amounts in order"
                 out.set_aside.append(SetAside(s, why, short, n.raw))
                 continue
             if (d - pe).days > 5:
@@ -407,6 +516,7 @@ class CompanyScan:
     reports: list[ReportScan] = field(default_factory=list)
     xbrl: dict[str, list] = field(default_factory=dict)  # tag → AsOfPoints
     rows_written: int = 0
+    duplicates: int = 0  # repeated keys skipped at store
 
     @property
     def newest_period(self) -> str | None:
@@ -446,7 +556,12 @@ def scan_company(
     for concept, tag in XBRL_CONCEPTS:
         pts = facts_as_of(engine, norm, concept, today, ptype="I").points
         if pts:
-            cs.xbrl[tag] = list(pts)
+            by_end: dict = {}
+            for p in pts:  # one point per instant (two fact rows can share an end)
+                cur = by_end.get(p.end)
+                if cur is None or (p.filed or "") >= (cur.filed or ""):
+                    by_end[p.end] = p
+            cs.xbrl[tag] = [by_end[k] for k in sorted(by_end)]
     return cs
 
 
@@ -458,8 +573,13 @@ def store(engine: sqlite3.Connection, cs: CompanyScan, now: datetime) -> int:
     engine.execute("DELETE FROM future_commitment WHERE cik = ?", (cs.cik,))
     text_rows = [(rs, f) for rs in cs.reports for f in rs.findings]
     n = 0
+    keys: set[str] = set()  # a key is written once: a repeat never fails the pass
     for rs, f in text_rows:
         key = f"text:{rs.report.accession}/{rs.filename}@{f.amount_start}"
+        if key in keys:
+            cs.duplicates += 1
+            continue
+        keys.add(key)
         engine.execute(
             "INSERT INTO future_commitment (key, cik, as_of, stated_date, category, amount, "
             "source, quote, accession, filename, form, filed, start_offset, end_offset, "
@@ -475,6 +595,10 @@ def store(engine: sqlite3.Connection, cs: CompanyScan, now: datetime) -> int:
     for tag, pts in cs.xbrl.items():
         for p in pts:
             key = f"xbrl:{tag}@{p.end}"
+            if key in keys:
+                cs.duplicates += 1
+                continue
+            keys.add(key)
             label = tag_label(p.end, float(p.value), [f for _, f in text_rows])
             engine.execute(
                 "INSERT INTO future_commitment (key, cik, as_of, category, amount, source, tag, "
