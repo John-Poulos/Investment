@@ -594,7 +594,9 @@ def store(engine: sqlite3.Connection, cs: CompanyScan, now: datetime) -> int:
         n += 1
     for tag, pts in cs.xbrl.items():
         for p in pts:
-            key = f"xbrl:{tag}@{p.end}"
+            # the company is part of the key (live check 2: AMZN, INTC, META, RIVN collided
+            # with an earlier company's tag on the same date; the key column is UNIQUE)
+            key = f"xbrl:{cs.cik}:{tag}@{p.end}"
             if key in keys:
                 cs.duplicates += 1
                 continue

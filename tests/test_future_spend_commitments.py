@@ -307,6 +307,24 @@ def test_nvda_10q_cover_3_64_tag_stopped_and_text_used(dbs):
     assert "3.64 years" in commit_step.line(r) and "✓ MY/PT" in commit_step.line(r)
 
 
+def test_two_companies_with_the_same_tag_and_date_never_collide(dbs):
+    # live check 2: AMZN, INTC, META, RIVN failed on UNIQUE future_commitment.key because the
+    # XBRL key had no company in it and an earlier company stored the same tag on the same date
+    engine, corpus = dbs
+    nvda(engine, corpus)
+    twin = "0009000013"
+    entity(engine, twin, "Twin Co", "0126", "TWIN")
+    fact(engine, twin, "PurchaseObligation", None, "2025-07-27", 1.0 * B,
+         "0009000013-25-000001", "10-Q", "2025-08-27")  # fmt: skip
+    cp = run(engine, corpus, {"NVDA": NVDA, "TWIN": twin},
+             chf(("NVDA", None, "fabless"), ("TWIN", None, "fabless")))  # fmt: skip
+    assert cp.errors == {}
+    for cik in (NVDA, twin):
+        n = engine.execute("SELECT count(*) FROM future_commitment WHERE cik = ? AND source = "
+                           "'xbrl' AND as_of = '2025-07-27'", (cik,)).fetchone()[0]  # fmt: skip
+        assert n == 1, cik
+
+
 def test_xbrl_and_text_more_than_5pct_apart_are_both_shown_with_a_mark(dbs):
     engine, corpus = dbs
     nvda(engine, corpus, q2=False, tag_at_10k=90.0 * B)
