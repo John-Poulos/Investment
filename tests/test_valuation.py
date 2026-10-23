@@ -905,7 +905,10 @@ def test_pass_writes_one_row_set_per_completed_week_and_a_rerun_updates_it(dbs):
     vp = step.valuation_pass(engine, {"PASS": a, "SPY": ""}, NOW, mf=NO_MODELS)
     assert vp.week == "2026-10-09" and not vp.errors
     got = rows_of(engine, a)
-    assert {r["signal"] for r in got} == {*STANDARD_KEYS, "valuation_multiple", "valuation_pctile"}
+    assert {r["signal"] for r in got} == {
+        *STANDARD_KEYS, "val_pe_fwd", "peg", "est_revision", "valuation_multiple",
+        "valuation_pctile",
+    }  # fmt: skip
     assert {r["as_of"] for r in got} == {"2026-10-09"} and all(r["cik"] == a for r in got)
     vm = rows_of(engine, a, "valuation_multiple")[0]
     assert vm["value"] == pytest.approx(r_pe := vm["value"]) and r_pe > 0
@@ -972,8 +975,9 @@ def test_script_value_on_an_injected_db(dbs, tmp_path, capsys):
 def test_script_list_and_unbuilt_subcommand(capsys):
     rv = load_script("run_valuation")
     assert rv._main(["--list"]) == 0
-    assert "estimates" in capsys.readouterr().out
-    assert rv._main(["estimates"]) == 2
+    out = capsys.readouterr().out
+    assert "estimates" in out and "not built" not in out  # every subcommand built (Part 2)
+    assert rv._main([]) == 2  # no subcommand: the table, exit 2 (never a real run, LESSONS)
 
 
 # --- the Valuation tab and the Overview line (D-UI-36) ---

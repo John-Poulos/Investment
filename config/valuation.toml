@@ -24,6 +24,20 @@ min_years = 3              # fewer fiscal years in the window → missing
 [value_trap]
 pctile = 20.0              # † headline own percentile at or below → "value-trap risk" with a gate fail or CvD damage (rule 9, D-M08-11)
 
+[peg]
+# R6 PEG (D-M08-4, -5; Part 2)
+growth_cap_pct = 50.0      # † scored only when 0 < g ≤ 50%; above it growth_above_cap, the uncapped PEG shown
+
+[estimates]
+# Alpha Vantage EARNINGS_ESTIMATES (D-M08-6; Part 2, D-M08-14…17)
+flat_band_pct = 0.5        # † |FY1 30-day revision| below this reads flat (labelled starting value, D-M08-15)
+min_abs_eps = 0.10         # |average| below $0.10 (now or N days ago) → revision not_meaningful (rule 7)
+min_count_dispersion = 3   # fewer analysts → no dispersion (rule 7)
+walk_down_days = 30        # † days before the next report: "walk-down window" (S-new-M08-16)
+snapshot_max_age_days = 28 # a snapshot older than this at the row's date → missing (D-M08-14)
+snapshot_every_days = 7    # one snapshot per company a week (D-M08-6)
+no_coverage_retry_days = 28 # a no-coverage reply is asked again after 4 weeks
+
 # Owner overrides, one [[company]] per name (cik or ticker; reason required):
 #   headline = "val_pb"        # one of the val_* rows, or "mnav"
 #   cyclical = true / false    # wins over the computed flag (rule 5)

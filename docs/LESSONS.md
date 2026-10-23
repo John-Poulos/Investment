@@ -88,6 +88,7 @@ Updated: 2026-10-13 · Read at the start of every module build. One line each, w
 - Static assets are cache-busted: templates link them through `static('…')` (`/static/<file>?v=<content hash>`, computed at app start) and `/static` sends `Cache-Control: no-cache`; a bare `/static/…` link let the browser reuse an old chart.js after a code change (M09 Part 2 live check 1, D-UI-35).
 
 ## Process
+- Tools run from the main checkout walk into `.claude/worktrees/` unless told not to: a `ruff format .` reformatted a parallel build agent's files (W5). `pyproject.toml` excludes `.claude` from ruff; keep worktree-blind defaults for any repo-wide command.
 - A store of code-found passages needs a re-read path from day one: rules change after every live log; keep first-seen dates and never delete an answer key (D-M02-37, D-M02-40).
 - Company names in filing text: competitor lists, share sales and product names look like relationships; filter them and let the owner confirm each link (D-M02-37…40).
 - Mock up each screen with real stored data before building it (D-UI-4).

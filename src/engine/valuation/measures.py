@@ -54,6 +54,12 @@ LABELS = {s: label for s, label, _ in STANDARD} | {"mnav": "mNAV (market cap ÷ 
 UNITS = {s: u for s, _, u in STANDARD} | {"mnav": "x"}
 EV_ROWS = frozenset({"val_ev_ebitda", "val_ev_ebit", "val_ev_sales", "val_ev_gp", "val_ev_nebit"})
 HEADLINE_KEYS = (*STANDARD_KEYS, "mnav")
+# Part 2: the forward P/E standard row (D32), computed from the estimate snapshot in the step
+# (no quarter-end history: forward EPS exists only in the engine's own snapshots)
+FWD = "val_pe_fwd"
+LABELS[FWD] = "Forward P/E (vendor basis)"
+UNITS[FWD] = "x"
+ROW_KEYS = (STANDARD_KEYS[0], FWD, *STANDARD_KEYS[1:])  # every standard row, display order
 NM = "not_meaningful"
 FAIR_VALUE = "fair_value_earnings"
 
@@ -306,7 +312,7 @@ def snapshot(
     if dil:
         e = max(dil)
         p = dil[e]
-        f, seen = k.factor(e, close.day)
+        f, seen = k.factor(p.filed, close.day)  # basis of the stating filing (see peg.eps)
         shares = float(p.value) * f
         shares_lab = f"{p.ptype} to {e}" + (f", ×{f:g} split" if seen else "")
         dil_src = _src(p, "diluted shares")
