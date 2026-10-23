@@ -23,6 +23,7 @@ Every file starts with "SYNTHETIC FIXTURE (M05 Part 2" (a test checks it). Wordi
 | nvda_10k_fy2026_note12_synthetic.txt | NVIDIA FY2026 10-K Note 12: supply and capacity $95.2B (cancelable / rescheduled / adjustable wording in the next sentence), cloud $27.0B, investments $11.4B, other $3.4B (brief, D-M05-3) | wording; the $60.1B schedule line and the table row (set-aside cases) |
 | nvda_10q_q2_fy2027_synthetic.txt | NVIDIA Q2 FY2027 10-Q: $279B, $92B rest of FY2027, $87B FY2028 (brief) | wording; the comparative, the "increased by" and the "could" sentences (set-aside cases) |
 | meta_10q_q2_2026_synthetic.txt | Meta Q2 2026: $349.31B contractual commitments, July 2026 leases about $68B (brief cases 12–13) | wording; the $41.2B lease amount |
+| meta_10q_q3_2026_total_only_synthetic.txt | Meta Q3 2026 10-Q (owner's live check 2 log, 2026-10-23): $454.52B non-cancelable contractual commitments, scope not split; $1.53B unused letters of credit (set aside) | wording trimmed to the two sentences |
 | mu_10k_fy2026_deposits_synthetic.txt | Micron FY2026: $12.75B customer prepayments (failure modes) | wording; the $9.1B PP&E commitment |
 | airline_10k_fy2024/2025_synthetic.txt | D32: invented airline, aircraft commitments $12.0B / $14.6B, fuel $1.2B | **all figures synthetic** (CIK 0009000011) |
 | retailer_10k_fy2025_synthetic.txt | D32: invented outsourced apparel retailer, merchandise obligations $3.5B, cancellable | **all figures synthetic** (CIK 0009000012) |

@@ -145,7 +145,9 @@ _FLOW_PERIOD = re.compile(
     r"\b(?:fiscal )?years? ended\b|\bquarters? ended\b",
     re.I,
 )
-_NOT_PURCHASE = re.compile(r"\btrade-?in commitments?\b|\brepurchase commitments?\b", re.I)
+_NOT_PURCHASE = re.compile(
+    r"\btrade-?in commitments?\b|\brepurchase commitments?\b|\bletters? of credit\b", re.I
+)
 _PREPAID = re.compile(r"\bprepaid\b", re.I)
 _LEASE_NOT_COMMENCED = re.compile(
     r"\bleases?\b.*\b(?:not yet commenced|have not commenced|had not commenced|yet to commence)",
@@ -159,8 +161,8 @@ _RESPECTIVELY = re.compile(r"\brespectively\b", re.I)
 REASON_FLOW = "a period charge/provision, not an outstanding commitment"
 REASON_PERIOD = "an amount for a period (a flow), not an outstanding commitment"
 REASON_FROM = "earlier amount in a from–to sentence"
-REASON_NOT_PURCHASE = ("not a purchase obligation (aircraft trade-in or contingent repurchase "
-                       "commitment)")  # fmt: skip
+REASON_NOT_PURCHASE = ("not a purchase obligation (aircraft trade-in, contingent repurchase "
+                       "commitment or letter of credit)")  # fmt: skip
 REASON_PREPAID = "a prepayment (an asset), not an outstanding commitment"
 _FOR_LEAD = re.compile(
     r"^\s*(?:,\s*)?(?:of|for|in|related to|relating to|to purchase|to acquire|"
@@ -803,8 +805,11 @@ def cover(
     c = Cover(norm, cat)
     rows = _rows(engine, norm)
     newest = newest_period or max((r["as_of"] for r in rows), default=None)
+    # owner, live check 2 (D-M05-26, amends D-M05-20): without a stated PP&E total, a
+    # non-fabless channel falls back to the stated total of non-cancelable commitments
+    # ("scope not split", labelled); PP&E wins at the same date (series order breaks ties)
     order = [f"text:{cat}"] + (
-        ["text:purchase_total", f"xbrl:{XBRL_NUMERATOR_TAG}"] if lead else []
+        ["text:purchase_total", f"xbrl:{XBRL_NUMERATOR_TAG}"] if lead else ["text:purchase_total"]
     )
     cands = {s: series_points(rows, s) for s in order}
     best: tuple[str, str] | None = None  # (as_of, series) newest first, priority on ties
@@ -826,6 +831,10 @@ def cover(
         c.missing = f"last stated {end} ({label}), before the newest report ({newest})"
         return c
     c.point = cands[s][end]
+    if not lead and s == "text:purchase_total":
+        c.marks.append("numerator: the stated total of non-cancelable commitments, scope not "
+                       "split (may include cloud capacity and other categories; no PP&E total "
+                       "stated; D-M05-26)")  # fmt: skip
     c.denom = denominator(engine, norm, lead, end)
     if c.denom is None:
         c.missing = f"no {'TTM cost of revenue' if lead else 'TTM capex'} at {end}"

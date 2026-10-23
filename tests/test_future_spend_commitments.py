@@ -117,7 +117,7 @@ def nvda(
                q2_fixture)  # fmt: skip
 
 
-def meta(engine, corpus, ticker="META"):
+def meta(engine, corpus, ticker="META", q3_total_only=False):
     entity(engine, META, "Meta Platforms, Inc.", "1231", ticker)
     capex = "PaymentsToAcquirePropertyPlantAndEquipment"
     for start, end, v, acc, form, filed in (
@@ -134,6 +134,12 @@ def meta(engine, corpus, ticker="META"):
     rebuild_series(engine, META)
     report(engine, corpus, META, "mq2", "10-Q", "2026-07-30", "2026-06-30",
            "meta_10q_q2_2026_synthetic.txt")  # fmt: skip
+    if q3_total_only:  # live check 2: the newest report states a total, no PP&E figure
+        fact(engine, META, capex, "2026-01-01", "2026-09-30", 84.0 * B, "mq3", "10-Q",
+             "2026-10-22")  # fmt: skip
+        rebuild_series(engine, META)
+        report(engine, corpus, META, "mq3", "10-Q", "2026-10-22", "2026-09-30",
+               "meta_10q_q3_2026_total_only_synthetic.txt")  # fmt: skip
 
 
 def airline(engine, corpus):
@@ -323,6 +329,26 @@ def test_two_companies_with_the_same_tag_and_date_never_collide(dbs):
         n = engine.execute("SELECT count(*) FROM future_commitment WHERE cik = ? AND source = "
                            "'xbrl' AND as_of = '2025-07-27'", (cik,)).fetchone()[0]  # fmt: skip
         assert n == 1, cik
+
+
+def test_letters_of_credit_are_not_commitments():
+    t = (
+        "As of September 30, 2026, we had $1.53 billion of unused letters of credit outstanding, "
+        "the majority of which was related to our long-term infrastructure purchase commitments."
+    )
+    ts = cm.scan_text(t, "2026-09-30")
+    assert ts.findings == [] and "letter of credit" in ts.set_aside[0].reason
+
+
+def test_hyperscaler_without_a_ppe_total_falls_back_to_the_stated_total(dbs):
+    # owner, live check 2 (D-M05-26): META read stale from 2016 because only PP&E counted
+    engine, corpus = dbs
+    meta(engine, corpus, q3_total_only=True)
+    hyper = chf(("META", None, "hyperscaler"))
+    c = run(engine, corpus, {"META": META}, hyper).results["META"].cover
+    assert c.point.as_of == "2026-09-30" and c.point.amount == 454.52 * B
+    assert c.point.series == "text:purchase_total" and c.numerator_category == "purchase_total"
+    assert any("scope not split" in m and "D-M05-26" in m for m in c.marks)
 
 
 def test_xbrl_and_text_more_than_5pct_apart_are_both_shown_with_a_mark(dbs):
