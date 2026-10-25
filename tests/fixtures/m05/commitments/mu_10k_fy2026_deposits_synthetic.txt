@@ -1,0 +1,9 @@
+SYNTHETIC FIXTURE (M05 Part 2): wording reconstructed; the $12.75B take-or-pay deposits from docs/M05_FUTURE_SPEND.md failure modes; the $9.1B PP&E commitment is invented for the fixture. Replace with the owner's export (scripts/run_m05.py export-text).
+
+Commitments
+
+As of August 27, 2026, we had commitments of approximately $9.1 billion for the acquisition of property, plant, and equipment, substantially all of which are expected to be paid within one year.
+
+Contract Liabilities
+
+As of August 27, 2026, customer prepayments under long-term supply agreements totaled $12.75 billion, which are refundable under certain conditions and are recognized as revenue as products are delivered.

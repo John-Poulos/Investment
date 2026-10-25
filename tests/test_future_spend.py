@@ -341,7 +341,7 @@ def test_deposits_total_else_current_plus_noncurrent_and_a_jump_is_a_mark(dbs):
     )
     line = demand.deposits_line(demand.build_series(engine, MU, AS_OF))
     assert line.now.how == "total" and round(line.yoy, 1) == 75.9 and line.jump
-    assert "more than doubled" in line.text() and "Part 2" in line.text()
+    assert "more than doubled" in line.text() and "Part 2 commitments pass not run" in line.text()
 
 
 def test_deposits_last_tagged_years_ago_are_stale_not_current(dbs):
@@ -654,12 +654,13 @@ class Args:
         self.__dict__.update(kw)
 
 
-def test_script_list_and_unbuilt_subcommand(capsys):
+def test_script_list(capsys):
+    # Part 2 built `commitments`: never call a built subcommand's _main here (LESSONS)
     rm = load_script("run_m05")
     assert rm._main(["--list"]) == 0
     out = capsys.readouterr().out
-    assert "demand" in out and "commitments" in out and "(not built)" in out
-    assert rm._main(["commitments"]) == 2  # Part 2: not built, nothing touched
+    assert "demand" in out and "commitments" in out and "export-text" in out
+    assert "(not built)" not in out
 
 
 def test_script_demand_on_an_injected_db(dbs, tmp_path, capsys):

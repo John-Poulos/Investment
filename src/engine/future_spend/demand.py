@@ -182,6 +182,8 @@ class DepositsLine:
     now: Deposit | None
     prior: Deposit | None
     stale: str | None = None  # newest deposit tag ends well before the newest fiscal year
+    # Part 2 (rule 6): the deposit sentence found in stored text; None = not read, "" = none
+    wording: str | None = None
 
     @property
     def yoy(self) -> float | None:
@@ -210,8 +212,15 @@ class DepositsLine:
         else:
             out += f"; a year earlier {_m(self.prior.value)} ({_pct(self.yoy)})"
         if self.jump:
-            out += ("; mark: balance more than doubled — deposit wording not checked yet "
-                    "(Part 2), mark only")  # fmt: skip
+            if self.wording is None:
+                out += ("; mark: balance more than doubled — deposit wording not read yet "
+                        "(M05 Part 2 commitments pass not run), mark only")  # fmt: skip
+            elif self.wording:
+                out += ("; mark: balance more than doubled — deposit wording found: "
+                        f"{self.wording}")  # fmt: skip
+            else:
+                out += ("; mark: balance more than doubled — no deposit wording in the stored "
+                        "10-K / 10-Q text, mark only (rule 6)")  # fmt: skip
         return out
 
 

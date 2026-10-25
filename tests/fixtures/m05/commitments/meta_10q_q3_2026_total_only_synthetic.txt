@@ -1,0 +1,7 @@
+SYNTHETIC FIXTURE (M05 Part 2): the two sentences as printed in the owner's live check 2 log (logs/m05_commitments_20261023-075137.txt, Meta 10-Q 0001628280-26-066773); surrounding wording trimmed. Replace with the owner's export (scripts/run_m05.py export-text).
+
+Liquidity and Capital Resources
+
+As of September 30, 2026, we had $454.52 billion of non-cancelable contractual commitments, comprising both short-term and long-term arrangements.
+
+As of September 30, 2026, we had $1.53 billion of unused letters of credit outstanding, the majority of which was related to our long-term infrastructure purchase commitments.

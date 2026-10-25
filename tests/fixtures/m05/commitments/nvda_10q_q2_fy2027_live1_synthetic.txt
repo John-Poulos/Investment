@@ -1,0 +1,18 @@
+SYNTHETIC FIXTURE (M05 Part 2, live check 1): sentences as printed in the owner's first commitments log (logs/m05_commitments_20261023-001930.txt, NVIDIA 10-Q Q2 FY2027); the end of the from-to sentence is reconstructed from the brief ($279B as of July 26, 2026). Not the full filing.
+
+NOTES TO CONDENSED CONSOLIDATED FINANCIAL STATEMENTS
+(In millions, except per share data)
+
+Supply and capacity – We have partnered with our extensive network to secure the necessary supply and critical components needed to meet demand for the next several years, increasing supply commitments from $119 billion last quarter to $279 billion as of July 26, 2026.
+
+During the first half of fiscal year 2027, we incurred a $0.4 billion charge associated with H200 for excess inventory and purchase obligations, as the demand for H200 products diminished.
+
+Provisions for inventory and excess inventory purchase obligations totaled $985 million and $2.1 billion for the second quarter and first half of fiscal year 2027, respectively.
+
+Sales of previously reserved inventory and settlements of excess inventory purchase obligations resulted in a provision release of $177 million and $280 million for the second quarter and first half of fiscal year 2027, respectively.
+
+The year-over-year increase in Compute & Networking segment operating income in the first half of fiscal year 2027 was driven by the growth in revenue and the non-recurrence of a $4.5 billion charge associated with H20 excess inventory and purchase obligations.
+
+The balance as of July 26, 2026, and January 25, 2026, included $2.8 billion and $160 million of customer advances, respectively.
+
+(1) Included $15.6 billion and $7.5 billion of customer advances for the first half of fiscal years 2027 and 2026, respectively.

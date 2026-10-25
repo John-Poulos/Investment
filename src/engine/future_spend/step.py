@@ -14,13 +14,13 @@ from __future__ import annotations
 import sqlite3
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 
 from engine import m01_rules
 from engine.financials import models as models_mod
 from engine.future_spend import channels as channels_mod
-from engine.future_spend import demand
+from engine.future_spend import commitments, demand
 from engine.moneyflow import views as mf_views
 from engine.sec.identity import normalize_cik
 from engine.signals import Source, write_signal
@@ -90,6 +90,24 @@ def current_guide(engine: sqlite3.Connection, cik: str, today: date) -> str:
     return "no current-year capex guide"
 
 
+def not_applicable(
+    engine: sqlite3.Connection,
+    ch: channels_mod.Channel,
+    mf: models_mod.ModelFile,
+    cik: str,
+    ticker: str,
+    period_end: str | None,
+) -> tuple[str | None, str, str | None]:
+    """(reason or None, routing text, M04 tag): channel n/a, or an M04 tag in
+    NOT_APPLICABLE_TAGS for the period (rules 5, 8; D-M05-13). Shared by Parts 1 and 2."""
+    tag, how = models_mod.route(engine, mf, cik, ticker, period_end)
+    if ch.not_applicable:
+        return "not applicable (channel n/a" + (f"; M04 tag {tag}" if tag else "") + ")", how, tag
+    if tag in NOT_APPLICABLE_TAGS:
+        return f"not applicable ({tag})", how, tag
+    return None, how, tag
+
+
 def name_result(
     engine: sqlite3.Connection,
     ticker: str,
@@ -104,13 +122,8 @@ def name_result(
     ch = chf.for_company(norm, ticker)
     s = demand.build_series(engine, norm, day)
     latest = s.years[-1] if s.years else None
-    tag, how = models_mod.route(engine, mf, norm, ticker, latest.end if latest else None)
+    na, how, tag = not_applicable(engine, ch, mf, norm, ticker, latest.end if latest else None)
     r = NameResult(ticker, norm, ch, [], series=s)
-    na = None
-    if ch.not_applicable:
-        na = "not applicable (channel n/a" + (f"; M04 tag {tag}" if tag else "") + ")"
-    elif tag in NOT_APPLICABLE_TAGS:
-        na = f"not applicable ({tag})"
     if na is not None:
         r.not_applicable = na
         for sig in SIGNALS:
@@ -184,7 +197,9 @@ def _growth(engine, r: NameResult, cik: str, day: str, tail: str) -> Out:
 def _bookings(engine, r: NameResult, s: demand.Series, day: str, tail: str) -> Out:
     rp = mf_views.rpo(engine, r.cik)
     r.rpo = rp
-    r.deposits = demand.deposits_line(s)
+    r.deposits = replace(
+        demand.deposits_line(s), wording=commitments.deposit_wording(engine, r.cik)
+    )
     info = _info("bookings_cover", r.channel)
     dep = r.deposits.text()
     cust = customers_text(engine, r.cik)

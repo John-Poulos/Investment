@@ -18,7 +18,7 @@
   {% endfor %}
 </table>
 <p class="note"><b>{{ f.vote }}</b>{% for b in f.beside %} · {{ b }}{% endfor %}{% if f.guide %} · {{ f.guide }}{% endif %}</p>
-<p class="note">The capex vote (rule 4, D-M05-7) is positive only when the state is BUILD_INTO_DEMAND, OCF ÷ capex ≥ 1 (D-M02-31) and the CvD state is resolved and not STRUCTURAL_DECLINE or CYCLE_PLUS_DAMAGE; otherwise neutral, with the reason. AHEAD_OF_DEMAND is an M01 rule-4 exit warning, never blocking (D16, D-M01-7). Fabless and outsourced companies read the capex rows as info (R9); their commitments come in Part 2. Hover a row for its full method.</p>
+<p class="note">The capex vote (rule 4, D-M05-7) is positive only when the state is BUILD_INTO_DEMAND, OCF ÷ capex ≥ 1 (D-M02-31) and the CvD state is resolved and not STRUCTURAL_DECLINE or CYCLE_PLUS_DAMAGE; otherwise neutral, with the reason. AHEAD_OF_DEMAND is an M01 rule-4 exit warning, never blocking (D16, D-M01-7). Fabless and outsourced companies read the capex rows as info (R9); their commitments lead (below). Hover a row for its full method.</p>
 
 <h3 style="margin-top:12px">Capex ÷ {{ f.rung }}, last 8 fiscal years</h3>
 {% if f.strip %}
@@ -37,6 +37,35 @@
 <h3 style="margin-top:12px">Customer deposits</h3>
 <p>{{ f.deposits }}</p>
 <p class="note">Contract liabilities (total, else current + noncurrent, labelled) are repayable and may be price-banded: a separate line, never revenue and never added to RPO (D-M05-6). A rise counts only as bookings evidence in the capex state.</p>
+
+<h3 style="margin-top:12px">Committed future spend</h3>
+{% if f.commitment %}{% set r = f.commitment %}
+<table class="data">
+  <tr><th>Signal</th><th>State</th><th class="num">Value</th><th>Weight</th><th>As of</th><th>Reading</th></tr>
+  <tr title="{{ r.method }}">
+    <td>{{ r.label }}<div class="muted">{{ r.signal }}</div></td>
+    <td>{% if r.state == 'missing' %}<span class="muted">missing</span>{% else %}{{ r.state }}{% endif %}</td>
+    <td class="num">{{ r.value }}</td>
+    <td class="muted" style="white-space:nowrap">{{ r.weight }}</td>
+    <td class="muted" style="white-space:nowrap">{{ r.as_of }}</td>
+    <td class="muted">{{ r.method[:420] }}{{ '…' if r.method | length > 420 }}</td>
+  </tr>
+</table>
+{% endif %}
+{% if f.commit_lines %}<ul class="note">{% for x in f.commit_lines %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
+{% if f.commit_tags %}<p class="note">XBRL per tag (never merged): {% for x in f.commit_tags %}{{ x }}{{ ' · ' if not loop.last }}{% endfor %}</p>{% endif %}
+{% if f.commit_quotes %}
+<table class="data">
+  <tr><th>As of</th><th>Category</th><th class="num">Amount</th><th>Flags</th><th>Verified quote</th></tr>
+  {% for q in f.commit_quotes %}
+  <tr><td>{{ q['as_of'] }}</td><td>{{ f.commit_labels.get(q['category'], q['category']) }}</td>
+    <td class="num">{{ q['amount'] | money }}</td>
+    <td class="muted">{% if q['cancellable'] %}cancelable / adjustable (as stated){% endif %}{% if q['after_period'] %} signed after the period {{ q['stated_date'] or '' }}{% endif %}</td>
+    <td class="muted">{{ q['quote'][:300] }}{{ '…' if q['quote'] | length > 300 }}<div>{{ q['form'] }} {{ q['accession'] }}</div></td></tr>
+  {% endfor %}
+</table>
+{% else %}<p class="empty">No commitment sentence stored for this company — missing, never 0 (the refresh or <code>scripts/run_m05.py commitments</code> reads the stored 10-K / 10-Q text).</p>{% endif %}
+<p class="note">Numerator: the stated supply-and-capacity total (fabless, outsourced) or the PP&amp;E total (others); other categories are shown beside and never added; leases not yet commenced and amounts signed after the period are separate dated lines, never summed (D-M05-3). Denominator: TTM cost of revenue (fabless, outsourced) or TTM capex. Own history only; a different series a year earlier is shown across a labelled break (short_history). XBRL and text more than 5%† apart are both shown with a mark (rule 7). Weight: ✓ for fabless and outsourced in MY and PT, else info (R9).</p>
 
 <h3 style="margin-top:12px">Customers at 10% or more of revenue (M04)</h3>
 {% if f.customers %}

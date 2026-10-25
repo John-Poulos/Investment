@@ -239,6 +239,15 @@ EXTRA_CONCEPTS: tuple[Concept, ...] = (
     Concept("contract_liabilities_noncurrent", _gaap("ContractWithCustomerLiabilityNoncurrent",
             "DeferredRevenueNoncurrent"), C, I,
             marks=(("us-gaap", "DeferredRevenueNoncurrent", "≈ pre-2018 tag (before ASC 606)"),)),
+    # M05 Part 2 (D-SEC-31): purchase-obligation tags, one concept per tag, never merged —
+    # the same tag means different things across filers (Meta's `Unrecorded…` holds leases
+    # not yet commenced), so each tag is its own series, labelled by a matching quote.
+    Concept("purchase_obligation", _gaap("PurchaseObligation"), C, I),
+    Concept("purchase_obligation_unrecorded",
+            _gaap("UnrecordedUnconditionalPurchaseObligationBalanceSheetAmount"), C, I),
+    Concept("purchase_obligation_recorded", _gaap("RecordedUnconditionalPurchaseObligation"),
+            C, I),
+    Concept("contractual_obligation", _gaap("ContractualObligation"), C, I),
 )  # fmt: skip
 ALL_CONCEPTS = {c.name: c for c in CONCEPTS + EXTRA_CONCEPTS}
 

@@ -1,8 +1,20 @@
-"""M05 Capex & future spend: one owner script, one subcommand per build part (M05 Part 1).
+"""M05 Capex & future spend: one owner script, one subcommand per build part (M05 Parts 1–2).
 
-    uv run python scripts/run_m05.py demand --no-sec     # Part 1 live check (0 requests)
-    uv run python scripts/run_m05.py export              # fixture export from stored facts (0)
-    uv run python scripts/run_m05.py --list              # the subcommand table
+    uv run python scripts/run_m05.py demand --no-sec       # Part 1 live check (0 requests)
+    uv run python scripts/run_m05.py export                # fixture export from stored facts (0)
+    uv run python scripts/run_m05.py commitments --no-sec  # Part 2 live check (0 requests)
+    uv run python scripts/run_m05.py export-text           # fixture export from stored text (0)
+    uv run python scripts/run_m05.py --list                # the subcommand table
+
+`commitments` (Part 2): the text finder over the stored 10-K / 10-Q main documents and the
+purchase-obligation tags (per tag, D-SEC-31) for every covered name, the company's
+`future_commitment` rows replaced, `commitment_cover` written; the log lists per name the
+tags found and every sentence taken or set aside, with the reason, and the lease,
+after-period, deposit and stale-tag lines. 0 requests (`--no-sec` changes nothing).
+
+`export-text` (Part 2, 0 requests): trimmed excerpts (each commitment or deposit sentence
+with one sentence either side) of the newest stored 10-K and 10-Q of NVDA, META and MU
+(`--tickers` to change), as JSON in logs/, for the owner to send back as fixtures.
 
 `demand` (Part 1): computes from stored facts and M04 rows (0 requests; `--no-sec` is
 accepted for the D-M04-69 pattern and changes nothing, since the subcommand never calls
@@ -39,11 +51,26 @@ SUBCOMMANDS = (
     ("demand", "1", "capex_demand (+ vote), growth_capex_roic, bookings_cover; deposits line"),
     ("export", "1", "stored facts of MU, INTC, MSFT capex/depreciation/deposit tags (fixtures)"),
     ("commitments", "2", "commitment_cover, lease and post-period lines"),
+    ("export-text", "2", "stored 10-K / 10-Q commitment and deposit excerpts (fixtures)"),
 )
-BUILT = {"demand", "export"}
+BUILT = {"demand", "export", "commitments", "export-text"}
 SUMMARY_MARK = "=== Summary"
 CONSOLE_ALWAYS = ("Log written to:", "FAILED", "Export written to:")
 COUNTED_TABLES = ("signal",)
+COMMIT_TABLES = ("signal", "future_commitment")
+TEXT_TICKERS = ("NVDA", "META", "MU")
+# The brief's commitment figures (docs/mvp/M05_MVP_BRIEF.md; docs/M05_FUTURE_SPEND.md Part 2).
+COMMIT_CHECKPOINTS = (
+    ("NVDA", "10-K FY2026: supply and capacity $95.2B ÷ TTM cost of revenue $62.48B = 1.52 "
+     "years (cloud $27.0B, investments $11.4B, other $3.4B beside); 10-Q Q2 FY2027: $279B ÷ "
+     "$76.73B = 3.64 years short_history (us-gaap:PurchaseObligation $45.77B at 2025-07-27 "
+     "across a labelled break; tag stopped); cancellable flag set; MY/PT ✓"),
+    ("META", "hyperscaler → PP&E numerator ÷ TTM capex, info; leases not yet commenced a "
+     "separate line; July 2026 leases (about $68B) signed after the period; Unrecorded… tag "
+     "labelled by the lease quote if amounts match"),
+    ("MU", "customer deposit wording found (deposits mark, rule 6); PP&E commitments ÷ TTM "
+     "capex, info"),
+)  # fmt: skip
 STRIP_TICKERS = ("MU", "INTC", "MSFT")
 # The brief's worked example (docs/mvp/M05_MVP_BRIEF.md; docs/M05_FUTURE_SPEND.md "Live
 # checks"), to compare with the lines above them.
@@ -241,16 +268,153 @@ def run_export(args, log: Log, folder: Path, engine=None, now: datetime | None =
     return 0
 
 
+def run_commitments(
+    args, log: Log, folder: Path, engine=None, corpus=None, now: datetime | None = None
+) -> int:
+    """The Part 2 check. `engine`, `corpus` and `now` are injected by tests (never the real DB)."""
+    from engine.future_spend import channels as channels_mod
+    from engine.future_spend import commit_step
+    from engine.store.db import open_db
+
+    own = engine is None
+    engine = engine if engine is not None else open_db("engine", folder)
+    corpus = corpus if corpus is not None else open_db("corpus", folder)
+    now = now or datetime.now(UTC)
+    t0 = time.monotonic()
+    before = {t: engine.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in COMMIT_TABLES}
+    comps = companies(engine) if args.companies is None else args.companies
+    if args.tickers:
+        wanted = {t.strip().upper() for t in args.tickers.split(",")}
+        comps = {t: c for t, c in comps.items() if t in wanted}
+    chf = channels_mod.load_safe(ROOT / "config" / "m05_channels.toml")
+    log(f"run_m05 commitments · {now:%Y-%m-%d %H:%M} UTC · {len(comps)} names · 0 requests"
+        + (" · --no-sec" if args.no_sec else ""), "")  # fmt: skip
+    if chf.error:
+        log(f"channel file rejected, every company read as unset: {chf.error}")
+    cp = commit_step.commitments_pass(engine, corpus, comps, now, chf=chf)
+    log(
+        "Per name (cover line, tags found, per filing the counts by reason, every sentence taken, "
+        "set-aside sentences with a dollar amount; --verbose prints all):"
+    )
+    for t in sorted(cp.results):
+        r = cp.results[t]
+        verbose = bool(getattr(args, "verbose", False))
+        log("  " + commit_step.line(r), *commit_step.detail_lines(r, verbose=verbose))
+    for t, e in sorted(cp.errors.items()):
+        log(f"  {t}: error — {e}")
+    log("", "Brief's figures (compare with the lines above):")
+    for who, what in COMMIT_CHECKPOINTS:
+        log(f"  {who}: {what}")
+    after = {t: engine.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in COMMIT_TABLES}
+    log("", SUMMARY_MARK)
+    log(*commit_step.summary_lines(cp))
+    log(f"SEC requests: 0 · other requests: 0 · {time.monotonic() - t0:.1f} s")
+    log("Rows added per table: " + ", ".join(f"{t} {after[t] - before[t]:+,}" for t in after)
+        + " (future_commitment rows are replaced per company on every pass)")  # fmt: skip
+    if own:
+        engine.close()
+        corpus.close()
+    return 0
+
+
+def text_excerpts(text: str, pad: int = 1) -> list[tuple[int, int]]:
+    """Spans around every commitment or deposit hit: the sentence plus `pad` sentences each
+    side, merged (the trimmed passages a fixture needs)."""
+    from engine.financials.text import sentence_at
+    from engine.future_spend import commitments as cm
+
+    spans: list[tuple[int, int]] = []
+    hits = [m.start() for rx in (cm.TRIGGER, cm.DEPOSIT) for m in rx.finditer(text)]
+    for pos in sorted(hits):
+        a, b = sentence_at(text, pos)
+        for _ in range(pad):
+            if a > 0:
+                a = sentence_at(text, max(0, a - 2))[0]
+            if b < len(text):
+                b = sentence_at(text, min(len(text) - 1, b + 1))[1]
+        if spans and a <= spans[-1][1]:
+            spans[-1] = (spans[-1][0], max(spans[-1][1], b))
+        else:
+            spans.append((a, b))
+    return spans
+
+
+def run_export_text(
+    args, log: Log, folder: Path, engine=None, corpus=None, now: datetime | None = None
+) -> int:
+    """0 requests: trimmed commitment / deposit excerpts of the newest stored 10-K and 10-Q."""
+    from engine.calls.transcripts import symbol_cik
+    from engine.financials.text import docs_for
+    from engine.future_spend import commitments as cm
+    from engine.store.db import open_db
+
+    own = engine is None
+    engine = engine if engine is not None else open_db("engine", folder)
+    corpus = corpus if corpus is not None else open_db("corpus", folder)
+    now = now or datetime.now(UTC)
+    tickers = [t.strip().upper() for t in (args.tickers or ",".join(TEXT_TICKERS)).split(",")]
+    log(f"run_m05 export-text · {now:%Y-%m-%d %H:%M} UTC · {', '.join(tickers)} · 0 requests", "")
+    out_dir = args.out_dir or (ROOT / "logs")
+    written = []
+    for t in tickers:
+        cik = symbol_cik(engine, t)
+        if cik is None:
+            log(f"  {t}: no CIK resolved, skipped")
+            continue
+        picked = []
+        for form in ("10-K", "10-Q"):
+            rep = next((r for r in cm.reports(engine, cik) if r.form.startswith(form)), None)
+            if rep is not None:
+                picked.append(rep)
+        out = {"ticker": t, "cik": cik, "exported": now.isoformat(timespec="seconds"),
+               "note": "trimmed excerpts of stored text for M05 Part 2 fixtures (0 requests)",
+               "documents": []}  # fmt: skip
+        for rep in picked:
+            docs = [
+                d for d in docs_for(corpus, rep.accession) if cm._main_doc(d.doc_type, rep.form)
+            ]
+            if not docs:
+                log(f"  {t} {rep.form} {rep.accession}: no stored main document")
+                continue
+            d = docs[0]
+            spans = text_excerpts(d.text)
+            out["documents"].append({
+                "accession": rep.accession, "form": rep.form, "filed": rep.filed,
+                "period_end": rep.period_end, "filename": d.filename, "doc_type": d.doc_type,
+                "excerpts": [{"start": a, "end": b, "text": d.text[a:b]} for a, b in spans],
+            })  # fmt: skip
+            log(f"  {t} {rep.form} {rep.accession} (period {rep.period_end}): {len(spans)} "
+                f"excerpt(s), {sum(b - a for a, b in spans):,} characters")  # fmt: skip
+        path = Path(out_dir) / f"m05_text_{t.lower()}_{now:%Y%m%d}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8", newline="\n") as fh:
+            json.dump(out, fh, indent=1, ensure_ascii=False)
+            fh.write("\n")
+        written.append(path)
+    log("", SUMMARY_MARK, f"{len(written)} export file(s); SEC requests: 0")
+    for p in written:
+        log(f"Export written to: {p}")
+    if own:
+        engine.close()
+        corpus.close()
+    return 0
+
+
 def _main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("subcommand", nargs="?", choices=[s for s, _, _ in SUBCOMMANDS])
     ap.add_argument(
         "--no-sec",
         action="store_true",
-        help="accepted for the D-M04-69 pattern; demand never calls SEC",
+        help="accepted for the D-M04-69 pattern; no M05 subcommand calls SEC",
     )
     ap.add_argument("--tickers", help="comma-separated subset")
     ap.add_argument("--list", action="store_true", help="print the subcommand table")
+    ap.add_argument(
+        "--verbose",
+        action="store_true",
+        help="commitments: print every set-aside sentence and every filing",
+    )
     args = ap.parse_args(argv)
     args.companies = None
     args.out_dir = None
@@ -259,7 +423,7 @@ def _main(argv: list[str] | None = None) -> int:
             print(f"{name:12} Part {part:2} {what}" + ("" if name in BUILT else "  (not built)"))
         return 0 if args.list else 2
     if args.subcommand not in BUILT:
-        print(f"{args.subcommand}: not built (Part 2)")
+        print(f"{args.subcommand}: not built")
         return 2
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     os.chdir(ROOT)  # data/, config/ and logs/ are relative to the repo
@@ -268,7 +432,8 @@ def _main(argv: list[str] | None = None) -> int:
     log = Log(ROOT / "logs" / f"m05_{args.subcommand}_{datetime.now():%Y%m%d-%H%M%S}.txt")
     print(f"run_m05 {args.subcommand}: working; full detail goes to {log.path}")
     try:
-        run = run_demand if args.subcommand == "demand" else run_export
+        run = {"demand": run_demand, "export": run_export, "commitments": run_commitments,
+               "export-text": run_export_text}[args.subcommand]  # fmt: skip
         return run(args, log, data_dir())
     except Exception:
         log("FAILED with a traceback:", traceback.format_exc())
