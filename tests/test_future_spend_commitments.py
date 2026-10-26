@@ -6,10 +6,10 @@ labelled breaks, the XBRL / text mark), the lease and after-period lines, the de
 wording, the refresh hook, the owner script and the commitment lines of the Future spend
 section (docs/M05_FUTURE_SPEND.md Part 2; D-M05-18…).
 
-Fixtures: tests/fixtures/m05/commitments/*.txt — labelled SYNTHETIC passages built from the
-published figures in the brief (NVIDIA, Meta, Micron; wording reconstructed until the
-owner's `export-text` arrives) and two D32 non-tech companies (an airline, an outsourced
-apparel retailer); facts entered in the tests. Never calls SEC; never opens the owner's data
+Fixtures: tests/fixtures/m05/commitments/*.txt — REAL excerpts from the owner's
+`export-text` (NVIDIA, Meta, Micron; D-M05-27), SYNTHETIC passages for set-aside cases they
+do not contain, and two D32 non-tech companies (an airline, an outsourced apparel retailer);
+facts entered in the tests. Never calls SEC; never opens the owner's data
 folder; never runs a built subcommand's main()."""
 
 from __future__ import annotations
@@ -139,7 +139,7 @@ def meta(engine, corpus, ticker="META", q3_total_only=False):
              "2026-10-22")  # fmt: skip
         rebuild_series(engine, META)
         report(engine, corpus, META, "mq3", "10-Q", "2026-10-22", "2026-09-30",
-               "meta_10q_q3_2026_total_only_synthetic.txt")  # fmt: skip
+               "meta_10q_q3_2026_real.txt")  # fmt: skip
 
 
 def airline(engine, corpus):
@@ -594,18 +594,21 @@ def test_store_skips_a_repeated_key_and_a_company_error_never_stops_the_others(d
 
 
 def test_period_charges_and_provisions_are_not_commitments():
-    ts = cm.scan_text(read("nvda_10q_q2_fy2027_live1_synthetic.txt"), "2026-07-26")
+    ts = cm.scan_text(read("nvda_10q_q2_fy2027_real.txt"), "2026-07-26")
     got = [(f.category, f.amount / B, f.as_of) for f in ts.findings]
-    assert got == [("supply_capacity", 279.0, "2026-07-26"),
-                   ("customer_deposit", 2.8, "2026-07-26")]  # fmt: skip
+    assert got == [("customer_deposit", 2.8, "2026-07-26"),
+                   ("supply_capacity", 279.0, "2026-07-26"),
+                   ("investment", 25.0, "2026-07-26")]  # fmt: skip
     by = {}
     for a in ts.set_aside:
         if a.raw:
             by.setdefault(a.reason, []).append(a.raw)
-    assert by[cm.REASON_FLOW] == ["$0.4 billion", "$985 million", "$2.1 billion", "$177 million",
-                                  "$280 million", "$4.5 billion"]  # fmt: skip
-    assert by[cm.REASON_PERIOD] == ["$15.6 billion", "$7.5 billion"]
-    assert by[cm.REASON_FROM] == ["$119 billion"]
+    assert {"$0.4 billion", "$985 million", "$2.1 billion", "$177 million", "$280 million",
+            "$4.5 billion"} <= set(by[cm.REASON_FLOW])  # fmt: skip
+    assert by[cm.REASON_PERIOD] == ["$15.6 billion", "$7.5 billion", "$13.0 billion",
+                                    "$7.5 billion"]  # fmt: skip
+    assert by[cm.REASON_FROM] == ["$119 billion", "$119 billion"]
+    assert by[cm.REASON_ASSET] == ["$99 billion"]  # equity investments held (D-M05-27)
     assert any(r.startswith("comparative as of 2026-01-25") and "paired" in r for r in by)
     mrvl = ("During the six months ended August 1, 2026, the Company recognized a net "
             "restructuring expense of $5.7 million relating to contractual obligation offset by "
@@ -619,7 +622,7 @@ def test_period_charges_and_provisions_are_not_commitments():
 
 def test_nvda_from_to_sentence_reads_279_over_76_73_short_history(dbs):
     engine, corpus = dbs
-    nvda(engine, corpus, q2_fixture="nvda_10q_q2_fy2027_live1_synthetic.txt")
+    nvda(engine, corpus, q2_fixture="nvda_10q_q2_fy2027_real.txt")
     r = run(engine, corpus, {"NVDA": NVDA}, FAB).results["NVDA"]
     c = r.cover
     assert c.numerator_category == "supply_capacity" and c.point.amount == 279 * B
@@ -674,7 +677,7 @@ def test_trade_in_and_repurchase_commitments_set_aside_leases_always_leases():
 
 def test_log_is_short_by_default_and_verbose_prints_everything(dbs):
     engine, corpus = dbs
-    nvda(engine, corpus, q2_fixture="nvda_10q_q2_fy2027_live1_synthetic.txt")
+    nvda(engine, corpus, q2_fixture="nvda_10q_q2_fy2027_real.txt")
     filing(engine, NVDA, "old1", "10-Q", "2025-05-28", "2025-04-27")
     filing(engine, NVDA, "old2", "10-Q", "2024-05-28", "2024-04-28")
     r = run(engine, corpus, {"NVDA": NVDA}, FAB).results["NVDA"]
@@ -683,12 +686,71 @@ def test_log_is_short_by_default_and_verbose_prints_everything(dbs):
     assert "    2 older filing(s) with no stored main document" in short
     assert not any("old1" in x for x in short) and any("old1" in x for x in full)
     head = next(x for x in short if "0001045810-26-000070" in x)
-    assert "2 taken, " in head and f"{cm.REASON_FLOW} 6" in head
+    assert "3 taken, " in head and f"{cm.REASON_FLOW} 14" in head
     assert not any(x.startswith("      set aside (no dollar amount") for x in short)
     assert any(x.startswith("      set aside (no dollar amount") for x in full)
     assert len(short) < len(full)
 
 
 @pytest.mark.parametrize("fixture", sorted(p.name for p in CM.glob("*.txt")))
-def test_fixtures_are_labelled_synthetic(fixture):
-    assert read(fixture).startswith("SYNTHETIC FIXTURE (M05 Part 2")
+def test_fixtures_are_labelled_synthetic_or_real(fixture):
+    text = read(fixture)
+    if fixture.endswith("_real.txt"):
+        assert text.startswith("REAL EXCERPTS (M05 Part 2): ")
+    else:
+        assert text.startswith("SYNTHETIC FIXTURE (M05 Part 2")
+
+
+# --- real excerpts (owner's export-text, 2026-10-26; D-M05-27) ---------------------------------
+
+
+@pytest.mark.parametrize(
+    ("fixture", "period", "expected"),
+    [
+        ("nvda_10k_fy2026_real.txt", "2026-01-25",
+         [("supply_capacity", 95.2), ("customer_deposit", 0.16), ("purchase_total", 95.2),
+          ("investment", 11.4), ("other", 3.4)]),
+        ("nvda_10q_q2_fy2027_real.txt", "2026-07-26",
+         [("customer_deposit", 2.8), ("supply_capacity", 279.0), ("investment", 25.0)]),
+        ("meta_10k_fy2025_real.txt", "2025-12-31",
+         [("lease_not_commenced", 103.77), ("purchase_total", 131.05)]),
+        ("meta_10q_q3_2026_real.txt", "2026-09-30",
+         [("lease_not_commenced", 355.73), ("purchase_total", 454.52)]),
+        ("mu_10k_fy2026_real.txt", "2026-09-03", [("ppe", 4.18), ("purchase_total", 10.8)]),
+        ("mu_10q_q3_fy2026_real.txt", "2026-05-28", [("ppe", 2.93)]),
+    ],
+)  # fmt: skip
+def test_real_excerpts_read_as_filed(fixture, period, expected):
+    text = read(fixture)
+    ts = cm.scan_text(text, period)
+    assert [(f.category, round(f.amount / B, 2)) for f in ts.findings] == expected
+    assert all(f.as_of == period and not f.after_period for f in ts.findings)
+    assert all(cm.verified(text, text, f) for f in ts.findings)
+
+
+def test_real_excerpt_misreads_fixed():
+    # NVDA's CAM sentence: the $21.4B inventories balance is an asset, the $95.2B beside it
+    # is supply and capacity; "Investment commitments are $11.4 billion" is read
+    ts = cm.scan_text(read("nvda_10k_fy2026_real.txt"), "2026-01-25")
+    assert [a.raw for a in ts.set_aside if a.reason == cm.REASON_ASSET] == ["$21.4 billion"]
+    # MU's "As of May 28, 2026" is a date, not the modal "may"
+    assert cm._MODAL.search("As of May 28, 2026, we had") is None
+    assert cm._MODAL.search("we may be required to pay") is not None
+    # META: "mostly related to cloud capacity … and investments in servers, data centers" is
+    # several categories (scope not split); the lease total follows the not-commenced sentence
+    ts = cm.scan_text(read("meta_10q_q3_2026_real.txt"), "2026-09-30")
+    assert "cloud" not in {f.category for f in ts.findings}
+    lease = next(f for f in ts.findings if f.category == "lease_not_commenced")
+    assert lease.quote.startswith("These lease obligations were approximately $355.73 billion")
+    # lease obligations not tied to a not-commenced sentence are liabilities
+    q = "Our lease obligations were $4.0 billion as of December 31, 2025."
+    ts = cm.scan_text(q, "2025-12-31")
+    assert not ts.findings and ts.set_aside[0].reason == cm.REASON_LEASE_LIABILITY
+
+
+def test_real_mu_10k_deposits_are_xbrl_only():
+    # MU states deposits received in the year ("cash deposits of $12.75 billion in 2026") and
+    # the balance as contract liabilities; the text finder takes neither (Part 1's XBRL
+    # ContractWithCustomerLiability carries the deposits; D9 note in M05_FUTURE_SPEND.md)
+    ts = cm.scan_text(read("mu_10k_fy2026_real.txt"), "2026-09-03")
+    assert "customer_deposit" not in {f.category for f in ts.findings}

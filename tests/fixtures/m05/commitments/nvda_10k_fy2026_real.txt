@@ -1,0 +1,110 @@
+REAL EXCERPTS (M05 Part 2): NVDA 10-K 0001045810-26-000021 (nvda-20260125.htm, period 2026-01-25, filed 2026-02-25); the owner's `uv run python scripts/run_m05.py export-text` of 2026-10-26 (0 requests). Excerpts verbatim in document order, joined by blank lines; text between them omitted.
+
+As a result, we can focus our resources on product design, quality assurance, marketing, and customer support. In periods of growth, we may place non-cancellable inventory orders for certain product components in advance of our historical lead times, pay premiums, or provide deposits to secure future supply and capacity and may need to continue to do so.
+
+In April 2025, the USG informed us that it requires a license for export to China (including Hong Kong and Macau) and D:5 countries, or to companies headquartered or with an ultimate parent therein, of our H20 integrated circuits and any other circuits achieving the H20’s memory bandwidth, interconnect bandwidth, or combination thereof. As a result of these requirements, we incurred a $4.5 billion charge in the first quarter of fiscal year 2026 associated with H20 for excess inventory and purchase obligations, as the demand for H20 products diminished.
+
+Risks Related to Demand, Supply, and Manufacturing
+
+•Long manufacturing lead times and uncertain supply and capacity availability, combined with a failure to estimate customer demand accurately has led and could lead to mismatches between supply and demand.
+
+Risks Related to Demand, Supply, and Manufacturing
+
+Long manufacturing lead times and uncertain supply and capacity availability, combined with a failure to estimate customer demand accurately, has led and could lead to mismatches between supply and demand.
+
+We have previously experienced and may continue to experience extended lead times of more than 12 months. To secure future supply and capacity, we have paid premiums, provided deposits, and entered into long-term supply agreements and capacity commitments, which have increased our product costs and this may continue. We may still be unable to secure sufficient commitments for capacity to address our business needs.
+
+For example, our ability to sell certain products has been and could be impeded if components necessary for the finished products are not available from third parties.
+
+If we overestimate demand, or if customers cancel or defer orders or choose to purchase from our competitors, we may not be able to utilize on-hand inventory or reduce purchase commitments accordingly. We have had to reduce average selling prices, including due to our channel pricing programs, increase prices for certain of our products as a result of our suppliers’ increase in prices, write down our inventory, incur cancellation penalties, and record impairments, and may have to do so in the future.
+
+The impact of these risks would be amplified by our non-cancellable and non-returnable purchase orders placed in advance of our historical lead times and could be exacerbated if we need to make changes to the design of future products. These risks have increased and may continue to increase as our purchase obligations and prepaids have grown and are expected to continue to grow and become a greater portion of our total supply. All of these factors may negatively impact our gross margins and financial results.
+
+Publicly announced intentions by governments or other companies to purchase our products can further complicate our demand estimates, as such announcements are often non-binding and may not result in committed volumes.
+
+We continue to increase our supply and capacity purchases with existing and new suppliers to support our demand projections and increasing complexity of our data center products. We expect supply constraints to be a headwind to Gaming in the first quarter of fiscal year 2027 and beyond.
+
+•failures of counterparties, including financial institutions and insurers, asset impairments, and declines in the value of our financial instruments.
+
+Adverse developments affecting financial institutions, such as bank failures or instability, or concerns or speculation about similar events or risks, could lead to market-wide liquidity problems and other disruptions, which could impact our customers’ ability to fulfill their payment obligations to us, our vendors’ ability to fulfill their contractual obligations to us, or our ability to fulfill our own obligations.
+
+In the future, these partners may decide to purchase fewer products, not to incorporate our products into their ecosystem, or to alter their purchasing patterns in some other way. Because most of our sales are made on a purchase order basis, our customers can generally cancel, change, or delay product purchase commitments with little notice to us and without penalty. Our partners or customers may develop their own solutions; our customers may purchase products from our competitors; and our partners may discontinue sales or lose market share in the markets for which they purchase our products, all of which may alter partners’ or customers’ purchasing patterns.
+
+Commercial arrangements expose us to counterparty risks.
+
+We have entered and may in the future enter into commercial arrangements, including long-term capacity purchase obligations and financial guarantees, and have been asked to offer financing arrangements to support our customers’ and partners’ buildout of datacenter infrastructure. We have not entered into any financing arrangements.
+
+•our ability to adjust spending due to the multi-year development cycle for some of our products and services;
+
+•our ability to comply with our contractual obligations to customers;
+
+Department of Commerce’s U.S. Entity List or other USG restricted parties lists (which is expected to change from time to time), and generally fulfill our contractual obligations and have a material adverse effect on our business. If we were ever found to have violated export control laws or sanctions of the U.S. or similar applicable non-U.S. laws, even if the violation occurred without our knowledge, we may be subject to various penalties available under the laws, any of which could have a material and adverse impact on our business, operating results and financial condition.
+
+In April 2025, the USG informed us that it requires a license for export to China (including Hong Kong and Macau) and D:5 countries, or to companies headquartered or with an ultimate parent therein, of our H20 integrated circuits and any other circuits achieving the H20’s memory bandwidth, interconnect bandwidth, or combination thereof. As a result of these requirements, we incurred a $4.5 billion charge in the first quarter of fiscal year 2026 associated with H20 for excess inventory and purchase obligations, as the demand for H20 products diminished.
+
+As a result, export controls have in the past and may in the future negatively impact demand for our products and services not only in China, but also in other markets, such as Europe, Latin America, and Southeast Asia. Export controls increase the risk of investing in U.S. advanced semiconductor products, because by the time a new product is ready for market, it may be subject to new unilateral export controls restricting its sale, resulting in excess inventory and purchase obligations as we recently experienced with the H20. At the same time, such controls may increase investment in foreign competitors, which would be less likely to be restricted by U.S. controls.
+
+Table of Contents
+
+We are also bound by certain contractual obligations related to data privacy and security, and our efforts to comply with such obligations may not be successful or may be claimed to be non-compliant. For example, certain privacy laws, such as the GDPR and the CCPA, require our customers to impose specific contractual restrictions on their service providers.
+
+In April 2025, the USG informed us that a license is required for exports of our H20 product into the China market. As a result of these requirements, we incurred a $4.5 billion charge in the first quarter of fiscal year 2026 associated with H20 for excess inventory and purchase obligations, as the demand for H20 diminished. In August 2025, the USG granted licenses that would allow us to ship certain H20 products to certain China-based customers.
+
+Gross margin decreased in fiscal year 2026 as our business model transitioned from offering Hopper HGX systems to Blackwell full-scale datacenter solutions. The gross margin decrease was also impacted by a $4.5 billion charge associated with H20 excess inventory and purchase obligations.
+
+Inventories
+
+We charge cost of sales for inventory provisions to write-down our inventory to the lower of cost or net realizable value or for obsolete or excess inventory, and for excess product purchase commitments. Most of our inventory provisions relate to excess quantities of products or components, based on our inventory levels and future product purchase commitments compared to assumptions about future demand and market conditions, which requires management judgment.
+
+Situations that may result in excess or obsolete inventory or excess product purchase commitments include changes in business and economic conditions, changes in market conditions, sudden and significant decreases in demand for our products, including potential cancellation or deferral of customer purchase orders, inventory obsolescence because of changing technology and customer requirements, new product introductions resulting in less demand for existing products or inconsistent spikes in demand, failure to estimate customer demand properly, ordering in advance of historical lead-times, government regulations and the impact of changes in future demand, or increase in demand for competitive products, including competitive actions.
+
+The net effect on our gross margin from inventory provisions and sales of items previously written down was an unfavorable impact of 2.6% in fiscal year 2026 and 2.3% in fiscal year 2025. Our inventory and capacity purchase commitments are based on forecasts of future customer demand and consider our third-party manufacturers' lead times and constraints. Our manufacturing lead times can be and have been long, and in some cases, extended beyond twelve months for some products. We may place non-cancellable inventory orders for certain product components in advance of our historical lead times, pay premiums and provide deposits to secure future supply and capacity. We also adjust to other market factors, such as product offerings and pricing actions by our competitors, new product transitions, and macroeconomic conditions - all of which may impact demand for our products.
+
+Graphics revenue – The year over year increase was driven by sales of our Blackwell architecture.
+
+Reportable segment operating income – The year over year increase in Compute & Networking segment operating income was driven by growth in revenue, partially offset by a $4.5 billion charge associated with H20 excess inventory and purchase obligations in the first quarter of fiscal year 2026. The year over year increase in Graphics segment operating income was driven by the growth in revenue.
+
+Cost of revenue also includes acquisition-related intangible amortization expense, costs for license and development and service arrangements, IP-related costs, and stock-based compensation related to personnel associated with manufacturing operations.
+
+Gross margins decreased to 71.1% in fiscal year 2026 from 75.0% in fiscal year 2025 as our business model transitioned from offering Hopper HGX systems to Blackwell full-scale datacenter solutions and a $4.5 billion charge associated with H20 excess inventory and purchase obligations in the first quarter of fiscal year 2026.
+
+Provisions for inventory and excess inventory purchase obligations totaled $7.2 billion and $3.7 billion for fiscal years 2026 and 2025, respectively, including $4.5 billion associated with H20 excess inventory and purchase obligations for the first quarter of fiscal year 2026. Sales of previously reserved inventory and settlements of excess inventory purchase obligations resulted in a provision release of $1.5 billion and $689 million for fiscal years 2026 and 2025, respectively. The net effect on our gross margin was an unfavorable impact of 2.6% and 2.3% in fiscal years 2026 and 2025, respectively.
+
+Material Cash Requirements and Other Obligations
+
+For descriptions of our facility lease guarantees, long-term debt, purchase commitments, and operating lease obligations, refer to Note 10, Note 11, Note 12, and Note 17 of the Notes to the Consolidated Financial Statements in Part IV, Item 15 of this Annual Report on Form 10-K, respectively.
+
+The communication of critical audit matters does not alter in any way our opinion on the consolidated financial statements, taken as a whole, and we are not, by communicating the critical audit matter below, providing a separate opinion on the critical audit matter or on the accounts or disclosures to which it relates.
+
+Valuation of Inventories - Provisions for Excess or Obsolete Inventories and Excess Product Purchase Commitments
+
+As described in Notes 1, 9, and 12 to the consolidated financial statements, the Company charges cost of sales for inventory provisions to write-down inventory for excess or obsolete inventory and for excess product purchase commitments. Most of the Company’s inventory provisions relate to excess quantities of products, based on the Company’s inventory levels and future product purchase commitments compared to assumptions about future demand including the impact of market conditions such as regulatory export restrictions on their products. As of January 25, 2026, the Company’s consolidated inventories balance was $21.4 billion and the Company’s consolidated outstanding inventory purchase and long-term supply and capacity obligations balance was $95.2 billion, of which a significant portion relates to inventory purchase obligations.
+
+The principal considerations for our determination that performing procedures relating to the valuation of inventories, specifically the provisions for excess or obsolete inventories and excess product purchase commitments, is a critical audit matter are the significant judgment by management when developing provisions for excess or obsolete inventories and excess product purchase commitments, including developing assumptions related to future demand and market conditions. This in turn led to significant auditor judgment, subjectivity, and effort in performing procedures and evaluating management’s assumptions related to future demand and market conditions.
+
+Addressing the matter involved performing procedures and evaluating audit evidence in connection with forming our overall opinion on the consolidated financial statements. These procedures included testing the effectiveness of controls relating to management’s provisions for excess or obsolete inventories and excess product purchase commitments, including controls over management’s assumptions related to future demand and market conditions. These procedures also included, among others, testing management’s process for developing the provisions for excess or obsolete inventories and excess product purchase commitments; evaluating the appropriateness of management’s approach; testing the completeness and accuracy of underlying data used in the approach; and evaluating the reasonableness of management’s assumptions related to future demand and market conditions. Evaluating management’s assumptions related to future demand and market conditions involved evaluating whether the assumptions used by management were reasonable considering (i) current and past results, including historical product life cycle, (ii) the consistency with external market and industry data, and (iii) changes in technology.
+
+Actual results could differ materially from our estimates. On an on-going basis, we evaluate our estimates, including those related to accounts receivable, cash equivalents and marketable securities, goodwill, income taxes, inventories and product purchase commitments, investigation and settlement costs, litigation, non-marketable equity securities, other contingencies, property, plant, and equipment, revenue recognition, and stock-based compensation. These estimates are based on historical facts and various other assumptions that we believe are reasonable.
+
+Inventory costs consist of the cost of semiconductors, including wafer fabrication, assembly, testing and packaging, manufacturing support costs, including labor and overhead associated with such purchases, final test yield fallout, and shipping costs, as well as the cost of purchased memory products and other component parts. We charge cost of sales for inventory provisions to write-down our inventory to the lower of cost or net realizable value or for obsolete or excess inventory, and for excess product purchase commitments. Most of our inventory provisions relate to excess quantities of products, based on our inventory levels and future product purchase commitments compared to assumptions about future demand including the impact of regulatory export restrictions on our products. Once inventory has been written-off or written-down, it creates a new cost basis for the inventory that is not subsequently written-up. We record a liability for noncancelable purchase commitments with suppliers for quantities in excess of our future demand forecasts consistent with our valuation of obsolete or excess inventory.
+
+Product warranty
+2,807	1,290
+
+Excess inventory purchase obligations (1)	2,739	2,095
+
+(1)In fiscal years 2026 and 2025, we recorded an expense of approximately $3.2 billion and $2.0 billion, respectively, in cost of revenue.
+
+(2)Includes customer advances and unearned revenue related to hardware and software support, cloud services, and license and development arrangements. The balance as of January 25, 2026 and January 26, 2025 included $160 million and $81 million of customer advances, respectively.
+
+Balance at end of period	$	2,572	$	1,813
+
+(1) Includes $9.0 billion and $3.6 billion of customer advances for fiscal years 2026 and 2025, respectively.
+
+(2) Includes $8.9 billion and $3.7 billion related to customer advances for fiscal years 2026 and 2025, respectively.
+
+Changes to these agreements may result in additional costs. As of January 25, 2026, these commitments were $95.2 billion, of which substantially all will be paid through fiscal year 2027.
+
+Investment commitments are $11.4 billion as of January 25, 2026, subject to certain contingencies, of which we expect substantially all will be made through fiscal year 2027.
+
+Other commitments were $3.4 billion as of January 25, 2026, of which the majority will be paid through fiscal year 2027.

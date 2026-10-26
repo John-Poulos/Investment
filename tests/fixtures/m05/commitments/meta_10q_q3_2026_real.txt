@@ -1,0 +1,43 @@
+REAL EXCERPTS (M05 Part 2): META 10-Q 0001628280-26-066773 (meta-20260930.htm, period 2026-09-30, filed 2026-10-22); the owner's `uv run python scripts/run_m05.py export-text` of 2026-10-26 (0 requests). Excerpts verbatim in document order, joined by blank lines; text between them omitted.
+
+As of September 30, 2026, our restricted cash equivalents of $12.83 billion include $10.80 billion of money market funds related to escrow requirements under certain multi-year infrastructure purchase agreements. These funds are restricted from general corporate use and are expected to be released between 2028 and 2030 upon satisfying the underlying purchase obligations. Based on the expected timing of the release of these restrictions, substantially all of our restricted cash equivalents were classified within other assets on our condensed consolidated balance sheets.
+
+Commitments and Contingencies
+
+Leases and Contractual Commitments
+
+In addition to the lease liabilities that are included on our balance sheet, we have operating and finance leases that have not yet commenced as of September 30, 2026. These lease obligations were approximately $355.73 billion, consisting of data centers, energy-related infrastructure, colocations, and certain network infrastructure, which will commence during the remainder of 2026 through 2036 with lease terms ranging from greater than one year to 30 years.
+
+As of September 30, 2026, we had $454.52 billion of non-cancelable contractual commitments, comprising both short-term and long-term arrangements. These commitments mostly relate to third-party cloud capacity arrangements and investments in servers and network infrastructure, energy service agreements for data centers, and consumer hardware products in Reality Labs, with approximately $45.85 billion and $121.41 billion due in 2026 and 2027, respectively.
+
+In connection with escrow requirements under certain multi-year infrastructure purchase agreements, $10.80 billion of money market funds was reclassified as restricted cash equivalents as of September 30, 2026. These funds are restricted from general corporate use and are expected to be released between 2028 and 2030 upon satisfying the underlying purchase obligations. See Note 4 — Financial Instruments for additional information regarding restricted cash equivalents.
+
+Letters of Credit
+
+As of September 30, 2026, we had $1.53 billion of unused letters of credit outstanding, the majority of which was related to our long-term infrastructure purchase commitments.
+
+Cost of revenue also consists of processing fees and traffic acquisition costs, which include credit card and other fees related to processing customer transactions; RL inventory costs, which consist of cost of products sold and estimated losses on non-cancelable contractual commitments; and content and creator costs, which include payments to content creators from whom we license content for distribution, as well as incentive payments made to creators based on engagement.
+
+In addition, during the nine months ended September 30, 2026, $10.80 billion of unrestricted money market funds was reclassified as restricted cash equivalents in connection with escrow requirements under certain multi-year infrastructure purchase agreements. These funds are restricted from general corporate use and are expected to be released between 2028 and 2030 upon satisfying the underlying purchase obligations. See Note 4 — Financial Instruments in the notes to the condensed consolidated financial statements included in Part I, Item 1, of this Quarterly Report on Form 10-Q for additional information.
+
+Material Cash Requirements
+
+We currently anticipate that our available funds and cash flow from operations and financing activities will be sufficient to meet our operational cash needs and fund our cash commitments for investing and financing activities, including investments in infrastructure and AI initiatives, as well as any return of capital to stockholders over the next 12 months and thereafter for the foreseeable future. We have increased investments in infrastructure and AI initiatives and expect to continue to do so.
+
+We continuously evaluate our liquidity and capital resources, including our access to external capital, to ensure we can finance our future capital requirements.
+
+Leases and Contractual Commitments
+
+In addition to the lease liabilities included on our condensed consolidated balance sheets, we have operating and finance leases that have not yet commenced as of September 30, 2026. These lease obligations were approximately $355.73 billion, consisting of data centers, energy-related infrastructure, colocations, and certain network infrastructure, which will commence during the remainder of 2026 through 2036 with lease terms ranging from greater than one year to 30 years.
+
+As of September 30, 2026, we had $454.52 billion of non-cancelable contractual commitments, comprising both short-term and long-term arrangements. These commitments mostly relate to third-party cloud capacity arrangements and investments in servers and network infrastructure, energy service agreements for data centers, and consumer hardware products in Reality Labs, with approximately $45.85 billion and $121.41 billion due in 2026 and 2027, respectively.
+
+In connection with escrow requirements under certain multi-year infrastructure purchase agreements, $10.80 billion of money market funds was reclassified as restricted cash equivalents as of September 30, 2026. These funds are restricted from general corporate use and are expected to be released between 2028 and 2030 upon satisfying the underlying purchase obligations.
+
+We are also continuing to increase our investments in new platforms and technologies, including as part of our VR, Horizon, and wearables efforts. We have incurred significant indebtedness and other contractual commitments, including lease obligations, to finance these investments and expect to continue to incur additional obligations. Some of these investments have generated only limited revenue and reduced our cash flows, operating margin, and profitability, and we expect the adverse financial impact of such investments to continue for the foreseeable future.
+
+We may not be able to secure sufficient components, equipment, or services from third parties to satisfy our needs, or we may be required to procure such components, equipment, or services on unfavorable terms. For example, we are party to a number of partnerships and other third-party arrangements relating to these initiatives, some of which include multi-year purchase commitments. As of September 30, 2026, we had $454.52 billion of non-cancelable contractual commitments, comprising both short-term and long-term arrangements, most of which are related to third-party cloud capacity arrangements and other investments in technical infrastructure, and we continue to enter into additional significant contractual arrangements.
+
+•investor sentiment with respect to our competitors, our business partners, and our industry in general;
+
+•announcements by us or our competitors of significant products or features, technical innovations, acquisitions, strategic partnerships, joint ventures, or capital commitments;
