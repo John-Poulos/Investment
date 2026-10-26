@@ -95,6 +95,18 @@ Shown with the signals (no D13 rows, D32): 10-year ROIC, gross margin and operat
 - Part 1: `uv run python scripts/run_moat.py quant` (0 requests, under a minute; `--tickers MSFT,INTC,MU` for a subset; `--no-sec` accepted and changes nothing). Writes `logs/moat_quant_<YYYYMMDD-HHMMSS>.txt`. Look for: one line per covered name (class, share, ±2 pp classes, GM median, proposal, verdict, gate); the missing rows with reasons; one method sample per class; the ROIC / GM / OM strip of MSFT, INTC, MU and BA against the brief's figures printed below it (MSFT FY2026 35.9%, INTC FY2025 −1.1%, MU FY2026 106.7% and GM −9.1% / 80.7%, BA FY2025 13.5%); the summary's "m06_verdict items open: 15" (17 covered minus ETV and MSTR). Then the Financials tab's Moat section for MSFT, INTC and MU and the M06 setup page (the verdicts themselves are the owner's setup batch, not part of the check).
 - Part 2: `uv run python scripts/run_moat.py challengers`.
 
+*Part 1 live check 1 (2026-10-26, `logs/moat_quant_20261025-234843.txt`; 19 names, 0 requests, 45.6 s) — passed:* 171 rows, 15 `m06_verdict` items. Classes:
+- persistent: AAPL, AMZN, GOOG, META, MSFT, NVDA;
+- through_cycle: AVGO, MU, TSLA;
+- weak: BA;
+- short_history: GFS, INTC, MRVL, ORCL, RIVN;
+- not_applicable: ETV, INFQ (shell period), MSTR;
+- missing: SPCX (no fiscal-year income or revenue).
+
+MSFT FY2026 ROIC 35.9% and the MU and BA years match the brief. Notes:
+1. **INTC reads short_history, not the brief's weak.** ROIC FY2021–24 is "missing: cash at <date>" (`CashAndCashEquivalentsAtCarryingValue` not stored at those year ends), so only 6 of 10 years are computable. This is an M04 data gap. The conservative result stands (UNRATED proposal; gate blocked until the owner's verdict). Open item 4 (reach back past missing years) would not help.
+2. **Book ROIC on tiny invested capital reads extreme:** BA FY2016–18 at 228–492% (near-zero equity), MSFT FY2019–21 above 100% (large cash), AAPL 113% (buybacks). The class reads the count of years above the hurdle, not the level, so classes stand. D9 failure mode, shown as stated.
+
 ## Open for owner (Part 1)
 1. **M01 rule 1 reader** (D-M06-15): `m01_rules.rule1` does not yet require `moat_gate` = met; M11 Part 1's first-entry gate reads `gate.latest_gate`. Wiring it into rule 1 now would also mark every name "not qualified" for M09's mean reversion until verdicts exist. Keep as built, or wire rule 1 now?
 2. **R&D-heavy cut-off** 10%† (D-M06-10) has no source; label only. Keep, change, or drop the label?
