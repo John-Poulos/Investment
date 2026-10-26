@@ -306,6 +306,19 @@ def future_spend_commitments_local_step(engine, corpus, report) -> str:
     return "\n" + "\n".join(lines) + "\n"
 
 
+def moat_local_step(engine, report) -> str:
+    """M06 Part 1 local pass after M05 and before M03 (0 requests; MVP_PLAN local-step
+    order): moat_quant, moat_verdict and moat_gate for every covered name, and the
+    m06_verdict setup / re-open items outside M04's cap (D-M06-1…8). Never fails the run."""
+    from engine.moat.step import run_local_part
+
+    try:
+        lines = run_local_part(engine, companies_of(report), datetime.now(UTC))
+    except Exception as e:  # must not break the run report
+        lines = [f"M06 moat — local pass: error — {type(e).__name__}: {e}"]
+    return "\n" + "\n".join(lines) + "\n"
+
+
 def ownership_local_step(engine, report) -> str:
     """M07 Part 1 local pass after the M04 local steps (0 SEC requests; MVP_PLAN refresh
     order): 4/A links, CMP classes and the per-day buy / sale rows for companies with newly
@@ -671,6 +684,7 @@ def _run(args, engine, folder):
     prices += financials_cvd_local_step(engine, report)
     prices += future_spend_local_step(engine, report)  # M05 after M04, before M07
     prices += future_spend_commitments_local_step(engine, corpus, report)  # M05 Part 2
+    prices += moat_local_step(engine, report)  # M06 Part 1 after M05, before M03
     prices += ownership_local_step(engine, report)  # M07 after the M04 local steps
     prices += managers_local_step(engine, report)  # M07 Part 2 (followed managers)
     prices += valuation_local_step(engine, report)  # M08 Part 1 after M07, before M09

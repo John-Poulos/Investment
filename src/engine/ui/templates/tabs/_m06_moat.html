@@ -1,0 +1,54 @@
+{% set mv = m06 %}{% set c = mv.card %}{% set q = c.quant %}
+<h2 id="moat">Moat <span class="muted">(M06)</span></h2>
+<p class="note">Is there a moat, and will it outlast the {{ mv.horizon }}-year MY horizon? The quant leg reads 10 fiscal years of book ROIC against an 8%† hurdle; the verdict is yours (D8); the gate needs NARROW or WIDE with a catch-up band whose low end reaches the horizon (R1, A3). † = starting values, not calibrated (D32). Computed here by the refresh's own functions (0 requests, nothing written).{% if mv.params_note %} <span class="warn">{{ mv.params_note }}</span>{% endif %}</p>
+<table class="data">
+  <tr><th>Signal</th><th>State</th><th class="num">Value</th><th>Weight</th><th>Grade</th><th>As of</th><th>Reading</th></tr>
+  {% for r in c.rows %}
+  <tr title="{{ r.method }}">
+    <td>{{ r.label }}<div class="muted">{{ r.signal }}</div></td>
+    <td>{% if r.state == 'missing' %}<span class="muted">missing</span>{% elif r.state in ('not_met', 'NONE', 'weak') %}<span class="warn">{{ r.state }}</span>{% else %}<b>{{ r.state }}</b>{% endif %}{% if r.signal == 'moat_gate' and c.gate_override %} <span class="warn">override</span>{% endif %}</td>
+    <td class="num">{{ r.value }}</td>
+    <td class="muted" style="white-space:nowrap">{{ r.weight }}</td>
+    <td class="muted">{{ r.grade }}</td>
+    <td class="muted" style="white-space:nowrap">{{ r.as_of }}</td>
+    <td class="muted">{{ r.method[:420] }}{{ '…' if r.method | length > 420 }}</td>
+  </tr>
+  {% endfor %}
+</table>
+
+<h3 style="margin-top:12px">ROIC, gross margin and operating margin, last {{ q.years | length or 10 }} fiscal years</h3>
+{% if q.years %}
+<div style="overflow-x:auto">
+<table class="data">
+  <tr><th></th>{% for y in q.years %}<th class="num">{{ y.label }}</th>{% endfor %}</tr>
+  <tr><td>ROIC (S6.5)</td>{% for y in q.years %}<td class="num"><span title="{{ y.roic_text }}{% if y.excluded %} · {{ y.excluded }}{% endif %}"{% if y.excluded %} class="muted"{% endif %}>{% if y.roic is not none %}{{ '%.1f' | format(100 * y.roic) | replace('-', '−') }}%{% elif y.roic_text.startswith('not_meaningful') %}n/m{% else %}<span class="muted">—</span>{% endif %}</span></td>{% endfor %}</tr>
+  <tr><td>Gross margin</td>{% for y in q.years %}<td class="num"><span title="{{ y.gm_text }}">{% if y.gm is not none %}{{ '%.1f' | format(y.gm) | replace('-', '−') }}%{% else %}<span class="muted">—</span>{% endif %}</span></td>{% endfor %}</tr>
+  <tr><td>Operating margin</td>{% for y in q.years %}<td class="num"><span title="{{ y.om_text }}">{% if y.om is not none %}{{ '%.1f' | format(y.om) | replace('-', '−') }}%{% else %}<span class="muted">—</span>{% endif %}</span></td>{% endfor %}</tr>
+  {% if q.years | selectattr('excluded') | list or q.years | selectattr('flags') | list %}<tr><td class="muted">Notes</td>{% for y in q.years %}<td class="num muted" style="font-size:smaller">{{ y.excluded }}{% for f in y.flags %}<div>{{ f }}</div>{% endfor %}</td>{% endfor %}</tr>{% endif %}
+</table>
+</div>
+{% else %}<p class="empty">missing: no fiscal-year operating income or revenue stored — never 0.</p>{% endif %}
+<p class="note"><b>{{ q.headline() }}</b>{% if q.gm_median is not none %} · GM median {{ '%.1f' | format(q.gm_median) }}%{% if q.gm_dispersion is not none %}, dispersion (IQR ÷ 1.35) {{ '%.1f' | format(q.gm_dispersion) }} pp{% endif %}{% endif %} · {{ q.peer_gm }}</p>
+<p class="note">Class on the years with a computable ROIC (missing and n/m years left out, never interpolated): persistent = above 8%† in ≥ 80%† of years; through_cycle = below that, but the window median above the hurdle and ≥ 1 of the last 3 years above it; else weak; fewer than 7 years = short_history; invested capital ≤ 0 in most years = not_meaningful; fund, financial, REIT, asset vehicle and SPAC-shell periods = not applicable, shown but not rated (D-M06-1, -2). Years counted plus the median, never the latest year alone: a cycle peak is not a moat. Book ROIC excludes leases and expenses R&amp;D; consolidated only. Hover a cell for its method.</p>
+
+<h3 style="margin-top:12px">Verdict</h3>
+{% if c.not_applicable %}
+<p><b>N_A</b> — {{ q.headline() }}. <span class="muted">{{ q.route_how }}. The gate reads not applicable, never a fail; edit <code>config/company_models.toml</code> to change the routing.</span></p>
+{% else %}
+<table class="data">
+  <tr><th>In force</th><td>{% if c.verdict %}<b>{{ c.verdict['verdict'] }}</b> · catch-up band {{ mv.bands[c.verdict['band']][0] if c.verdict['band'] else '—' }} · sources: {% for s in (c.verdict['sources'] or '').split(',') if s %}{{ mv.sources.get(s, s) }}{{ ', ' if not loop.last }}{% else %}—{% endfor %} · grade {{ c.verdict['grade'] }} · {{ c.verdict['decided_at'][:10] }}{% if c.stale %} · <span class="warn">{{ c.stale }}</span>{% endif %}<div class="muted">{{ c.verdict['reason'] }}{% if c.verdict['passage_ref'] and c.verdict['grade'] == 'A' %} · quote verified in {{ c.verdict['passage_ref'] }}{% endif %}</div>{% else %}<span class="muted">no owner verdict yet</span>{% endif %}</td></tr>
+  <tr><th>Engine proposal</th><td>{{ c.proposal.verdict }} <span class="muted">— {{ c.proposal.why }}</span></td></tr>
+  <tr><th>Gate (MY)</th><td><b>{{ c.gate_state }}</b>{% if c.gate_override %} <span class="warn">override</span>{% endif %} <span class="muted">— {{ c.gate_why }}</span></td></tr>
+  <tr><th>Evidence for</th><td>{% for e in c.evidence_for %}<div>{{ e }}</div>{% endfor %}</td></tr>
+  <tr><th>Evidence against</th><td>{% for e in c.evidence_against %}<div>{{ e }}</div>{% else %}<span class="muted">none found by the quant leg</span>{% endfor %}</td></tr>
+  <tr><th>Switching costs (shown, not scored)</th><td>{% for s in c.switching %}<div>{{ s }}</div>{% endfor %}{% for l in c.links %}<div>{{ l['rung'] }} {{ l['grade'] }}: {{ l['a_name'] }} — {{ l['b_name'] }}: “{{ l['quote'][:200] }}{{ '…' if l['quote'] | length > 200 }}” <span class="muted">({{ l['accession'] }})</span></div>{% else %}<div class="muted">no confirmed supply link</div>{% endfor %}</td></tr>
+</table>
+<p class="note">{% if c.item_id %}Open item <a href="/review/{{ c.item_id }}">{{ c.item_id }}</a> · {% endif %}Enter or change the verdict on the <a href="/m06/setup#m06-{{ c.ticker }}">M06 setup page</a>. Band ≤ 3 years = NONE (outline Moat 5), 3–10 = NARROW, &gt; 10 = WIDE (D-M06-3); a cited filing quote verified against the stored text lifts the grade to A (D21). A verdict re-opens only when a new 10-K changes the quant class; otherwise it reads "stale since" (D-M06-8). Challengers (R21) arrive in M06 Part 2.</p>
+{% if c.history | length > 1 or (c.history and c.history[0]['status'] == 'rejected') %}
+<table class="data">
+  <tr><th>Entered</th><th>Verdict</th><th>Band</th><th>Grade</th><th>Status</th><th>Gate override</th><th>Reason</th></tr>
+  {% for h in c.history %}<tr{% if h['status'] == 'rejected' %} class="muted"{% endif %}><td>{{ h['decided_at'][:10] }}</td><td>{{ h['verdict'] }}</td><td>{{ mv.bands[h['band']][0] if h['band'] else '—' }}</td><td>{{ h['grade'] }}</td><td>{{ h['status'] }}{% if h['status'] == 'rejected' %} (quote not found){% endif %}</td><td>{{ h['override'] or '—' }}{% if h['override'] %} <span class="muted">{{ h['override_reason'] }}</span>{% endif %}</td><td class="muted">{{ h['reason'] }}</td></tr>{% endfor %}
+</table>
+{% endif %}
+{% endif %}
+{% for e in c.errors %}<p class="note warn">{{ e }}</p>{% endfor %}

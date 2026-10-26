@@ -21,7 +21,7 @@
     {% if it.week and loop.changed(it.week) %}<tr><th colspan="5" class="weekhead">M02 digest — week of {{ it.week }}</th></tr>{% endif %}
     <tr>
       <td style="white-space:nowrap">{{ it.created_at[:10] }}</td>
-      <td>{% if it.ticker %}<a href="/c/{{ it.ticker }}?tab={{ 'themes' if it.kind.startswith('m02_') else ('financials' if it.kind.startswith('m04_') else 'guidance') }}">{{ it.ticker }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td>{% if it.ticker %}<a href="/c/{{ it.ticker }}?tab={{ 'themes' if it.kind.startswith('m02_') else ('financials' if it.kind.startswith(('m04_', 'm06_')) else 'guidance') }}">{{ it.ticker }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
       <td class="muted">{{ it.label }}</td>
       <td><a href="/review/{{ it.item_id }}">{{ it.reason }}</a>
         {% if it.payload.text %}<div class="quote">“{{ it.payload.text[:220] }}{% if it.payload.text | length > 220 %}…{% endif %}”</div>{% endif %}</td>
@@ -30,6 +30,6 @@
     {% endfor %}
   </table>
   {% else %}<p class="empty">{% if show == 'resolved' %}No resolved items match.{% else %}Nothing to review{% if kind or ticker %} for this filter{% endif %}.{% endif %}</p>{% endif %}
-  <p class="note">Items come from the guidance parser (unparsed sentences, conflicting values), the Gemini verifier (rejected output), the ticker-map refresh (large changes held) and M02 (theme, phrase, candidate, link and download proposals; at most 10 new M02 items a week, the rest wait on the Themes page) and M04 (life-cycle stages and peer shortlists, answered on the <a href="/m04/setup">M04 setup page</a>; filing events, restatement steps and rating sentences, answered here; at most 5 M04 judgment items a week, setup items outside that cap). Every action records who, when and your note.</p>
+  <p class="note">Items come from the guidance parser (unparsed sentences, conflicting values), the Gemini verifier (rejected output), the ticker-map refresh (large changes held) and M02 (theme, phrase, candidate, link and download proposals; at most 10 new M02 items a week, the rest wait on the Themes page) and M04 (life-cycle stages and peer shortlists, answered on the <a href="/m04/setup">M04 setup page</a>; filing events, restatement steps and rating sentences, answered here; at most 5 M04 judgment items a week, setup items outside that cap) and M06 (moat verdicts, answered on the <a href="/m06/setup">M06 setup page</a>, outside M04's cap). Every action records who, when and your note.</p>
 </main>
 {% endblock %}

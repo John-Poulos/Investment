@@ -296,6 +296,10 @@ def create_app(settings: UiSettings) -> FastAPI:
             ctx["m04_gate"] = m04_gate_view.company_view(
                 engine, cik, ticker, datetime.now(UTC).date(), m04_companies(engine)
             )
+            from engine.moat import views as m06_views  # M06 Part 1 (D-UI-40)
+
+            ctx["m06"] = m06_views.company_view(engine, cik, ticker, datetime.now(UTC),
+                                                **m06_config())  # fmt: skip
         elif tab == "m04":  # M04 Part 8a (D-UI-31)
             from engine.financials import cvd_view
 
@@ -795,7 +799,10 @@ def create_app(settings: UiSettings) -> FastAPI:
         """Owner-only review actions (U2); each closes the item with who, when and note (U3)."""
         now = datetime.now(UTC)
         done = action
-        if (it0 := review.get(engine, item_id)) and it0.kind.startswith("m04_"):
+        if (it0 := review.get(engine, item_id)) and it0.kind.startswith("m06_"):  # M06 Part 1
+            msg = "Enter the moat verdict on the M06 setup page (it closes this item)."
+            return RedirectResponse(f"/m06/setup?error={quote(msg)}#m06-{it0.ticker or ''}", 303)
+        if it0 and it0.kind.startswith("m04_"):
             to = back if back.startswith("/") and not back.startswith("//") else "/review"
             sep = "&" if "?" in to else "?"
             try:
@@ -939,6 +946,78 @@ def create_app(settings: UiSettings) -> FastAPI:
         msg = f"{it.ticker or it.cik}: {c.name} added" + (f" ({m04_peers.NOT_SEC})" if not c.cik
                                                            else "")  # fmt: skip
         return RedirectResponse(f"/m04/setup?msg={quote(msg)}#peer-{item_id}", 303)
+
+    # --- M06 setup: moat verdicts (Part 1; D-UI-40, D-M06-3…5, -8) ----------------------
+
+    def m06_config() -> dict:
+        from engine.financials import models as m06_models
+        from engine.moat import params as m06_params
+        from engine.ui.settings import ROOT as m06_root
+
+        p, note = m06_params.load_safe(m06_root / "config" / "moat.toml")
+        return {"p": p, "params_note": note, "mf": m06_models.load_safe()}
+
+    def m06_companies(engine: sqlite3.Connection) -> dict[str, str]:
+        """Covered names: watchlist + every active tier member (as the refresh pass)."""
+        listed = services.watchlist(engine, services.watchlist_tickers(settings.watchlist))
+        out = {c.ticker: c.cik for c in listed if c.cik}
+        for m in tiers.members(engine):
+            out.setdefault(m.ticker, m.cik)
+        return out
+
+    @app.get("/m06/setup", response_class=HTMLResponse)
+    def m06_setup_page(request: Request, engine: Engine, viewer: ViewerDep, msg: str = "",
+                       error: str = ""):  # fmt: skip
+        """The verdict setup batch (D-M06-8): one block per covered company."""
+        from engine.moat import views as m06_views
+
+        view = m06_views.setup_view(engine, m06_companies(engine), datetime.now(UTC),
+                                    **m06_config())  # fmt: skip
+        ctx = frame(engine) | {"viewer": viewer, "v": view, "msg": msg, "error": error}
+        return templates.TemplateResponse(request, "m06_setup.html", ctx)
+
+    @app.post("/m06/verdict/{ticker}")
+    def m06_verdict_enter(
+        ticker: str,
+        engine: Engine,
+        corpus: Corpus,
+        owner: OwnerDep,
+        verdict: Annotated[str, Form()] = "",
+        band: Annotated[str, Form()] = "",
+        sources: Annotated[list[str] | None, Form()] = None,
+        reason: Annotated[str, Form()] = "",
+        accession: Annotated[str, Form()] = "",
+        quote: Annotated[str, Form()] = "",
+        override: Annotated[str, Form()] = "",
+        override_reason: Annotated[str, Form()] = "",
+        back: Annotated[str, Form()] = "",
+    ) -> RedirectResponse:
+        """Store an owner verdict (closes the open m06_verdict item) and rewrite the three
+        M06 rows at once; a refused or rejected entry returns with the reason."""
+        from urllib.parse import quote as quote_url  # `quote` is the form field here
+
+        from engine.moat import step as m06_step
+        from engine.moat import verdict as m06_verdict
+
+        t = ticker.upper()
+        cik = services.resolve_ticker(engine, t)
+        if cik is None:
+            raise HTTPException(404, f"Unknown ticker {t}.")
+        to = back if back.startswith("/") and not back.startswith("//") else "/m06/setup"
+        sep = "&" if "?" in to else "?"
+        anchor = f"#m06-{t}" if to.startswith("/m06/") else "#moat"
+        now = datetime.now(UTC)
+        cfg = m06_config()
+        r = m06_step.name_result(engine, t, cik, now, p=cfg["p"], mf=cfg["mf"], peers=False)
+        e = m06_verdict.Entry(verdict, tuple(sources or ()), band, reason, accession, quote,
+                              override, override_reason)  # fmt: skip
+        try:
+            vid = m06_verdict.enter(engine, corpus, cik, e, r.quant, owner.id, now)
+        except (m06_verdict.VerdictError, m06_verdict.VerdictRejected) as err:
+            return RedirectResponse(f"{to}{sep}error={quote_url(f'{t}: {err}')}{anchor}", 303)
+        rr = m06_step.recompute_one(engine, t, cik, now)
+        msg = f"{t}: verdict {verdict.upper()} stored (id {vid}); gate {rr.gate.state}"
+        return RedirectResponse(f"{to}{sep}msg={quote_url(msg)}{anchor}", 303)
 
     # --- M04 survival gate (Part 4a; D-UI-28, D-M04-86) ---------------------------------
 

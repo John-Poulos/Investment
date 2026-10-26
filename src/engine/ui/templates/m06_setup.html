@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}M06 setup — Investment engine{% endblock %}
+{% block topleft %}<a href="/">← Engine</a><span class="name">M06 setup — moat verdicts</span>{% endblock %}
+{% block body %}
+<main class="detail" style="max-width: 1200px">
+  {% if msg %}<div class="okbox">{{ msg }}</div>{% endif %}
+  {% if error %}<div class="warnbox">{{ error }}</div>{% endif %}
+  {% if v.params_note %}<div class="warnbox">{{ v.params_note }}</div>{% endif %}
+  <p class="note">The setup batch (D-M06-8): one verdict per covered company that is not N_A — {{ v.open_items }} item(s) open. These items sit outside M04's weekly cap. For each company the engine shows its 10-year ROIC record and a proposal, with the evidence for and against beside it; you decide (D8). After this batch a verdict re-opens only when a new 10-K changes the quant class (or, from Part 2, a challenger warning); otherwise it reads "stale since &lt;date&gt;". Every entry is kept with who, when and your reason.</p>
+  <p class="note"><b>The test (outline Moat 5):</b> can a competitor catch up in 3 years or less? Catch-up band ≤ 3 years = NONE, 3–5 or 5–10 = NARROW, &gt; 10 = WIDE (D-M06-3). <b>The gate</b> for a first MY entry needs NARROW or WIDE with the band's low end at or above the {{ v.horizon }}-year MY horizon (A3): NARROW 3–5 years is not met. UNRATED (a young name) is not met; you may instead enter a qualitative verdict, grade B (D-M06-5). A quote from the company's own stored filing (accession + exact text) is checked against the stored text: found → grade A; not found → the entry is stored as rejected and does not apply (D21). A gate override needs its reason and shows as "override" (D12).</p>
+
+  {% for t, e in v.errors.items() %}<div class="warnbox">{{ t }}: {{ e }}</div>{% endfor %}
+
+  {% for c in v.rated %}{% set q = c.quant %}
+  <div id="m06-{{ c.ticker }}" style="margin:14px 0 22px; border-top:1px solid var(--line, #ddd); padding-top:8px">
+    <h3 style="margin:4px 0"><a href="/c/{{ c.ticker }}?tab=financials#moat">{{ c.ticker }}</a>
+      <span class="muted">· {{ q.headline() }} · proposal {{ c.proposal.verdict }}</span>
+      {% if c.item_id %} · <a href="/review/{{ c.item_id }}">item {{ c.item_id }}</a>{% endif %}</h3>
+    {% if msg and msg.startswith(c.ticker ~ ':') %}<div class="okbox">{{ msg }}</div>{% endif %}
+    {% if error and error.startswith(c.ticker ~ ':') %}<div class="warnbox">{{ error }}</div>{% endif %}
+    <table class="data">
+      <tr><th>In force</th><td>{% if c.verdict %}<b>{{ c.verdict['verdict'] }}</b> · {{ v.bands[c.verdict['band']][0] if c.verdict['band'] else 'no band' }} · grade {{ c.verdict['grade'] }} · {{ c.verdict['decided_at'][:10] }}{% if c.stale %} · <span class="warn">{{ c.stale }}</span>{% endif %} · gate <b>{{ c.gate_state }}</b>{% if c.gate_override %} <span class="warn">override</span>{% endif %}<div class="muted">{{ c.verdict['reason'] }}</div>{% else %}<span class="muted">no verdict yet · gate {{ c.gate_state }} ({{ c.gate_why }})</span>{% endif %}</td></tr>
+      <tr><th>ROIC per year</th><td>{% for y in q.years %}<span style="white-space:nowrap" title="{{ y.roic_text }}">{{ y.label }} {% if y.roic is not none %}{{ '%.1f' | format(100 * y.roic) | replace('-', '−') }}%{% elif y.roic_text.startswith('not_meaningful') %}n/m{% else %}—{% endif %}{% if y.excluded %} <span class="muted">({{ y.excluded }})</span>{% endif %}</span>{{ ' · ' if not loop.last }}{% else %}<span class="muted">no fiscal years stored</span>{% endfor %}</td></tr>
+      <tr><th>Proposal</th><td>{{ c.proposal.verdict }} <span class="muted">— {{ c.proposal.why }}</span></td></tr>
+      <tr><th>Evidence for</th><td>{% for e in c.evidence_for %}<div>{{ e }}</div>{% endfor %}</td></tr>
+      <tr><th>Evidence against</th><td>{% for e in c.evidence_against %}<div>{{ e }}</div>{% else %}<span class="muted">none found by the quant leg</span>{% endfor %}</td></tr>
+      <tr><th>Switching costs (shown, not scored)</th><td>{% for s in c.switching %}<div>{{ s }}</div>{% endfor %}{% for l in c.links %}<div>{{ l['rung'] }} {{ l['grade'] }}: {{ l['a_name'] }} — {{ l['b_name'] }} <span class="muted">({{ l['accession'] }})</span></div>{% else %}<div class="muted">no confirmed supply link</div>{% endfor %}</td></tr>
+    </table>
+    {% if viewer.is_owner %}
+    <form method="post" action="/m06/verdict/{{ c.ticker }}" class="entry" style="margin-top:6px">
+      <input type="hidden" name="back" value="/m06/setup">
+      <label>Verdict <select name="verdict" required><option value="">— choose —</option>{% for x in ('WIDE', 'NARROW', 'NONE', 'UNRATED') %}<option value="{{ x }}">{{ x }}</option>{% endfor %}</select></label>
+      <label>Catch-up band <select name="band"><option value="">— none (UNRATED) —</option>{% for k, b in v.bands.items() %}<option value="{{ k }}">{{ b[0] }}</option>{% endfor %}</select></label>
+      <span>Sources: {% for k, label in v.sources.items() %}<label style="white-space:nowrap"><input type="checkbox" name="sources" value="{{ k }}"> {{ label }}</label> {% endfor %}</span>
+      <label class="wide">Reason (required) <input name="reason" size="80" required placeholder="why: what a competitor would need, how long, who is trying"></label>
+      <label>Filing accession <input name="accession" size="22" placeholder="optional, e.g. 0000789019-26-000012"></label>
+      <label class="wide">Quote from that filing <input name="quote" size="80" placeholder="optional: exact text, verified against the stored filing (grade A)"></label>
+      <label>Gate override <select name="override"><option value="">none</option><option value="met">met</option><option value="not_met">not met</option></select></label>
+      <label class="wide">Override reason <input name="override_reason" size="60" placeholder="required with an override (logged)"></label>
+      <button class="btn" type="submit">Store verdict</button>
+    </form>
+    {% endif %}
+  </div>
+  {% else %}<p class="empty">No covered company to rate yet: run <code>uv run python scripts/run_moat.py quant</code> or wait for the next refresh.</p>{% endfor %}
+
+  <h2>Not applicable (N_A, no verdict taken)</h2>
+  {% if v.not_applicable %}
+  <table class="data">
+    <tr><th>Company</th><th>Routing</th><th>Latest ROIC (shown, not rated)</th></tr>
+    {% for c in v.not_applicable %}{% set y = c.quant.years[-1] if c.quant.years else none %}
+    <tr id="m06-{{ c.ticker }}"><td><a href="/c/{{ c.ticker }}?tab=financials#moat">{{ c.ticker }}</a></td><td>{{ c.quant.headline() }} <span class="muted">({{ c.quant.route_how }})</span></td><td>{% if y and y.roic is not none %}{{ y.label }} {{ '%.1f' | format(100 * y.roic) | replace('-', '−') }}%{% else %}<span class="muted">—</span>{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">None.</p>{% endif %}
+  <p class="note">N_A comes from the model tags (<a href="/m04/setup#tags">M04 setup</a>; edit <code>config/company_models.toml</code>) or an untagged SEC industry code 6000–6999 (financials). The gate reads not applicable, never a fail (rule 4).</p>
+</main>
+{% endblock %}

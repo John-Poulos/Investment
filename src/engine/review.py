@@ -14,6 +14,8 @@ Every action closes the item with who, when, the action and the owner's note
 - m04_*: M04 proposals (engine/financials/queue.py); data changes in `m04_action`
   (stage confirmations and overrides, peer shortlists; M04 Part 1c; filing events,
   restatement steps, rating sentences; M04 Part 3).
+- m06_verdict: M06 moat verdicts (engine/moat/verdict.py); entered on the M06 setup page,
+  which closes the item (M06 Part 1).
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ from engine.guidance.ledger import TAX_RATE_SANE, Release, _insert
 from engine.guidance.parse import METRICS, parse_call, parse_release
 from engine.guidance.sources import default_grade, origin_of
 from engine.llm.verify import numbers, scaled_forms
+from engine.moat import verdict as m06_verdict
 from engine.sec.client import iso
 from engine.sec.identity import APPROVAL_STATE
 from engine.themes import proposals, tiers
@@ -46,6 +49,7 @@ KIND_LABELS = {
     "guidance_implausible": "Guidance outside the plausible range",
     **proposals.KIND_LABELS,
     **m04_queue.KIND_LABELS,
+    **m06_verdict.KIND_LABELS,  # M06 Part 1: answered on the M06 setup page
 }
 ACTIONS = {
     "guidance_unparsed": ("enter", "dismiss"),
@@ -56,6 +60,7 @@ ACTIONS = {
     "guidance_implausible": ("correct", "wrong", "dismiss"),
     **proposals.ACTIONS,
     **m04_queue.ACTIONS,
+    **m06_verdict.ACTIONS,
 }
 METRIC_NAMES = tuple(dict.fromkeys(name for _, name in METRICS))
 PERIOD = re.compile(r"^(?:FY\d{4}( Q[1-4]| remaining)?|CY\d{4})$")
