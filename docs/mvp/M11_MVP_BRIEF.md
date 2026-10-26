@@ -1,4 +1,5 @@
 # M11 Thesis, sizing & killswitch — MVP brief
+**Decided 2026-10-25 → docs/M11_THESIS.md** (D-M11-1…8; every recommended option and default; tiers D-M01-10; Q11.9a money-flow writer D-M02-64). Kept as the sitting record.
 Updated 2026-10-25 (refreshed for sitting 5) · Source: docs/M11_DESIGN_PACK.md (research) · Status: for owner decision (sitting 5)
 
 Outputs are research signals and warnings, not financial advice (D16). Answers become D-M11-1 onward in a new `docs/M11_THESIS.md`. The tier amendment (Q11.4) takes D-M01-10, and the money-flow writer design (Q11.9, plan QP.2a) takes D-M02-64.

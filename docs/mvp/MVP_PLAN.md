@@ -23,6 +23,12 @@ Updated 2026-10-13 · Basis: DESIGN D31, the nine briefs in `docs/mvp/` (M03, M0
 - **M10** → D-M10-1…8 in `docs/M10_MACRO.md`: every recommended option (Q10.1a–Q10.8a) and the refresh's defaults (4b-lite `covenant_status` / `gc_language` in the credit class; SIC 6000–6799 not mapped; D32 standard rows). Q10.2a after the owner's one-request check (`logs/fred_probe.txt`) returned rows from the PC (Claude's sandbox could not download). Q10.3a + GNPDEF + STD: at most 10 FRED requests a run (was ≤ 7); GNPDEF switches M04's Ohlson deflator reader at M10 Part 1 (next free D-M04). BAA10Y is M10's market credit spread in the MVP; HY OAS (D-M02-42) deferred to Round 1.
 - Doc name: `M10_MACRO.md`. Effort back to Medium after sitting 5, or now if W6 starts first.
 
+## Sitting 5 answers (owner, 2026-10-25)
+- **M11** → D-M11-1…8 in `docs/M11_THESIS.md`: every recommended option (Q11.1a–Q11.8a) and the refresh's defaults (D32 standard rows and the R5 hurdle as a Part 2 display line; `commitment_cover` as M05's vote for fabless / outsourced channels; M06 NARROW = +0.5). The vote map takes the lines confirmed in sittings 1–4 (overlap 2 resolved): M04 `cvd_state` / `f_quality`, M05 vote line, M06 `moat_verdict`, M07 `insider_buy`, M08 `est_revision`, M03 `curve_stage.*`, M02 `money_flow`; M09 and M10 no vote.
+- **D-M01-10:** tiers lead 3 (M04, M06, M05, M02), medium 2 (M07, M03), low 1 (M08).
+- **QP.2a designed → D-M02-64** (Q11.9a): supplier-side `money_flow` writer in W10; the spender gets no M02 vote (its capex is M05's).
+- All MVP sittings done (M12's sitting 6 comes after W9). Doc name: `M11_THESIS.md`. Effort back to Medium for W6.
+
 ## Summary
 One row per module. "Questions" counts the brief's questions; "+1" is a question this plan restores. Request costs are from the briefs; "SEC" requests are owner-run (Claude cannot call SEC).
 
@@ -95,7 +101,7 @@ Resolution first, then the reason. The top three are marked ★.
 | 2 (answered 2026-10-13: D-M08-1…7, D-M05-1…8; D32, D-M01-7, D-M02-62) | M08 + M05 | 15 | Both are fundamentals on stored facts that read 8a (NEP, CvD); both touch `xbrl_facts` extra concepts; settles the cyclical flag (item 5), the Alpha Vantage split (item 6) and M05's M01 rule-4 amendment |
 | 3 (answered 2026-10-21: D-M03-1…8, D-M06-1…8; D-M01-8, -9) | M03 + M06 | 16 | The outline's chain "space → leader → financials → moat"; both read 8a market share, peers and confirmed stages; Q03.8's tier and M06's verdict feed the vote map |
 | 4 (answered 2026-10-25: D-M10-1…8) | M10 | 8 | Distinct topic; feeds M11's policy trigger (Q11.6) and the hurdle inputs |
-| 5 | M11 | 8 (+ QP.2 design) | Needs every vote line; decides confluence, sizing and killswitches last (D31) |
+| 5 (answered 2026-10-25: D-M11-1…8, D-M01-10, D-M02-64) | M11 | 8 (+ QP.2 design) | Needs every vote line; decides confluence, sizing and killswitches last (D31) |
 | 6 | M12 (after W9) | 8 | Brief only; built after the MVP; reads M09's and M10's answers; gates DESIGN Q5 |
 
 M04 4b-lite + 8a need no sitting (decided: D-M04-34, D-M04-1…68); the owner approved the 4b-lite + 8a mock-up on 2026-10-13 (gauge and Red Flag 1 deferred). Consequence for sitting 2: M08's NEP-based reading (soft dependency on 8a) has no `normalized_ep_*` rows in the MVP — M08 either computes its own NEP in its Part 1 or reads it as missing; settle in Q08 at sitting 2. **Settled: Q08.3b** — M08 Part 1 builds `financials/nep.py` (D-M08-3).
@@ -148,7 +154,7 @@ Rules: migration numbers are 1..n with no gaps (`store/db.py`). A part marked "n
 | W9 | M10 Part 2 (`m10-part2`) | 0047_m10_policy | — | 37 | 46 (policy event list) | — | next free (+ next free D-M02 for the `fedreg.py` extension) |
 | W9 | M11 Part 2 (`m11-part2`) | 0048_m11_caps | — | 38 | 47 (confluence line, theme exposure) | — | next free (+ next free D-M01 if tiers change) |
 | W10 | MVP dashboard (`mvp-dashboard`) | none | — | — | 48 | — | — |
-| W10 | M02 writer (`m02-flow`, optional) | none expected | — | — | — | — | next free D-M02 (from 64; D-M02-62 taken at sitting 2, D-M02-63 by M07 Part 2) |
+| W10 | M02 writer (`m02-flow`, optional) | none expected | — | — | — | — | design D-M02-64 (sitting 5); build decisions from D-M02-65 |
 | After | M12 Part 1 (`m12-part1`) | 0049_m12_iv | — | 39 | — | 25 (ex-dividend dates; IV is DS5) | D-M12-1…8, parts from 9 |
 | After | M12 Part 2 (`m12-part2`) | 0050_m12_window | — | 40 | 49 (Options tab) | — | next free |
 

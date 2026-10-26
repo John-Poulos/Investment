@@ -1,6 +1,6 @@
 # M01 — Timeframe profiles
 
-Status: reviewed 2026-10-07 (D27) · Updated: 2026-10-21 · Outline headings: Type of investing by time frame · Depends on: M00, M03 (curve signals, D-M01-8), M04 (CvD), M05 (`capex_demand`), M06 (`moat_gate`, D-M01-9), M11 · Sources: S12, S19, S26, S28–S31
+Status: reviewed 2026-10-07 (D27) · Updated: 2026-10-25 · Outline headings: Type of investing by time frame · Depends on: M00, M03 (curve signals, D-M01-8), M04 (CvD), M05 (`capex_demand`), M06 (`moat_gate`, D-M01-9), M11 · Sources: S12, S19, S26, S28–S31
 
 ## Purpose
 Defines the parameter profile each timeframe applies across all modules. Profiles change weights and recommendations, never visibility (D10). Profiles and bar sizes can be switched on the fly (D12). MY first; PT and ST later.
@@ -37,7 +37,7 @@ A holding = core lots under one primary profile + optional overlays (M12 options
 | Entry zone / add trigger | 20-week mean − 1 to 2σ triggers; depth reported uncapped (rule 7); calibrate by backtest | | |
 | Fundamental windows | TTM, YoY, 3-yr CAGR; 5-yr averages; full-cycle history for CvD | M04 windows fixed per D-M04-29, -49, -64; the 5-yr average applies to display | |
 | Review cadence | After each 10-Q/10-K; event alerts in between | | |
-| Weights | Fundamentals, moat, capex, money flow lead; ownership medium; analysts low; technicals time entries | | |
+| Weights | Fundamentals, moat, capex, money flow lead (3); ownership and M03 medium (2); analysts low (1); technicals time entries (D-M01-10) | | |
 | Hurdle | S&P 500 TR; stretch TR + CPI | | |
 | Lot awareness | Warn before selling lots held < 1 yr | | |
 | Sizing | User caps per position and per shared killswitch (R23) | | |
@@ -79,6 +79,7 @@ A holding = core lots under one primary profile + optional overlays (M12 options
 - D-M01-7 (2026-10-13, MVP sitting 2, Q05.4a = D-M05-4; amends rule 4): M05's `capex_demand` = AHEAD_OF_DEMAND (capex ÷ revenue > 1.5× its own 3-year average while revenue falls — the D-M04-64 test — or capex expanding while TTM revenue falls and no bookings line rises) is listed among the `exit_warning` reasons, as M04's red flags are, and never blocks an entry or a tranche. Why: outline CAPEX 5 (capex without demand destroys value); Intel 2021–24 (S-new-M05-10); warnings only (D16). The reason list lives in one place (`src/engine/m01_rules.py`, MVP_PLAN item 3), so M11's `exit_warning` reads it without a second copy. *Built 2026-10-20 (M05 Part 1, D-M05-15):* `m01_rules.rule4` lists "capex AHEAD_OF_DEMAND <as_of> (M05; warning only, never blocking; D-M01-7)" from M05's newest MY `capex_demand` row; rules 1, 3 and 7 do not read it.
 - D-M01-8 (2026-10-21, MVP sitting 3, Q03.8a = D-M03-8; weights row): M03's `curve_stage`, `leader_rank` and `growth_runs` (signal names `<family>.<curve label>`, read by prefix) carry MY weight "medium until calibrated"; `curve_type` is info; PT and ST info. Why: the outline's "Catch the S-curve early" is a lead input, but every M03 threshold is an uncalibrated starting value.
 - D-M01-9 (2026-10-21, MVP sitting 3, M06 rule 4 = D-M06-5, -6; amends rule 1): a first MY entry also needs M06's `moat_gate` = met (R1 "invest only with a moat", A3 band low ≥ the MY horizon, 5 years by default). `unrated` and `not_met` block the first entry (an owner override is logged, D-M06-5); `not_applicable` (fund, financial, treasury vehicle, shell period) is shown, never counted as a fail, and leaves the call with the owner (D16). PT and ST read the gate as info. Why: R1 is binding; the survival gate stays separate (D-M01-6).
+- D-M01-10 (2026-10-25, MVP sitting 5, Q11.4a = D-M11-4; weights row; MVP_PLAN overlap 2): confluence tiers as numbers — lead 3: M04 (fundamentals), M06 (moat), M05 (capex), M02 (money flow); medium 2: M07 (ownership), M03 (D-M01-8); low 1: M08 (analysts); M09 technicals time entries and carry no vote; M10 carries no vote while its rows are info (D-M10-8). One headline vote per module, the map in `config/confluence.toml` (D-M11-4); PT reuses the MY weights, labelled; ST info. Why: equal weights within tiers match fitted weights on small samples (S-new-M11-8, -9); numbers make the confluence score reproducible.
 
 ## Open questions
 - PT and ST columns — later phase.
