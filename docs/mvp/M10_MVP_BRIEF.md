@@ -1,7 +1,38 @@
 # M10 Macro & narrative — MVP brief
-Updated 2026-10-13 · Source: docs/M10_DESIGN_PACK.md (research) · Status: for owner decision (one sitting)
+Updated 2026-10-25 (refreshed for sitting 4) · Source: docs/M10_DESIGN_PACK.md (research) · Status: for owner decision (sitting 4)
 
-Research signals and warnings only, not advice. Nothing here is decided until the owner answers (D7).
+Research signals and warnings only, not advice. Nothing here is decided until the owner answers (D7). Answers become D-M10-1 onward in a new `docs/M10_MACRO.md`; an amendment to another module takes that module's next free number (D-M01-10, D-M04-108).
+
+## Since 2026-10-13 (what the refresh changed)
+- **SPY is stored** (M09 Part 1, PR #47: `prices/store.py` `BENCHMARK = "SPY"`, fetched in `prices_step`). Q10.7 now costs 0 extra requests.
+- **Shared readers are built** and M10 reuses them, never a second copy (MVP_PLAN item 3): completed weeks `technicals/bars.py` (`weekly`, `monday_of`, the `spac_shell` cut-off); earnings in the window `technicals/earnings.py` (`earnings_in_window`, `accepted_clock`, foreign 6-K reports); the M01 rule readers `m01_rules.py` (rule 4 list, which M11 reads).
+- **M04 4b-lite is built** (PR #45): `gc_language` and `covenant_status` rows (warn / fail classes, D-M04-95…99). The 2026-10-13 log has GFS and SPCX at covenant warn ("breach or default waived or cured"), no fail. The brief had them in Round 3; they now join the credit-sensitive class as a default (Starting rules; strike it if you disagree).
+- **News coverage** has run since early October 2026 (M02 Part 7a), so `before_coverage` applies only to moves before then.
+- **Pre-assigned numbers** (MVP_PLAN): Part 1 `0045_m10_macro`, D-STO-35, D-UI-44 (Macro page, Overview line), DS23 (FRED macro series); Part 2 `0047_m10_policy`, D-STO-37, D-UI-46 (policy event list), next free D-M02 for the `fedreg.py` extension. Wave W8 (Part 1, with M11 Part 1) and W9 (Part 2).
+- **FRED check from Claude's sandbox failed** (2026-10-25: the server answered, then reset every `fredgraph.csv` download). That may be specific to the sandbox. The owner runs one request from the PC before Q10.2 is final (see Q10.2). The worked example keeps the 2026-10-12 values.
+- **D32 (sitting 2)** applies: see the next section.
+
+## D32: standard rows for every company, and rules whose evidence is tech-only
+**Standard rows (default; strike if you disagree).**
+- The Macro page shows every fetched series with its latest value, as-of date, state and the date the state last changed. CPI and M2 also show year-over-year change, with no state.
+- Q10.3 adds an optional "+STD": the fed funds rate (DFF) and the unemployment rate (UNRATE), display only, 2 requests.
+- Every company's Overview line shows its class ("none" and "not applicable" included), its `macro_exposure_warning` and its last weekly move, whether or not the class is in stress (D10).
+- Exposure routing chooses which warnings can fire, never what is shown.
+
+**Tech-only evidence (flagged as D9 failure modes, checked on non-tech names at tuning):**
+1. **Policy events.** The agency watch (BIS and presidential documents) and the two topics (tariffs/trade, export controls) come from semiconductor cases: H20 and Proclamation 11002. A non-tech name's policy risk sits with other agencies:
+   - FAA for BA (excluded in the MVP for volume);
+   - FDA and CMS for pharma;
+   - EPA and FERC for utilities;
+   - bank regulators for banks.
+
+   Those names read "no policy topic configured" rather than "no exposure". `config/macro_topics.toml` takes an agency list per topic, so the owner can add one without code.
+2. **Classes on M04 4a rows.** These work for any filer, but two kinds of company read wrong:
+   - **Negative FCF from investment:** capex-heavy growers (AMZN, BA) and regulated utilities read long-duration. For utilities that reading is arguably right, since they are rate-sensitive.
+   - **Banks and insurers:** FCF and the gate are not meaningful, and their rate exposure runs the other way (net interest margin). The build reads SIC 6000–6799 as "class not mapped (financials)", never "none".
+3. **Move context vs SPY.** A large-cap US benchmark fits poorly for small caps, ADRs and sector-driven names; sector ETFs are deferred (Round 3). Labelled "vs SPY" on every line.
+4. **Zones are market-wide, not watchlist-tuned.** The BAA10Y percentile, NFCI > 0, Sahm 0.50 and DGS10 +1 pp come from the sources cited, not from these 16 names. This part needs no flag.
+5. **First tests are tech names.** The April 2025 replay and the policy fixture are tech cases. The build adds non-tech fixtures: a regulated utility (negative FCF, long-duration), a regional bank (not mapped), and a Federal Register document for an airline or pharma name with no topic configured.
 
 ## Purpose in one paragraph
 M10 reports the macro and policy backdrop, which names are exposed to it, and what is on file when a name moves. It serves three parts of the outline:
@@ -23,8 +54,9 @@ Other parts of "why is it moving" are served elsewhere and only read here: money
 | Policy documents | `fedreg_doc`, `official_theme` (0027/0028), `official/fedreg.py` (no key; searches theme phrases in RULE/PRORULE/NOTICE; stores title, agencies, publication date, abstract ≤ 300 characters) | Agency and presidential-document queries, plus the signing and effective dates (not stored today) → a small extension of the 7b adapter (pack 5.1a) |
 | Company text that states an exposure | corpus `section` / `passage` / `passage_fts`: latest 10-K/10-Q (plus M02's year-ago twins), the last 4 earnings 8-Ks and every 8-K filed since the backfill, call turns labelled `call management` / `call analyst` (`calls/transcripts.py`) | Older non-earnings 8-Ks (e.g. NVIDIA's 2025-04-09 H20 8-K) have an `event` row only, with no text: 1–2 SEC requests each if wanted, else the event title |
 | Catalysts | `event` (0006), `news_item` / `news_company` / `news_source` (0025, grades A/B/C), `m04_event`, `guidance` | News starts 2026-10 (part 7a) |
-| Prices | `price_bar` (keyed by symbol) / `price_fetch` (0012, `prices/store.py`; `price_fetch.cik` may be NULL, so SPY fits) | Add SPY: 1 Tiingo symbol of 480 a month; internal use only (S68) |
-| Macro series | — (M04's Ohlson O reads a hand-entered GNPDEF table with 3 years, `financials/distress.py`, D-M04-87) | **New gap:** FRED keyless `fredgraph.csv` (S-new-M10-17), 1 request per series. The pack's DS12/DS13 are taken; the DS number is assigned at build |
+| Prices | `price_bar` (keyed by symbol) / `price_fetch` (0012, `prices/store.py`); SPY stored since M09 Part 1 (`BENCHMARK`); completed weeks `technicals/bars.py`; earnings in the window `technicals/earnings.py` | None (internal use only, S68) |
+| Credit distress text | M04 4b-lite rows `gc_language`, `covenant_status` (`financials/gate_text_step.py`; warn / fail classes) | None |
+| Macro series | — (M04's Ohlson O reads a hand-entered GNPDEF table with 3 years, `financials/distress.py`, D-M04-87) | **New gap DS23:** FRED keyless `fredgraph.csv` (S-new-M10-17), 1 request per series |
 | Geography, floating-rate debt | — | DS12 (geography not stored); deferred |
 
 ## MVP signals (4)
@@ -47,7 +79,8 @@ Other parts of "why is it moving" are served elsewhere and only read here: money
   - NFCI > 0, i.e. tighter than average (S-new-M10-21).
   - SAHMREALTIME ≥ 0.50.
 - **Classes** (a name may hold both of the first two; asset-holding replaces them):
-  - Credit-sensitive: `survival_gate` warn or fail, numeric `runway_q` < 8 (the gate's warn band, D-M04-32), or `maturity_wall` ≥ 1 (its warn line, D-M04-33).
+  - Credit-sensitive: `survival_gate` warn or fail, numeric `runway_q` < 8 (the gate's warn band, D-M04-32), or `maturity_wall` ≥ 1 (its warn line, D-M04-33); since 4b-lite, also `covenant_status` or `gc_language` at warn or fail (default; strike it if you disagree).
+  - Not mapped: SIC 6000–6799 (banks, insurers; D32 flag 2) reads "class not mapped (financials)".
   - Long-duration: TTM FCF < 0 (`fcf_burn` value; Q10.5 may narrow it to the cash_burner tier).
   - Asset-holding: `asset_treasury`.
   - Not applicable: `fund`.
@@ -82,9 +115,10 @@ Other parts of "why is it moving" are served elsewhere and only read here: money
 | MSTR | pass, liquidity-only (12-month wall 40M vs liquidity 2,448M) | 373.9 (cash burner) | −5.3% | asset-holding |
 | SPCX | incomplete | — | — | missing |
 | ETV | not_applicable | — | — | not_applicable |
-| AAPL, AVGO, GFS, GOOG, INTC, META, MRVL, MSFT, MU, NVDA, TSLA | pass | self-funding | +5.0% to +44.3% | none |
+| GFS | pass | self-funding | positive | credit-sensitive under the 4b-lite default (covenant warn: "breach or default waived or cured", `logs/financials_gate-text_20261013-134918.txt`); none without it |
+| AAPL, AVGO, GOOG, INTC, META, MRVL, MSFT, MU, NVDA, TSLA | pass | self-funding | +5.0% to +44.3% | none |
 
-No name has `maturity_wall` ≥ 1 today. AMZN and BA show the proxy's weakness: growth capex, not a duration bet, makes FCF negative (Q10.5b narrows it).
+SPCX is also at covenant warn on that log, but its gate is incomplete, so it stays missing. These rows are re-read at build from the stored rows; new 10-Qs since 2026-10-13 may change them. No name has `maturity_wall` ≥ 1 today. AMZN and BA show the proxy's weakness: growth capex, not a duration bet, makes FCF negative (Q10.5b narrows it).
 
 **April 2025 replay** (real values: BAA10Y 1.73 on Apr 2 → 2.02 on Apr 7 and Apr 9; HY OAS 3.42 → 4.61):
 - 2.02 may not even reach the 10-year 90th percentile: the 2015–25 window likely holds higher readings (the 2016 and 2020 credit spikes; unverified), so a level-percentile zone may read normal through the whole shock. The build replays it on the fetched series; a credit-sensitive name reads at most watch from a one-week spike.
@@ -138,14 +172,17 @@ No name has `maturity_wall` ≥ 1 today. AMZN and BA show the proxy's weakness: 
 - b) A pseudo-CIK 0000000000 in `signal` (collides with that fallback).
 
 **Q10.2 FRED access**
-- a) *Recommended.* Keyless CSV now, storing our own vintages from day one; free key and ALFRED at tuning. Why: no owner action, and the backtest that needs vintages is deferred (S-new-M10-17, -18).
-- b) The owner gets a free key now and the build backfills ALFRED.
+- a) *Recommended if the owner's one-request check returns rows.* Keyless CSV now, storing our own vintages from day one; free key and ALFRED at tuning. Why: no owner action, and the backtest that needs vintages is deferred (S-new-M10-17, -18).
+- b) The owner gets a free key now (`FRED_API_KEY` in `.env`), and the build uses the documented API and backfills ALFRED. *Recommended if the check fails*: Claude's sandbox was reset on every `fredgraph.csv` download on 2026-10-25.
+- Check (owner, 1 request): `curl.exe -s "https://fred.stlouisfed.org/graph/fredgraph.csv?id=NFCI&cosd=2026-09-01" > logs\fred_probe.txt`. Rows of dates and values mean the CSV works from the PC (a); an empty file or an error means the key route (b).
 
 **Q10.3 Indicator set**
 - a) *Recommended.* T10Y3M, DGS10, BAA10Y, NFCI, SAHMREALTIME, plus CPIAUCSL and M2SL for M01: at most 7 requests a run. BAA10Y is then the market credit spread D-M02-42 assigns to M10. Why: covers curve, rates, credit, conditions and labour; BAA10Y goes back to 1986 (S-new-M10-1, -4, -17, -21).
 - b) As a, plus HY OAS for display (internal, 3-year window; the series D-M02-42 names).
 - c) The pack's full list (about 10 series, plus EBP and GSW).
 - With any option, GNPDEF can be added for 1 request to fill M04's missing Ohlson O years (D-M04-87): answer "+GNPDEF".
+- With any option, "+STD" adds the fed funds rate (DFF) and the unemployment rate (UNRATE) as display-only standard rows (D32), 2 requests, no state.
+- *Recommended overall:* a + GNPDEF + STD, at most 10 requests a run (MVP_PLAN's "≤ 7 a day" becomes ≤ 10). Weekly and monthly series are fetched only when due.
 
 **Q10.4 Persistence and warning trigger (MY)**
 - a) *Recommended.* Stress after 4 weekly readings in zone; a credit warning needs both BAA10Y and NFCI. Why: filters the 2025 flicker and the April 2025 spike (pack 6.2a, S86).
@@ -164,7 +201,7 @@ No name has `maturity_wall` ≥ 1 today. AMZN and BA show the proxy's weakness: 
 - c) Defer policy events.
 
 **Q10.7 Move context (the outline's "why is it moving")**
-- a) *Recommended.* Include it, with SPY added to Tiingo (1 symbol; also a candidate for M01's total-return proxy). A weekly excess move with |z| ≥ 2 vs the name's own 52 weeks lists the stored catalysts; the owner may write the sentence. Why: outline M10 items 3–4; the inputs are already stored, so the cost is 1 Tiingo request a day (S68).
+- a) *Recommended.* Include it on the stored SPY bars (M09 Part 1). A weekly excess move with |z| ≥ 2 vs the name's own 52 completed weeks (`technicals/bars.py`) lists the stored catalysts (earnings via `technicals/earnings.py`, plus news, 8-K events, guidance changes, policy events, regime and gate changes); the owner may write the sentence. Why: outline M10 items 3–4; every input is already stored, so it costs 0 requests (S68).
 - b) Defer (the pack's design).
 - c) Include it on raw returns, without SPY.
 
@@ -177,13 +214,13 @@ No name has `maturity_wall` ≥ 1 today. AMZN and BA show the proxy's weakness: 
 
 | Item | Plan |
 |---|---|
-| Code | `src/engine/macro/`: `fred.py` (keyless CSV, U7 budget, vintages), `regime.py`, `exposure.py`, `moves.py`, `step.py`; SPY in `prices_step`; `scripts/run_macro.py` |
-| Tables | `macro_series`, `macro_reading`, `move_note`; migration TBD (0038/0039 go to M04 4b-lite and 8a) |
+| Code | `src/engine/macro/`: `fred.py` (keyless CSV or key per Q10.2, U7 budget, vintages; shared with M12), `regime.py`, `exposure.py`, `moves.py` (reuses `technicals/bars.py` and `technicals/earnings.py`), `step.py`; `scripts/run_macro.py` |
+| Tables | `macro_series`, `macro_reading`, `move_note`; migration `0045_m10_macro`, D-STO-35, D-UI-44, DS23 |
 | Review kinds | none |
 | UI | New Macro page (states, as-of dates, last change, composite, licence label); one M10 line per company on the Overview tab (class, warning, last move with catalysts, sentence box) |
 | Refresh | Local step after `prices_step`; FRED once a day, weekly and monthly series only when due |
-| Live check | `uv run python scripts/run_macro.py regime`: 7 FRED + 1 Tiingo requests, 0 SEC, under 2 min; `--no-fetch` for re-runs |
-| Fixtures | Hand-built CSVs from the pack's real values (T10Y3M 2022-10…2025-09, BAA10Y and HY OAS Apr 2025, NFCI); synthetic bars with SPY; M04 rows for RIVN, AMZN, MSTR, ETV, SPCX |
+| Live check | `uv run python scripts/run_macro.py regime`: up to 10 FRED requests (Q10.3), SPY already stored, 0 SEC, under 2 min; `--no-fetch` for re-runs |
+| Fixtures | Hand-built CSVs from the pack's real values (T10Y3M 2022-10…2025-09, BAA10Y and HY OAS Apr 2025, NFCI); synthetic bars with SPY; M04 rows for RIVN, AMZN, MSTR, ETV, SPCX, GFS (covenant warn); D32 non-tech cases: a regulated utility, a regional bank |
 | Depends on | M04 4a (built); not on 4b-lite or 8a |
 
 **Part 2: policy events and stated exposure**
@@ -191,7 +228,7 @@ No name has `maturity_wall` ≥ 1 today. AMZN and BA show the proxy's weakness: 
 | Item | Plan |
 |---|---|
 | Code | Agency/type query in `fedreg.py`; `macro/topics.py` (lexicon, verbatim quotes, stated vs mentioned); `macro/policy.py` |
-| Tables | `policy_event` (three dates, agency, type, status, topics, grade, source_ref) and `policy_link` (cik, level, quote, passage_id, owner_confirmed_at); migration TBD |
+| Tables | `policy_event` (three dates, agency, type, status, topics, grade, source_ref) and `policy_link` (cik, level, quote, passage_id, owner_confirmed_at); migration `0047_m10_policy`, D-STO-37, D-UI-46, next free D-M02 for the `fedreg.py` extension |
 | Config | `config/macro_topics.toml` |
 | UI | Event list with link confirm/reject on the Macro page; policy rows on Overview; policy events become move catalysts |
 | Live check | `run_macro.py policy`: Federal Register from 2025-01-01, 2 agency queries, about 6–10 requests, 0 SEC, under 3 min |
@@ -199,11 +236,11 @@ No name has `maturity_wall` ≥ 1 today. AMZN and BA show the proxy's weakness: 
 | Depends on | M02 7b (built) and Part 1; M11 reads both parts later |
 
 ## Open risks
-- `fredgraph.csv` is a graph download, not the documented API; terms unverified. Fallback: free key (Q10.2b).
+- `fredgraph.csv` is a graph download, not the documented API; terms unverified, and Claude's sandbox was reset on every download on 2026-10-25. The owner's one-request check settles Q10.2; fallback: free key (Q10.2b).
 - Zones and the 10-year percentile are untested starting values (LESSONS: calibrate a cut-off on known cases first); the April 2025 replay is the first test.
 - M04 classes are proxies and labelled so (AMZN, BA by a hair; Q10.5).
 - Presidential documents (hundreds a year) may flood the Macro page; topic filters first, FAA excluded.
-- DS and migration numbers may clash across MVP briefs (M07 also adds after DS17).
+- Numbers are pre-assigned in MVP_PLAN (0045/0047, DS23); a W6 or W7 part that needs an unplanned migration moves them up by one (MVP_PLAN rules).
 - M11 has no design: warnings appear only on the pages until M11 reads them (M01 rule 4).
 
 ## Check notes (2026-10-13)
@@ -217,3 +254,9 @@ No name has `maturity_wall` ≥ 1 today. AMZN and BA show the proxy's weakness: 
 - **Cases (added):** 18 first run is a baseline (LESSONS); 19 grade-C catalysts. Warnings: T10Y3M and SAHMREALTIME warn no company (was implicit).
 - **Questions (changed):** Q10.5 gains b) long-duration only for the cash_burner tier, because the real data put capex-funded AMZN and BA in long-duration by a hair; old b/c become c/d. Q10.6a notes the Macro page list as the D8 review place.
 - **MVP discipline:** 4 signals, 8 questions, 2 parts, live checks under 3 min with 0 SEC requests: no change. D13 fields (cik key, value vs value_text, missing rows, grade, MY/PT/ST) were already right; a missing row for SPCX was made explicit. The body is about 20k characters without these notes, above the 8–15k target; the added real-data table and cases account for most of it.
+
+## Refresh notes (2026-10-25, sitting 4)
+- SPY, the week reader and the earnings-in-window helper are built (M09 Part 1), so Q10.7a costs 0 requests and reuses them. 4b-lite's `covenant_status` and `gc_language` move from Round 3 into the credit class as a default, which puts GFS in the class (covenant warn on the 2026-10-13 log). SIC 6000–6799 reads "class not mapped".
+- D32 section added: standard rows, "+STD" (DFF, UNRATE) in Q10.3, five tech-only flags, and non-tech fixtures.
+- Q10.2 depends on the owner's one-request check, because Claude's sandbox could not download `fredgraph.csv`. The FRED values in the worked example stay those checked on 2026-10-12.
+- Numbers from MVP_PLAN: 0045/0047, D-STO-35/37, D-UI-44/46, DS23. The eight questions and their order are unchanged.
