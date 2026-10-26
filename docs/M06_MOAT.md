@@ -108,7 +108,7 @@ MSFT FY2026 ROIC 35.9% and the MU and BA years match the brief. Notes:
 2. **Book ROIC on tiny invested capital reads extreme:** BA FY2016–18 at 228–492% (near-zero equity), MSFT FY2019–21 above 100% (large cash), AAPL 113% (buybacks). The class reads the count of years above the hurdle, not the level, so classes stand. D9 failure mode, shown as stated.
 
 ## Open for owner (Part 1)
-1. **M01 rule 1 reader** (D-M06-15): `m01_rules.rule1` does not yet require `moat_gate` = met; M11 Part 1's first-entry gate reads `gate.latest_gate`. Wiring it into rule 1 now would also mark every name "not qualified" for M09's mean reversion until verdicts exist. Keep as built, or wire rule 1 now?
+1. **M01 rule 1 reader** (D-M06-15): `m01_rules.rule1` does not yet require `moat_gate` = met; M11 Part 1's first-entry gate reads `gate.latest_gate`. Wiring it into rule 1 now would also mark every name "not qualified" for M09's mean reversion until verdicts exist. **Answered 2026-10-26 (owner): keep as built**; M11's first-entry gate enforces D-M01-9 (W8).
 2. **R&D-heavy cut-off** 10%† (D-M06-10) has no source; label only. Keep, change, or drop the label?
 3. **No verdict = gate missing** (D-M06-12), not `unrated`. Confirm.
 4. **Calendar-fixed window** (D-M06-9): a gap year shortens the window rather than reaching back. Confirm, or reach back to the last 10 computable years?
