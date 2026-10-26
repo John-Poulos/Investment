@@ -1,0 +1,15 @@
+# M06 Moat parameters (docs/M06_MOAT.md; owner-edited). Version goes into every row's method.
+# † = sourced starting values, not tuned on the watchlist (D32); calibrated at tuning.
+version = "v1"
+
+[quant]
+hurdle = 0.08             # † ROIC after tax (D-M06-1; a convention, not a WACC; S14)
+band_pp = 0.02            # the ±2 pp shown around the hurdle (D-M06-1)
+window_years = 10         # last 10 fiscal years with operating income (D-M06-2)
+min_years = 7             # fewer computable years → short_history (D-M06-2)
+persistent_share = 0.80   # † share of window years above the hurdle (S-new-55, fade ≈ 38%/yr)
+recent_years = 3          # through_cycle needs ≥ 1 of these above the hurdle (INTC guard)
+rd_heavy_share = 0.10     # † R&D ÷ revenue at or above this → "R&D-heavy" label (label only)
+
+[gate]
+my_horizon_years = 5      # global MY horizon for A3 (D-M06-6); per-position horizons with M11

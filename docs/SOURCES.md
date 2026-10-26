@@ -329,3 +329,24 @@ S247–S291 are the M08 pack's S-new-M08-1…45 in order (S-new-M08-n = S(246 + 
 - S301 SEC XBRL companyconcept and frames checks of 2026-10-12 (primary). Pattern: `https://data.sec.gov/api/xbrl/companyconcept/CIK##########/us-gaap/<Tag>.json`. (M05 pack S-new-M05-10)
 
 S292–S301 are the M05 pack's S-new-M05-1…10 in order (S-new-M05-n = S(291 + n)), numbered at the M05 Part 1 rebase (2026-10-21); the M05 docs keep the provisional names.
+
+- S302 [primary; = S14] Morningstar, *Equity Research Methodology* (29 Sep 2022), pp. 1–2, 4 — https://indexes.morningstar.com/api/docs/68b1f8066315c9eedeb522fb (M06 pack S-new-M06-1)
+- S303 [other] Mauboussin, Callahan & Majd (1 Nov 2016), "Measuring the Moat", Credit Suisse — https://www.safalniveshak.com/wp-content/uploads/2017/01/Measuring-the-Moat-Mauboussin-2016.pdf (M06 pack S-new-M06-2)
+- S304 Wiggins & Ruefli (2005), "Schumpeter's Ghost: Is Hypercompetition Making the Best of Times Shorter?", *Strategic Management Journal* 26(10), 887–911 — https://ideas.repec.org/a/bla/stratm/v26y2005i10p887-911.html (M06 pack S-new-M06-3)
+- S305 McGahan & Porter (1999), "The Persistence of Shocks to Profitability", *Review of Economics and Statistics* 81(1), 143–153 — https://ideas.repec.org/a/tpr/restat/v81y1999i1p143-153.html (M06 pack S-new-M06-4)
+- S306 Chan, Karceski & Lakonishok (2003), "The Level and Persistence of Growth Rates", *Journal of Finance* 58(2), 643–684 — https://www.lsvasset.com/pdf/research-papers/Level+Persistence_of_Growth_Rates_FINAL.pdf (M06 pack S-new-M06-5)
+- S307 Li, Lundholm & Minnis (2013), "A Measure of Competition Based on 10-K Filings", *Journal of Accounting Research* 51(2), 399–436 — https://ideas.repec.org/a/bla/joares/v51y2013i2p399-436.html (M06 pack S-new-M06-6)
+- S308 Hoberg, Phillips & Prabhala (2014), "Product Market Threats, Payouts, and Financial Flexibility", *Journal of Finance* 69(1), 293–324; data library — https://hobergphillips.tuck.dartmouth.edu/ (M06 pack S-new-M06-7)
+- S309 Kanuri & McLeod (2016), wide-moat portfolio performance, *Applied Economics* 48(52), 5117–5127 — https://aquila.usm.edu/fac_pubs/17820 (M06 pack S-new-M06-8)
+- S310 Novy-Marx (2013), "The Other Side of Value: The Gross Profitability Premium", *Journal of Financial Economics* 108(1), 1–28 — https://ideas.repec.org/a/eee/jfinec/v108y2013i1p1-28.html (M06 pack S-new-M06-9)
+- S311 Dichev & Tang (2009), "Earnings Volatility and Earnings Predictability", *Journal of Accounting and Economics* 47(1–2), 160–181 — https://ideas.repec.org/a/eee/jaecon/v47y2009i1-2p160-181.html (M06 pack S-new-M06-10)
+- S312 Peters & Taylor (2017), "Intangible Capital and the Investment-q Relation", *Journal of Financial Economics* 123(2), 251–272 — https://ideas.repec.org/a/eee/jfinec/v123y2017i2p251-272.html (M06 pack S-new-M06-11)
+- S313 Katz & Shapiro (1985), "Network Externalities, Competition, and Compatibility", *American Economic Review* 75(3), 424–440 — https://ideas.repec.org/a/aea/aecrev/v75y1985i3p424-40.html (M06 pack S-new-M06-12)
+- S314 [primary] Micron, HBM3E volume production release (2024-02-26) — https://micron.gcs-web.com/node/46656 (M06 pack S-new-M06-13)
+- S315 [other] Samsung HBM3E reports: SamMobile (2025-09-22) — https://www.sammobile.com/news/samsung-may-finally-have-scored-the-nvidia-win-it-desperately-needs/ ; ThePrint / Reuters (2024-08-07) — https://theprint.in/tech/exclusive-samsungs-8-layer-hbm3e-chips-clear-nvidias-tests-for-use-sources-say/2211708/ (M06 pack S-new-M06-14)
+- S316 [other; extends S06] Counterpoint HBM shares Q2 2026 via Edaily (2026-09-03) — https://en.edaily.co.kr/news/eda202609035608/ ; SamMobile — https://www.sammobile.com/?p=16676368 (M06 pack S-new-M06-15)
+- S317 [= S27, date corrected to 2026-09-01] Korea JoongAng Daily, CXMT begins HBM3E production — https://www.koreajoongangdaily.com/business/chinas-cxmt-begins-hbm3e-production-as-chip-battle-with-korean-powerhouses-widens/12854260 (M06 pack S-new-M06-16)
+- S318 [primary] SEC XBRL companyconcept, checked 2026-10-12: INTC, MSFT, NVDA, MU gross profit, revenue, operating income; MSFT equity, LT debt, cash and ST investments, tax, pretax income. Pattern: `https://data.sec.gov/api/xbrl/companyconcept/CIK##########/us-gaap/<Tag>.json` (M06 pack S-new-M06-17)
+- S319 [other] Morningstar, "Not All Moats Are Created Equal" (30 May 2017), p. 2, VanEck copy — https://vaneck.com.au/not-all-moats-are-created-equal (M06 pack S-new-M06-18)
+
+S302–S319 are the M06 pack's S-new-M06-1…18 in order (S-new-M06-n = S(301 + n)), numbered at M06 Part 1 (2026-10-25); the M06 docs keep the provisional names. S302 duplicates S14 and S317 corrects S27's date (the pack's "SOURCES fixes" item; S14 and S27 themselves are unchanged).

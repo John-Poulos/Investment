@@ -123,6 +123,8 @@
 <p class="note">{{ pz.note }}</p>
 {% endif %}
 
+{% if m06 %}{% include "tabs/_m06_moat.html" %}{% endif %}
+
 <h2>Guidance record <span class="muted">(M04 Q2 row; shared with M11)</span></h2>
 {% set g = m04.guidance %}
 <p><b>{{ g.headline }}</b>{% if g.repeated %} · <b>repeated</b> (2† misses in the last 4 guided quarters){% endif %}</p>

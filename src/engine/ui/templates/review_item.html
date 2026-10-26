@@ -294,6 +294,10 @@
   {% elif it.kind in ('m04_stage', 'm04_peer') %}
   <h3 class="sub">Resolve</h3>
   <p><a class="btn" href="/m04/setup{{ '#stages' if it.kind == 'm04_stage' else '#peer-' ~ it.item_id }}">Open on the M04 setup page</a></p>
+  {% elif it.kind == 'm06_verdict' %}
+  <h3 class="sub">Resolve</h3>
+  <p>Engine proposal: <b>{{ it.payload.proposal }}</b> <span class="muted">— {{ it.payload.why }}</span></p>
+  <p><a class="btn" href="/m06/setup#m06-{{ it.ticker or it.payload.ticker }}">Enter the verdict on the M06 setup page</a> <span class="muted">(storing it closes this item; D-M06-8)</span></p>
   {% else %}
   <h3 class="sub">Resolve</h3>
   {% if 'enter' in it.actions %}

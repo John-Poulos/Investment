@@ -15,6 +15,7 @@
   <a href="/themes" class="muted" title="Theme breadth (M02)">Themes</a>
   <a href="/m04/setup" class="muted" title="M04 setup: life-cycle stages, peer shortlists, model tags">M04 setup</a>
   <a href="/m04" class="muted" title="M04: Cycle vs Decline for every covered company">M04 CvD</a>
+  <a href="/m06/setup" class="muted" title="M06 setup: moat verdicts (setup batch)">M06 setup</a>
   <a href="/review" class="{% if status.open_reviews %}badge{% else %}muted{% endif %}" title="Open review items">Review {{ status.open_reviews }}</a>
   <a href="/runs" class="muted" title="Runs and costs">
     {% if status.last_run_status %}Nightly {{ status.last_run_status }} {{ (status.last_run_finished or status.last_run_started or '')[:16] | replace('T', ' ') }}{% else %}No nightly run yet{% endif %}
