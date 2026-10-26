@@ -53,7 +53,7 @@ from engine.sec.asof import facts_as_of
 from engine.sec.identity import normalize_cik
 from engine.sec.xbrl_facts import get_series
 
-FINDER_VERSION = "commit-2"  # live check 1 fixes (D-M05-25)
+FINDER_VERSION = "commit-3"  # real-excerpt fixes (D-M05-27)
 STATE_KEY = "m05_commit:{cik}"
 LABEL = "hypothesis, not backtested"
 COVER_STEP = 0.10  # † ±10% YoY sets RISING / FALLING (as bookings_cover)
@@ -100,7 +100,7 @@ TRIGGER = re.compile(
     r"(?:contractual|capital|purchase|firm|unconditional|non-?cancell?able) "
     r"(?:commitment|obligation)s?|"
     r"commit(?:ted|ments?) to (?:purchase|acquire|buy|spend)|"
-    r"commitments (?:of|for|totaling|totalling|were|was)\b|"
+    r"commitments (?:of|for|totaling|totalling|were|was|are)\b|"
     r"supply and capacity|capacity obligations?|"
     r"aircraft (?:purchase|order|delivery) (?:commitment|obligation)s?|"
     r"not yet commenced",
@@ -115,7 +115,8 @@ DEPOSIT = re.compile(
 _CANCEL = re.compile(
     r"\b(non-?|not\s+|un)?(cancell?able|cancell?ed|reschedul(?:ed|able)|adjustable)\b", re.I
 )
-_MODAL = re.compile(r"\b(?:could|may|might|would)\b", re.I)
+# "May 28, 2026" is a date, not a modal (real MU 10-Q, D-M05-27)
+_MODAL = re.compile(r"\b(?:could|may(?!\s+\d)|might|would)\b", re.I)
 _FORWARD = re.compile(
     r"\b(?:expect|anticipate|plan|intend|estimate|project|forecast)(?:s|ed|ing)?\b", re.I
 )
@@ -153,6 +154,20 @@ _LEASE_NOT_COMMENCED = re.compile(
     r"\bleases?\b.*\b(?:not yet commenced|have not commenced|had not commenced|yet to commence)",
     re.I | re.S,
 )
+# Real excerpts (D-M05-27): an asset balance named right before the amount ("inventories
+# balance was $21.4 billion", "equity investments of $99 billion") is not a commitment;
+# "These lease obligations were $355.73 billion" after a sentence naming leases not yet
+# commenced is that line; lease obligations otherwise are liabilities, not commitments.
+_ASSET_BALANCE = re.compile(
+    r"\b(?:inventor(?:y|ies)|equity investments?|marketable securities|cash(?: and cash "
+    r"equivalents)?|cash equivalents)\s+(?:balance\s+)?(?:was|were|is|are|of|totaling|"
+    r"totalling)\s+(?:approximately\s+|about\s+)?$",
+    re.I,
+)
+_LEASE_OBL = re.compile(r"\blease obligations (?:were|was|are|of|totaling|totalling)\b", re.I)
+_SPLIT_CATEGORIES = ("cloud", "investment", "ppe", "supply_capacity")
+REASON_ASSET = "an asset balance (inventory, investments or cash held), not a commitment"
+REASON_LEASE_LIABILITY = "lease obligations not stated as not yet commenced (a liability)"
 _LIST_GAP = re.compile(r"^\s*(?:,\s*)?(?:and\s+)?$", re.I)
 _FROM_BEFORE = re.compile(r"\bfrom\s*$", re.I)
 _TO_GAP = re.compile(r"^[^$.;]{0,40}\bto\s*$", re.I)
@@ -292,6 +307,14 @@ def _next(text: str, e: int) -> tuple[int, int]:
     return (a, b) if a >= e else (e, e)
 
 
+def _prev(text: str, s: int) -> tuple[int, int]:
+    """The previous sentence of the same paragraph (empty span after a blank line)."""
+    if s < 2 or "\n\n" in text[max(0, s - 4) : s]:
+        return s, s
+    a, b = sentence_at(text, s - 2)
+    return (a, b) if b <= s else (s, s)
+
+
 def scan_text(text: str, period_end: str | None) -> TextScan:
     """Commitment and deposit amounts in one stored document (pure; offsets into `text`)."""
     out = TextScan()
@@ -301,7 +324,8 @@ def scan_text(text: str, period_end: str | None) -> TextScan:
     dup: set[tuple[str, float, str, bool]] = set()
     read: set[int] = set()  # amount offsets already read: overlapping spans read each once
     hits = sorted([m.start() for m in TRIGGER.finditer(text)]
-                  + [m.start() for m in DEPOSIT.finditer(text)])  # fmt: skip
+                  + [m.start() for m in DEPOSIT.finditer(text)]
+                  + [m.start() for m in _LEASE_OBL.finditer(text)])  # fmt: skip
     for pos in hits:
         s, e = sentence_at(text, pos)
         if (s, e) in seen or any(a <= pos < b for a, b in seen):
@@ -319,6 +343,12 @@ def _category(text: str, sent: str, s: int, amounts: list, i: int) -> str | None
     hi = amounts[i + 1].start if i + 1 < len(amounts) else s + len(sent)
     before, after = text[lo : n.start], text[n.end : hi]
     cat = classify(after) if _FOR_LEAD.search(after) else None
+    if cat in _SPLIT_CATEGORIES:
+        # "mostly related to cloud capacity … and investments in servers, data centers" names
+        # several categories: the scope is not split (real META 10-K / 10-Q, D-M05-27)
+        named = {c for c, rx in _CATEGORIES if c in _SPLIT_CATEGORIES and rx.search(after)}
+        if len(named) > 1:
+            return "purchase_total"
     if cat is None:
         tail = re.split(r",\s+(?:and\s+)?|;\s+", before)[-1] if i else before
         cat = classify(tail) or classify(before)
@@ -380,6 +410,12 @@ def _sentence(text, s, e, scale, pe: date | None, out: TextScan, dup, read=None)
     for i in sorted(from_to):
         cats[i + 1] = cats[i + 1] or cats[i]
     lease = bool(_LEASE_NOT_COMMENCED.search(sent))
+    if _LEASE_OBL.search(sent) and not lease:
+        p = _prev(text, s)
+        lease = bool(_LEASE_NOT_COMMENCED.search(text[p[0] : p[1]]))
+        if not lease and not (TRIGGER.search(sent) or DEPOSIT.search(sent)):
+            out.set_aside.append(SetAside(s, REASON_LEASE_LIABILITY, short))
+            return
     # several dates and as many amounts ("At June 30, 2026, and December 31, 2025, … were
     # $1,130 and $1,267"; "…, respectively"): paired in order
     dates = listed_dates(sent)
@@ -406,6 +442,9 @@ def _sentence(text, s, e, scale, pe: date | None, out: TextScan, dup, read=None)
         if flow or period:
             out.set_aside.append(SetAside(s, REASON_FLOW if flow else REASON_PERIOD, short,
                                           n.raw))  # fmt: skip
+            continue
+        if _ASSET_BALANCE.search(before[-80:]):
+            out.set_aside.append(SetAside(s, REASON_ASSET, short, n.raw))
             continue
         if _NOT_PURCHASE.search(sent):
             out.set_aside.append(SetAside(s, REASON_NOT_PURCHASE, short, n.raw))

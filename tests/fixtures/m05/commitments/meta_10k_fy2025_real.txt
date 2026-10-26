@@ -1,0 +1,35 @@
+REAL EXCERPTS (M05 Part 2): META 10-K 0001628280-26-003942 (meta-20251231.htm, period 2025-12-31, filed 2026-01-29); the owner's `uv run python scripts/run_m05.py export-text` of 2026-10-26 (0 requests). Excerpts verbatim in document order, joined by blank lines; text between them omitted.
+
+•investor sentiment with respect to our competitors, our business partners, and our industry in general;
+
+•announcements by us or our competitors of significant products or features, technical innovations, acquisitions, strategic partnerships, joint ventures, or capital commitments;
+
+Cost of revenue also consists of costs associated with partner arrangements, including traffic acquisition costs and credit card and other fees related to processing customer transactions; RL inventory costs, which consist of cost of products sold and estimated losses on non-cancelable contractual commitments; and content costs.
+
+RL loss from operations in 2025 increased $1.46 billion, or 8%, compared to 2024, driven by higher RL costs and expenses. RL costs and expenses increased primarily due to increases in employee compensation and other personnel related expenses, estimated losses on non-cancelable purchase commitments for RL inventory, and technology development costs.
+
+Some of the limitations of FCF are:
+
+•FCF does not reflect our future contractual commitments; and
+
+Material Cash Requirements
+
+We currently anticipate that our available funds and cash flow from operations and financing activities will be sufficient to meet our operational cash needs and fund our cash commitments for investing and financing activities, including investments in infrastructure and AI initiatives, as well as any return of capital to stockholders over the next 12 months and thereafter for the foreseeable future. We have increased investments in infrastructure and AI initiatives and expect to continue to do so.
+
+We continuously evaluate our liquidity and capital resources, including our access to external capital, to ensure we can finance our future capital requirements.
+
+Leases and Contractual Commitments
+
+Our operating and finance leases include data centers, offices, and certain network infrastructure. In addition to lease liabilities included in our consolidated balance sheets, we have leases that have not yet commenced, with total lease obligations of approximately $103.77 billion, mostly for data centers, colocations, and network infrastructure, as of December 31, 2025. These operating and finance leases will commence between 2026 and 2030 with lease terms of greater than one year to 30 years.
+
+We also have $131.05 billion of contractual commitments as of December 31, 2025, mostly related to third-party cloud capacity arrangements and our continued investments in servers and network infrastructure, data centers, and consumer hardware products in Reality Labs with $30.63 billion due in 2026.
+
+Cost of revenue also consists of costs associated with partner arrangements, including traffic acquisition costs and credit card and other fees related to processing customer transactions; RL inventory costs, which consist of cost of products sold and estimated losses on non-cancelable contractual commitments; and content costs.
+
+The table above does not include lease payments that were not fixed at commencement or lease modification. As of December 31, 2025, we have additional operating and finance leases, that have not yet commenced, with total lease obligations of approximately $103.77 billion, mostly for data centers, colocations, and network infrastructure. These operating and finance leases will commence between 2026 and 2030 with lease terms of greater than one year to 30 years.
+
+Commitments and Contingencies
+
+Contractual Commitments
+
+We have $131.05 billion of non-cancelable contractual commitments as of December 31, 2025. These commitments are mostly related to third-party cloud capacity arrangements and our continued investments in servers and network infrastructure, data centers, and consumer hardware products in Reality Labs. The following is a schedule, by years, of non-cancelable contractual commitments as of December 31, 2025 (in millions):
