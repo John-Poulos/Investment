@@ -1,4 +1,5 @@
 # M10 Macro & narrative — MVP brief
+**Decided 2026-10-25 → docs/M10_MACRO.md** (D-M10-1…8; every recommended option and default; Q10.2a after the owner's FRED check returned rows; Q10.3a + GNPDEF + STD). Kept as the sitting record.
 Updated 2026-10-25 (refreshed for sitting 4) · Source: docs/M10_DESIGN_PACK.md (research) · Status: for owner decision (sitting 4)
 
 Research signals and warnings only, not advice. Nothing here is decided until the owner answers (D7). Answers become D-M10-1 onward in a new `docs/M10_MACRO.md`; an amendment to another module takes that module's next free number (D-M01-10, D-M04-108).

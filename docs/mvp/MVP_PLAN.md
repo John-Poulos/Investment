@@ -19,6 +19,10 @@ Updated 2026-10-13 · Basis: DESIGN D31, the nine briefs in `docs/mvp/` (M03, M0
 - **M06** → D-M06-1…8 in `docs/M06_MOAT.md`: every recommended option (Q06.1a–Q06.8a); item 5's rename confirmed (M06's class is `through_cycle`); the D32 default kept (10-year ROIC, GM and OM shown for every company). The gate reader → **D-M01-9** (rule 1: a first MY entry needs `moat_gate` = met). Vote line confirmed as item 2: `moat_verdict` is M06's one confluence vote; `moat_gate` gates MY entries.
 - Doc names: `M03_LEADERS.md`, `M06_MOAT.md`. Effort back to Medium for W5.
 
+## Sitting 4 answers (owner, 2026-10-25)
+- **M10** → D-M10-1…8 in `docs/M10_MACRO.md`: every recommended option (Q10.1a–Q10.8a) and the refresh's defaults (4b-lite `covenant_status` / `gc_language` in the credit class; SIC 6000–6799 not mapped; D32 standard rows). Q10.2a after the owner's one-request check (`logs/fred_probe.txt`) returned rows from the PC (Claude's sandbox could not download). Q10.3a + GNPDEF + STD: at most 10 FRED requests a run (was ≤ 7); GNPDEF switches M04's Ohlson deflator reader at M10 Part 1 (next free D-M04). BAA10Y is M10's market credit spread in the MVP; HY OAS (D-M02-42) deferred to Round 1.
+- Doc name: `M10_MACRO.md`. Effort back to Medium after sitting 5, or now if W6 starts first.
+
 ## Summary
 One row per module. "Questions" counts the brief's questions; "+1" is a question this plan restores. Request costs are from the briefs; "SEC" requests are owner-run (Claude cannot call SEC).
 
@@ -31,7 +35,7 @@ One row per module. "Questions" counts the brief's questions; "+1" is a question
 | M05 Capex | `capex_demand`, `growth_capex_roic`, `bookings_cover`, `commitment_cover` | 8 | 2 | None (stored facts and text) | M04 1b; 8a CvD soft |
 | M03 Leaders | `curve_type.*`, `curve_stage.*`, `leader_rank.*`, `growth_runs.*` | 8 | 2 | SEC: CY frames 2019–23, about 10–15 requests once | M04 1c, 7a; 8a share soft |
 | M06 Moat | `moat_quant`, `moat_verdict`, `challenger_max_rung`, `moat_gate` | 8 | 2 | None (CXMT alias, one config line) | M04 1b, 1c, 2; Part 2 needs 8a |
-| M10 Macro | `macro_regime` (own table), `macro_exposure_warning`, `policy_event_exposure`, `move_context` | 8 | 2 | FRED keyless ≤ 7 a day (+1 GNPDEF); Federal Register 2–4 a day (first run 6–10); SPY shared with M09 | M04 4a; M02 7b |
+| M10 Macro | `macro_regime` (own table), `macro_exposure_warning`, `policy_event_exposure`, `move_context` | 8 | 2 | FRED keyless ≤ 10 a day (incl. GNPDEF, DFF, UNRATE; D-M10-3); Federal Register 2–4 a day (first run 6–10); SPY shared with M09 | M04 4a; M02 7b |
 | M11 Thesis + core | `confluence` (M00), `thesis_state`, `exit_warning`, `size_cap` | 8 | 2 | None (owner-entered theses and lots) | 4b-lite, 8a, every other MVP module's votes |
 | MVP dashboard (M00) | none (reads `signal`) | 0 | 1 | None | M11 Part 2 |
 | M12 Options (after MVP) | `cc_window`, `next_earnings`, `iv_pct_252`, `cc_template` | 8 | 2 | FRED 5 a day; Massive about 26 a day (≈ 5.5 min); backfill ≈ 3,000 calls (≈ 10.5 h, owner-run); Alpha Vantage 1 a week | M09, M10 FRED client, M11 lots, 4b-lite, 8a |
@@ -90,7 +94,7 @@ Resolution first, then the reason. The top three are marked ★.
 | 1 (answered 2026-10-13: D-M07-1…8, D-M09-1…8) | M07 + M09 (+ QP.1–3) | 16 + 3 | No 8a dependency and no setup data; both are market-data modules (Form 4, prices). Q09.6 settles SPY for M10 and M11; Q07.8 closes the short-interest gap |
 | 2 (answered 2026-10-13: D-M08-1…7, D-M05-1…8; D32, D-M01-7, D-M02-62) | M08 + M05 | 15 | Both are fundamentals on stored facts that read 8a (NEP, CvD); both touch `xbrl_facts` extra concepts; settles the cyclical flag (item 5), the Alpha Vantage split (item 6) and M05's M01 rule-4 amendment |
 | 3 (answered 2026-10-21: D-M03-1…8, D-M06-1…8; D-M01-8, -9) | M03 + M06 | 16 | The outline's chain "space → leader → financials → moat"; both read 8a market share, peers and confirmed stages; Q03.8's tier and M06's verdict feed the vote map |
-| 4 | M10 | 8 | Distinct topic; feeds M11's policy trigger (Q11.6) and the hurdle inputs |
+| 4 (answered 2026-10-25: D-M10-1…8) | M10 | 8 | Distinct topic; feeds M11's policy trigger (Q11.6) and the hurdle inputs |
 | 5 | M11 | 8 (+ QP.2 design) | Needs every vote line; decides confluence, sizing and killswitches last (D31) |
 | 6 | M12 (after W9) | 8 | Brief only; built after the MVP; reads M09's and M10's answers; gates DESIGN Q5 |
 
@@ -108,7 +112,7 @@ Two parts per wave: the first in the main checkout (merges first), the second in
 | W5 | M08 Part 2 | M05 Part 2 | W4 | `run_valuation.py estimates --probe …` (5 AV); `run_m05.py commitments --no-sec` (0) |
 | W6 | M06 Part 1 | M03 Part 1 | Sitting 3, W4 (ROIC helper) | `run_moat.py quant` (0); `run_leaders.py curves --no-sec` (0) |
 | W7 | M06 Part 2 | M03 Part 2 | W6, W1 (8a `cvd.py`) | `run_moat.py challengers` (0); `run_leaders.py leaders` (10–15 SEC) |
-| W8 | M10 Part 1 | M11 Part 1 | Sittings 4, 5 | `run_macro.py regime` (7 FRED + SPY reuse); `run_m11.py thesis --no-sec` (0) |
+| W8 | M10 Part 1 | M11 Part 1 | Sittings 4, 5 | `run_macro.py regime` (≤ 10 FRED + SPY reuse); `run_m11.py thesis --no-sec` (0) |
 | W9 | M10 Part 2 | M11 Part 2 (confluence, size_cap) | W8, all module parts | `run_macro.py policy` (6–10 Federal Register); `run_m11.py confluence --no-sec` (0) |
 | W10 | MVP dashboard (M00) | M02 thin writer (if QP.2a) | W9 | App on the real DB (0); writer `--no-sec` (0) |
 | After | M12 Part 1, then Part 2 | — | Sitting 6 | `run_options.py probe` (≈ 22 requests); `window --no-net` (0) |
@@ -179,7 +183,7 @@ New module docs (MODULE_TEMPLATE, D9 failure modes), written in each module's fi
   - owner-run fetches: Form 4 history, 13F managers, CY frames, the Alpha Vantage probe and (after the MVP) the 10.5-hour IV backfill;
   - new review items: `m04_cvd`, `m04_gc_text`, `m04_covenant`, `m06_verdict` (15), alongside M02's 10 a week.
   Keep at most one live check in flight; if the week fills, pause the waves, not the sittings.
-- **Logon refresh budget** (3 h, PC off overnight, D-M02-12). New daily network: SPY 1, FRED ≤ 7, Federal Register 2–4, Alpha Vantage ≤ 3, 13F only on new filings. The one-off form4-2 re-parse of every cached Form 4 must run owner-side before the first logon refresh on that code (M07 brief). M12's 5.5 minutes a day comes after the MVP.
+- **Logon refresh budget** (3 h, PC off overnight, D-M02-12). New daily network: SPY 1, FRED ≤ 10 (D-M10-3), Federal Register 2–4, Alpha Vantage ≤ 3, 13F only on new filings. The one-off form4-2 re-parse of every cached Form 4 must run owner-side before the first logon refresh on that code (M07 brief). M12's 5.5 minutes a day comes after the MVP.
 - **Alert volume.** The end-of-run box gets M07 opportunistic buys, M11 kill hits and M10 `no_catalyst` moves; deduplicate per criterion and week (M11 case 14), and record first runs as baselines (LESSONS).
 - **Merge friction.** Every wave touches `run_refresh.py`, `app.py`, `overview.html` and the M00 decision lists; the numbering rules above prevent number clashes, not text conflicts.
 - **Licences.** Tiingo, Alpha Vantage and Massive data and BAA10Y (terms checked at build) stay internal (S68, D-UI-2); the dashboard is not shareable.
